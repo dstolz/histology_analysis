@@ -1,0 +1,109 @@
+# histology_browser
+
+MATLAB tools for browsing histology sections and the cortical line profiles measured from
+them in Fiji. The centerpiece is `HistologyImageBrowser`, a GUI that catalogs every image
+rendition under a histology root folder, filters them by subject / hemisphere / stain /
+plate, and overlays the Fiji line ROI and its intensity profile on each image.
+
+Extracted from [`helper_fnc`](https://github.com/dstolz/helper_fnc) so the browser and its ingest helpers can
+be used without pulling in that repository's general-purpose utilities.
+
+## Quick start
+
+```matlab
+addpath_nogit('c:\src\histology_browser')
+
+% Open on the last folder used, then use Dataset > Load Dataset:
+launch_histology_browser()
+
+% Or load a dataset immediately:
+launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
+    metadataCSV = "D:/GM6001_HISTOLOGY/Trackers - Sections.csv")
+```
+
+Every `.m` file lives at the repository root, so a plain `addpath` of the root also works.
+The `@HistologyImageBrowser` class folder is resolved by its parent directory, which must be
+the folder added to the path — not the class folder itself.
+
+## What it expects on disk
+
+The browser reads the output of the Fiji batch line-measure workflow. Under the root folder
+it discovers, per acquisition:
+
+- image renditions — raw `.czi` plus the `_proj`, `_mid`, and `_composite` exports;
+- a `.roi` sidecar holding the measured line, in ImageJ's binary ROI format;
+- one or more `*values.csv` profile files.
+
+Filenames are expected to follow
+
+```
+SUBJ-ID-<n><SampleID>_<Section>_<Hemi>_<Stain>_<Z>_<Date>_<ImageNumber>
+```
+
+Names that do not match are still cataloged and browsable — `parse_histology_filename`
+reports the mismatch through an `isValid` flag instead of raising, and the browser counts
+unparsed names in its status bar.
+
+`fiji/MACRO_Batch_LineMeasure.ijm` is the macro that produces the `.roi` and `*values.csv`
+sidecars. It runs inside Fiji/ImageJ, not MATLAB, and is included here so the two halves of
+the workflow stay together.
+
+An optional section tracker CSV (`metadataCSV`) is joined onto the catalog by image filename
+stem, supplying annotations the filenames do not carry.
+
+## Contents
+
+| File | Role |
+|---|---|
+| `launch_histology_browser.m` | Entry point; constructs the browser. |
+| `@HistologyImageBrowser/` | The GUI class — catalog, filters, image tiles, profile plot, ROI editor. |
+| `combine_values_csv.m` | Ingests every `*values.csv` under a root into one structured dataset, with per-file diagnostics. |
+| `build_histology_image_catalog.m` | One row per section: all renditions, the ROI sidecar, the profiles, and joined tracker metadata. |
+| `parse_histology_filename.m` | Non-raising filename parser used by the catalog. |
+| `read_imagej_roi.m` / `write_imagej_roi.m` | Decode and encode ImageJ's binary `.roi` format. |
+| `measure_line_profile.m` | Measure a banded line profile from an image, matching the Fiji macro. |
+| `write_values_csv.m` | Write a measured profile back out in the macro's `*values.csv` format. |
+| `imagej_pixel_size.m` | Recover spatial calibration from a TIFF's ImageJ header. |
+| `addpath_nogit.m` | Add a folder tree to the MATLAB path, skipping `.git`. |
+| `tests/test_histology_browser.m` | Smoke test; see below. |
+
+## Requirements
+
+**Base MATLAB** covers the entire UI and the ingest path — App Designer components,
+`imread`/`imfinfo`, `readtable`/`writetable`, `getpref`/`setpref`.
+
+**Image Processing Toolbox** is needed for the ROI workflow:
+
+| Used for | Function | Site |
+|---|---|---|
+| Dragging the line ROI | `images.roi.Line` | `@HistologyImageBrowser/attachRoiEditor.m` |
+| Drawing a new line ROI | `drawline` | `@HistologyImageBrowser/onDrawRoi.m` |
+| Downsampling for display | `imresize` | `@HistologyImageBrowser/loadDisplayImage.m` |
+
+All three are guarded by `exist` checks, so without the toolbox the browser still opens,
+catalogs, displays, and plots — only ROI drawing/editing and display downsampling are lost.
+
+**Bio-Formats** (`bfmatlab`) is optional and needed only to display raw `.czi`; every other
+rendition reads through `imread`. It does not have to be on the MATLAB path — when it is not,
+the browser looks for a `bfmatlab` folder beside this toolbox, inside it, in `userpath`, and
+at `BFMATLAB_PATH`, and adds the first one it finds. Only when none of those exist does a
+`.czi` tile refuse to draw, and it then says so on the tile. Reads go through `bfGetReader`
+and pull the single requested channel rather than the whole file.
+
+## Tests
+
+```matlab
+test_histology_browser()                       % synthetic checks only
+test_histology_browser("D:/GM6001_HISTOLOGY/") % also exercises the catalog and live GUI
+```
+
+With no argument it checks the filename parser, the ROI encode/decode round trip, profile
+measurement, and the values-CSV round trip against synthetic inputs, so it runs anywhere.
+Given a real root folder it additionally builds a catalog and drives a live browser through
+filtering, selection, and the ROI edit / save / revert cycle.
+
+## Preferences
+
+Window and display settings persist under the MATLAB preference group
+`HistologyImageBrowser`. That is a name rather than a path, so settings saved before this
+code moved out of `helper_fnc` carry over unchanged.
