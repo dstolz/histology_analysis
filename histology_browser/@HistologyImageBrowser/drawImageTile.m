@@ -5,8 +5,10 @@ function drawImageTile(obj, ax, row, tileColor)
 
 imagePath = obj.resolveImagePath(row);
 
+ax.Color = obj.ImageBackground;
+
 if imagePath == ""
-    show_placeholder(ax, row, "No image file available");
+    show_placeholder(obj, ax, row, "No image file available");
     return
 end
 
@@ -20,7 +22,7 @@ else
 end
 
 if isempty(img)
-    show_placeholder(ax, row, read_failure_text(imagePath, reason));
+    show_placeholder(obj, ax, row, read_failure_text(imagePath, reason));
     return
 end
 
@@ -229,24 +231,30 @@ end
 
 end
 
-function show_placeholder(ax, row, message)
+function show_placeholder(obj, ax, row, message)
 %SHOW_PLACEHOLDER Explain why a tile is blank instead of leaving it empty.
+% The reason has to stay readable whatever the panel background is, so both it
+% and the title take their color from the background rather than being fixed.
 
 cla(ax);
+ax.Color = obj.ImageBackground;
 ax.XTick = [];
 ax.YTick = [];
 ax.XLim = [0 1];
 ax.YLim = [0 1];
 ax.Box = "on";
+ax.XColor = obj.tileTextColor();
+ax.YColor = obj.tileTextColor();
 
 text(ax, 0.5, 0.5, message, ...
     HorizontalAlignment = "center", ...
     VerticalAlignment = "middle", ...
     Interpreter = "none", ...
     FontSize = 9, ...
-    Color = [0.6 0.2 0.2]);
+    Color = obj.tileAlertColor());
 
-title(ax, tile_title(row), Interpreter = "none", FontSize = 9);
+title(ax, tile_title(row), Interpreter = "none", FontSize = 9, ...
+    Color = obj.tileTextColor());
 
 end
 

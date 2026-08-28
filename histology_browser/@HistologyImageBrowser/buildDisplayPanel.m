@@ -4,11 +4,16 @@ function buildDisplayPanel(obj, parent)
 panel = uipanel(parent, Title = "Display");
 panel.Layout.Row = 1;
 
+% Every column is sized rather than stretchy, and the spacing is tighter than
+% the default, because the three rows of controls together are just wide enough
+% to reach the right edge of the window at its opening size. Anything added
+% here has to be paid for out of the widths below.
 grid = uigridlayout(panel, [3 14]);
 grid.RowHeight = {"fit", "fit", "fit"};
-grid.ColumnWidth = {"fit", 110, "fit", 110, "fit", 110, "fit", 60, 60, "fit", 70, "1x", 110, 100};
+grid.ColumnWidth = {"fit", 92, "fit", 92, "fit", 92, "fit", 60, 60, "fit", 50, "fit", 100, 90};
 grid.Padding = [8 8 8 8];
 grid.RowSpacing = 4;
+grid.ColumnSpacing = 4;
 
 place(uilabel(grid, Text = "Image"), 1, 1);
 
@@ -64,6 +69,32 @@ obj.MaxTilesField = uieditfield(grid, "numeric", ...
     ValueChangedFcn = @(~,~) obj.onDisplayOptionChanged());
 place(obj.MaxTilesField, 1, 11);
 obj.MaxTilesField.Tooltip = "Upper bound on images drawn at once; extra selections are reported, not drawn.";
+
+% A section on a dark ground reads very differently from the same section on a
+% white one, so the backdrop the tiles sit on is a display choice like the
+% colormap rather than a fixed part of the window. The controls share the last
+% three columns with the buttons on the row below rather than adding columns of
+% their own, which is what keeps the panel inside the window.
+backgroundLabel = uilabel(grid, Text = "Background");
+backgroundLabel.HorizontalAlignment = "right";
+place(backgroundLabel, 1, 12);
+
+obj.BackgroundDropDown = uidropdown(grid, ...
+    Items = obj.BackgroundNames, ...
+    ItemsData = num2cell(obj.BackgroundCodes), ...
+    Value = "lightgray", ...
+    ValueChangedFcn = @(~,~) obj.onImageBackgroundChanged());
+place(obj.BackgroundDropDown, 1, 13);
+obj.BackgroundDropDown.Tooltip = "Color behind the image tiles. " + ...
+    "Custom opens a color picker.";
+
+% The swatch both shows the color in use and is the quickest way back to the
+% picker once a custom color has been chosen.
+obj.BackgroundSwatch = uibutton(grid, "push", ...
+    Text = "Pick", ...
+    ButtonPushedFcn = @(~,~) obj.pickImageBackground());
+place(obj.BackgroundSwatch, 1, 14);
+obj.BackgroundSwatch.Tooltip = "Pick any background color.";
 
 obj.ShowRoiCheck = uicheckbox(grid, ...
     Text = "Line ROI", ...

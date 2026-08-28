@@ -30,6 +30,8 @@ end
 % Tiles are skipped outright when the layout hides them, so "Profiles only"
 % costs nothing in image loading.
 if obj.showImages()
+    obj.applyImageBackground();
+
     obj.ImageLayout = tiledlayout(obj.ImagePanel, "flow", ...
         Padding = "tight", ...
         TileSpacing = "tight");

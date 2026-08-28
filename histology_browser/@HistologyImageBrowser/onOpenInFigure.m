@@ -12,10 +12,12 @@ end
 
 nDrawn = min(height(rows), max(1, round(obj.MaxTilesField.Value)));
 
+% The figure takes the background chosen in the app so what opens here, and
+% anything exported from it, matches what was on screen.
 fig = figure( ...
     Name = "Histology Images", ...
     NumberTitle = "off", ...
-    Color = "w");
+    Color = obj.ImageBackground);
 
 layout = tiledlayout(fig, "flow", Padding = "tight", TileSpacing = "tight");
 

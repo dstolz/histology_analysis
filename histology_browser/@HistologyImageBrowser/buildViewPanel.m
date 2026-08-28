@@ -14,6 +14,12 @@ obj.ViewGrid.ColumnSpacing = 6;
 obj.ImagePanel = uipanel(obj.ViewGrid, Title = "Images");
 obj.ProfilePanel = uipanel(obj.ViewGrid, Title = "Profiles");
 
+% The panel's own default is taken as the starting background so the app opens
+% looking as it did before the color could be chosen; LOADPREFERENCES replaces
+% it when an earlier session picked something else.
+obj.ImageBackground = obj.ImagePanel.BackgroundColor;
+obj.applyImageBackground();
+
 profileGrid = uigridlayout(obj.ProfilePanel, [1 1]);
 profileGrid.Padding = [4 4 4 4];
 

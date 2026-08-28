@@ -49,6 +49,9 @@ classdef HistologyImageBrowser < handle
         HighPercentileField matlab.ui.control.NumericEditField
         MaxTilesField matlab.ui.control.NumericEditField
 
+        BackgroundDropDown matlab.ui.control.DropDown
+        BackgroundSwatch matlab.ui.control.Button
+
         ShowRoiCheck matlab.ui.control.CheckBox
         ShowBandCheck matlab.ui.control.CheckBox
         ColorByIntensityCheck matlab.ui.control.CheckBox
@@ -94,6 +97,10 @@ classdef HistologyImageBrowser < handle
         ColormapStains string = strings(0, 1)
         ColormapChoices string = strings(0, 1)
 
+        % Color behind the image tiles. Set from the panel's own default when
+        % the UI is built, so an untouched app looks exactly as it always did.
+        ImageBackground double = [0.96 0.96 0.96]
+
         StatusLevel string = "info" % Severity of the message now on the status bar.
         StatusHistory string = strings(0, 1)
 
@@ -123,6 +130,14 @@ classdef HistologyImageBrowser < handle
         % Placement choices for the profile plot, and their stored codes.
         ProfileLayoutNames = ["Below images", "Above images", "Left of images", "Right of images", "Hidden", "Profiles only"]
         ProfileLayoutCodes = ["bottom", "top", "left", "right", "hidden", "only"]
+
+        % Background presets for the image panel, and their stored codes. The
+        % last entry opens a color picker rather than naming a fixed color.
+        BackgroundNames = ["White", "Light gray", "Mid gray", "Charcoal", "Black", "Custom..."]
+        BackgroundCodes = ["white", "lightgray", "midgray", "charcoal", "black", "custom"]
+        % Light gray is the shade a uipanel uses by default, so an untouched
+        % app opens on a named preset rather than reading as a custom color.
+        BackgroundColors = [1 1 1; 0.96 0.96 0.96; 0.50 0.50 0.50; 0.15 0.15 0.15; 0 0 0]
     end
 
     methods
@@ -358,6 +373,114 @@ classdef HistologyImageBrowser < handle
             % Take a new colormap and tie it to the stain now on screen.
             obj.rememberStainColormap();
             obj.onDisplayOptionChanged();
+        end
+
+        function onImageBackgroundChanged(obj)
+            % Take a background preset, or open the picker for a custom color.
+            code = string(obj.BackgroundDropDown.Value);
+
+            if code == "custom"
+                obj.pickImageBackground();
+                return
+            end
+
+            obj.setImageBackground(HistologyImageBrowser.backgroundColor(code));
+        end
+
+        function pickImageBackground(obj)
+            % Choose any background color from the system color picker.
+            % Cancelling leaves the current color alone, so the dropdown is put
+            % back to what it said before the picker opened.
+
+            try
+                picked = uisetcolor(obj.ImageBackground, "Image Panel Background");
+            catch ME
+                obj.setError("Color picker failed: %s", ME.message);
+                obj.syncBackgroundControls();
+                return
+            end
+
+            if ~isnumeric(picked) || numel(picked) ~= 3
+                obj.syncBackgroundControls();
+                return
+            end
+
+            obj.setImageBackground(picked);
+        end
+
+        function setImageBackground(obj, color)
+            % Apply a new background color and remember it for next time.
+            obj.ImageBackground = min(max(double(color(:)'), 0), 1);
+            obj.applyImageBackground();
+
+            % Tiles carry the color themselves, and the text drawn on a blank
+            % tile is picked to stay legible against it, so the redraw is what
+            % actually makes a dark background readable.
+            obj.onDisplayOptionChanged();
+        end
+
+        function applyImageBackground(obj)
+            % Push the chosen color onto the panel and every tile already drawn.
+
+            if isempty(obj.ImagePanel) || ~isvalid(obj.ImagePanel)
+                return
+            end
+
+            obj.ImagePanel.BackgroundColor = obj.ImageBackground;
+
+            % The panel title sits on that same color, so it has to move with
+            % it or it disappears into a dark background.
+            obj.ImagePanel.ForegroundColor = obj.tileTextColor();
+
+            obj.syncBackgroundControls();
+
+            if isempty(obj.ImageLayout) || ~isvalid(obj.ImageLayout)
+                return
+            end
+
+            tiles = findall(obj.ImageLayout, "Type", "axes");
+
+            for iTile = 1:numel(tiles)
+                tiles(iTile).Color = obj.ImageBackground;
+            end
+        end
+
+        function syncBackgroundControls(obj)
+            % Show the color in use on the dropdown and the swatch beside it.
+
+            if isempty(obj.BackgroundDropDown) || ~isvalid(obj.BackgroundDropDown)
+                return
+            end
+
+            obj.BackgroundDropDown.Value = ...
+                HistologyImageBrowser.backgroundCode(obj.ImageBackground);
+
+            if isempty(obj.BackgroundSwatch) || ~isvalid(obj.BackgroundSwatch)
+                return
+            end
+
+            obj.BackgroundSwatch.BackgroundColor = obj.ImageBackground;
+            obj.BackgroundSwatch.FontColor = obj.tileTextColor();
+            obj.BackgroundSwatch.Tooltip = sprintf("Background RGB %.2f %.2f %.2f. Click to change.", ...
+                obj.ImageBackground);
+        end
+
+        function color = tileTextColor(obj)
+            % Text color that stays legible on the current background.
+            if HistologyImageBrowser.isDarkColor(obj.ImageBackground)
+                color = [0.93 0.93 0.93];
+            else
+                color = [0.15 0.15 0.15];
+            end
+        end
+
+        function color = tileAlertColor(obj)
+            % Color for "could not read this" text on the current background.
+            if HistologyImageBrowser.isDarkColor(obj.ImageBackground)
+                color = [1.00 0.55 0.55];
+            else
+                color = [0.60 0.20 0.20];
+            end
         end
 
         function stains = selectedStains(obj)
@@ -670,6 +793,56 @@ classdef HistologyImageBrowser < handle
             else
                 label = path;
             end
+        end
+
+        function color = backgroundColor(code)
+            % Resolve a background preset code to its RGB triplet.
+            % "custom" has no fixed color, so it falls back to the default
+            % rather than returning something the caller has to check for.
+
+            index = find(HistologyImageBrowser.BackgroundCodes == string(code), 1);
+
+            if isempty(index) || index > size(HistologyImageBrowser.BackgroundColors, 1)
+                color = HistologyImageBrowser.BackgroundColors(2, :);
+                return
+            end
+
+            color = HistologyImageBrowser.BackgroundColors(index, :);
+        end
+
+        function code = backgroundCode(color)
+            % Name the preset a color matches, or "custom" when it matches none.
+
+            code = "custom";
+
+            if ~isnumeric(color) || numel(color) ~= 3
+                return
+            end
+
+            presets = HistologyImageBrowser.BackgroundColors;
+            distance = max(abs(presets - double(color(:)')), [], 2);
+            index = find(distance < 0.01, 1);
+
+            if isempty(index)
+                return
+            end
+
+            code = HistologyImageBrowser.BackgroundCodes(index);
+        end
+
+        function tf = isDarkColor(color)
+            % True when text on this color has to be light to stay readable.
+            % Weighted for perceived brightness rather than a plain mean, so a
+            % saturated green does not read as darker than it looks.
+
+            tf = false;
+
+            if ~isnumeric(color) || numel(color) ~= 3
+                return
+            end
+
+            color = double(color(:)');
+            tf = (0.2126 * color(1) + 0.7152 * color(2) + 0.0722 * color(3)) < 0.45;
         end
 
         function style = statusStyle(level)

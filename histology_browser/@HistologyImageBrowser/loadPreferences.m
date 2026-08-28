@@ -31,11 +31,32 @@ apply_checkbox(obj.ColorByIntensityCheck, read_pref(group, "ColorByIntensity", [
 apply_dropdown(obj.ProfileLayoutDropDown, profile_layout_pref(group));
 apply_numeric(obj.ProfileSizeField, read_pref(group, "ProfileSize", []));
 apply_numeric(obj.RoiWidthField, read_pref(group, "RoiWidth", []));
+apply_background(obj, read_pref(group, "ImageBackground", []));
 
 % The restored paths are only visible on the Dataset menu and in the title bar.
 obj.refreshDatasetMenu();
 
 obj.applyViewLayout();
+
+end
+
+function apply_background(obj, value)
+%APPLY_BACKGROUND Restore the saved image panel background.
+% Anything that is not a plain RGB triplet in range is ignored, leaving the
+% panel's own default in place.
+
+if isempty(value) || ~isnumeric(value) || numel(value) ~= 3
+    return
+end
+
+value = double(value(:)');
+
+if any(~isfinite(value)) || any(value < 0) || any(value > 1)
+    return
+end
+
+obj.ImageBackground = value;
+obj.applyImageBackground();
 
 end
 

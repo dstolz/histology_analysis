@@ -15,6 +15,7 @@ setpref(group, "ShowBand", obj.ShowBandCheck.Value);
 setpref(group, "ColorByIntensity", obj.ColorByIntensityCheck.Value);
 setpref(group, "ProfileLayout", obj.ProfileLayoutDropDown.Value);
 setpref(group, "ProfileSize", obj.ProfileSizeField.Value);
+setpref(group, "ImageBackground", obj.ImageBackground);
 
 % The band width is a property of how the study samples cortex, not of one
 % sitting with the browser, so it carries over to the next session.
