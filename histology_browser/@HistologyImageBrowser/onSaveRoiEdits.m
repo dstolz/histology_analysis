@@ -70,6 +70,16 @@ update_combined_profile(obj, paths.valuesPath, P);
 
 obj.RoiEditDirty = false;
 
+% The line now has a file behind it, so it is no longer a new one, and the
+% stem is flagged so the tile shows the write rather than only reporting it in
+% a status message that the next action pushes off the bar.
+if isfield(geometry, "isNew")
+    geometry.isNew = false;
+    obj.RoiEditGeom = geometry;
+end
+
+obj.RoiSavedStem = string(row.Stem);
+
 % The files on disk are the truth from here on, so the preview is dropped and
 % the redraw reads back what was just written.
 obj.RoiPreview = struct();

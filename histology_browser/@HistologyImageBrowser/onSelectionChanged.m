@@ -11,6 +11,16 @@ else
     obj.Selection = unique(selection(:));
 end
 
+% The green "saved" mark is a confirmation of the write just made, not a
+% property of the file, so it lasts only as long as the section it was made on
+% is still on screen.
+selectedStems = obj.selectedRows();
+
+if obj.RoiSavedStem ~= "" && ~(height(selectedStems) > 0 ...
+        && any(string(selectedStems.Stem) == obj.RoiSavedStem))
+    obj.RoiSavedStem = "";
+end
+
 % An ROI edit belongs to one section, so moving off it ends the edit. The
 % prompt comes before the redraw, so nothing is lost silently.
 if obj.RoiEditStem ~= "" && ~obj.isEditingRow(obj.selectedRows())
@@ -88,6 +98,10 @@ if is_selectable(previous, itemsData)
 else
     obj.ChannelDropDown.Value = itemsData{1};
 end
+
+% The channel list is rebuilt for every selection, so the menu mirroring it has
+% to be rebuilt with it.
+obj.syncDisplayMenu();
 
 end
 

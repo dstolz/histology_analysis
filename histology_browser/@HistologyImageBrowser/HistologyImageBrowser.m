@@ -19,6 +19,7 @@ classdef HistologyImageBrowser < handle
         MainGrid matlab.ui.container.GridLayout
         ContentGrid matlab.ui.container.GridLayout
         BrowseGrid matlab.ui.container.GridLayout
+        ViewColumnGrid matlab.ui.container.GridLayout
         ViewGrid matlab.ui.container.GridLayout
 
         DatasetMenu matlab.ui.container.Menu
@@ -26,6 +27,18 @@ classdef HistologyImageBrowser < handle
         MetadataMenu matlab.ui.container.Menu
         ClearMetadataMenu matlab.ui.container.Menu
         LoadMenu matlab.ui.container.Menu
+
+        DisplayMenu matlab.ui.container.Menu
+
+        % One entry per Display menu item that mirrors a panel control, so
+        % SYNCDISPLAYMENU can walk the menu without a handle property each.
+        DisplayMirrors struct = struct([])
+
+        ViewMenu matlab.ui.container.Menu
+        DataColumnMenu matlab.ui.container.Menu
+        DisplayRowMenu matlab.ui.container.Menu
+        AllPanelsMenu matlab.ui.container.Menu
+        ShortcutsMenu matlab.ui.container.Menu
 
         SearchField matlab.ui.control.EditField
         SubjectList matlab.ui.control.ListBox
@@ -50,7 +63,6 @@ classdef HistologyImageBrowser < handle
         MaxTilesField matlab.ui.control.NumericEditField
 
         BackgroundDropDown matlab.ui.control.DropDown
-        BackgroundSwatch matlab.ui.control.Button
 
         ShowRoiCheck matlab.ui.control.CheckBox
         ShowBandCheck matlab.ui.control.CheckBox
@@ -101,6 +113,14 @@ classdef HistologyImageBrowser < handle
         % the UI is built, so an untouched app looks exactly as it always did.
         ImageBackground double = [0.96 0.96 0.96]
 
+        % True while the lookup and catalog column, or the display controls
+        % above the tiles, are collapsed. The two hide independently, because
+        % one sitting wants the filters out of the way and another wants the
+        % display options out of the way. They are only resized, never rebuilt,
+        % so everything in them survives being hidden.
+        DataColumnHidden logical = false
+        DisplayRowHidden logical = false
+
         StatusLevel string = "info" % Severity of the message now on the status bar.
         StatusHistory string = strings(0, 1)
 
@@ -109,6 +129,18 @@ classdef HistologyImageBrowser < handle
         RoiEditDirty logical = false    % True when the edit differs from the file.
         RoiPreview struct = struct()    % Profile measured from the unsaved geometry.
         RoiEditor = []              % images.roi.Line drawn on the edited tile.
+
+        % True between the first move of a drag and the mouse coming back up.
+        % The shading under the band is measured data, and data measured from a
+        % line that is still moving would be wrong, so it is left out until the
+        % drag ends.
+        RoiEditDragging logical = false
+
+        % Stem whose ROI was written to disk in this session. It drives the
+        % green "saved" aesthetic on the tile, which outlives the edit session
+        % so leaving edit mode does not erase the confirmation, and is cleared
+        % as soon as the selection moves on or the line is touched again.
+        RoiSavedStem string = ""
 
         MeasureImage = []           % Full resolution page profiles are measured from.
         MeasureKey string = ""      % Image path the cached page came from.
@@ -122,6 +154,7 @@ classdef HistologyImageBrowser < handle
         MaxDisplayEdge = 1400       % Longest displayed edge, in pixels.
         DefaultRoiWidth = 994       % Sampling band width for a new line, in pixels.
         MaxStatusHistory = 15       % Messages kept in the status bar tooltip.
+        BrowseColumnWidth = 460     % Width of the lookup and catalog column, in pixels.
 
         % Status severities, and the lamp glyph each one shows.
         StatusLevels = ["info", "busy", "success", "warning", "error"]
@@ -131,13 +164,18 @@ classdef HistologyImageBrowser < handle
         ProfileLayoutNames = ["Below images", "Above images", "Left of images", "Right of images", "Hidden", "Profiles only"]
         ProfileLayoutCodes = ["bottom", "top", "left", "right", "hidden", "only"]
 
-        % Background presets for the image panel, and their stored codes. The
-        % last entry opens a color picker rather than naming a fixed color.
-        BackgroundNames = ["White", "Light gray", "Mid gray", "Charcoal", "Black", "Custom..."]
-        BackgroundCodes = ["white", "lightgray", "midgray", "charcoal", "black", "custom"]
+        % Background presets for the image panel, and their stored codes.
         % Light gray is the shade a uipanel uses by default, so an untouched
         % app opens on a named preset rather than reading as a custom color.
+        BackgroundNames = ["White", "Light gray", "Mid gray", "Charcoal", "Black"]
+        BackgroundCodes = ["white", "lightgray", "midgray", "charcoal", "black"]
         BackgroundColors = [1 1 1; 0.96 0.96 0.96; 0.50 0.50 0.50; 0.15 0.15 0.15; 0 0 0]
+
+        % Two further entries the background list carries beyond the presets:
+        % the item that opens the picker, and the one naming a color that came
+        % back from it. They are codes only; their text is built where needed.
+        PickBackgroundCode = "pick"
+        CustomBackgroundCode = "custom"
     end
 
     methods
@@ -169,11 +207,23 @@ classdef HistologyImageBrowser < handle
             if rootPath ~= ""
                 obj.onLoadData();
             end
+
+            if nargout == 0
+                clear obj
+            end
         end
 
         buildUI(obj)                    % Build the figure and all panels.
 
         buildDatasetMenu(obj)           % Build the Dataset menu on the menu bar.
+
+        buildDisplayMenu(obj, parent)   % Mirror the Display panel onto a menu.
+
+        syncDisplayMenu(obj)            % Make that menu agree with the panel.
+
+        promptDisplayNumber(obj, index) % Ask for a numeric display setting.
+
+        buildViewMenu(obj)              % Build the View menu on the menu bar.
 
         buildFilterPanel(obj, parent)   % Build the lookup and filter controls.
 
@@ -219,6 +269,8 @@ classdef HistologyImageBrowser < handle
 
         attachRoiEditor(obj, ax, row)   % Put the draggable line on the edited tile.
 
+        applyRoiEditorStyle(obj)        % Recolor the draggable line for the current state.
+
         onRoiEditChanged(obj, position, isFinal) % Take a new position from the drag.
 
         onRoiWidthChanged(obj)          % Apply a new sampling band width.
@@ -250,6 +302,27 @@ classdef HistologyImageBrowser < handle
         loadPreferences(obj)            % Restore saved paths and display settings.
 
         savePreferences(obj)            % Persist paths and display settings.
+
+        onFigureKeyPress(obj, evt)      % Match a key press to a shortcut.
+
+        runShortcut(obj, action)        % Carry out one named shortcut.
+
+        onShowShortcuts(obj)            % List every shortcut in a dialog.
+
+        function onCloseRequest(obj)
+            % Record where the window sits, then close it.
+            % Preferences are written from here rather than from a destructor
+            % so the geometry is read while the window is still on screen. A
+            % failure to write them must not leave a window that will not
+            % close, so the save is allowed to fail quietly.
+
+            try
+                obj.savePreferences();
+            catch
+            end
+
+            delete(obj.Fig);
+        end
 
         function onBrowseRoot(obj)
             % Prompt for the histology root folder.
@@ -366,7 +439,30 @@ classdef HistologyImageBrowser < handle
         function onDisplayOptionChanged(obj)
             % Redraw after a display or overlay option changes.
             obj.savePreferences();
+            obj.syncDisplayMenu();
             obj.renderSelection();
+        end
+
+        function chooseFromMenu(obj, control, value)
+            % Take a choice made on the Display menu.
+            %
+            % The panel control is written first and then asked to run its own
+            % callback, so choosing from the menu and choosing from the panel
+            % are the same act. Nothing here knows which callback belongs to
+            % which control, which is what keeps the two from drifting apart.
+
+            control.Value = value;
+
+            callback = control.ValueChangedFcn;
+
+            if isempty(callback)
+                obj.syncDisplayMenu();
+                return
+            end
+
+            % The callbacks all end in a sync of their own, so the menu is
+            % already up to date by the time this returns.
+            callback(control, []);
         end
 
         function onColormapChanged(obj)
@@ -376,11 +472,17 @@ classdef HistologyImageBrowser < handle
         end
 
         function onImageBackgroundChanged(obj)
-            % Take a background preset, or open the picker for a custom color.
+            % Take a background preset, or open the picker for any other color.
             code = string(obj.BackgroundDropDown.Value);
 
-            if code == "custom"
+            if code == HistologyImageBrowser.PickBackgroundCode
                 obj.pickImageBackground();
+                return
+            end
+
+            % The entry naming the custom color already in use is there to be
+            % read rather than chosen, and selecting it changes nothing.
+            if code == HistologyImageBrowser.CustomBackgroundCode
                 return
             end
 
@@ -445,24 +547,170 @@ classdef HistologyImageBrowser < handle
             end
         end
 
+        function onToggleDataColumn(obj)
+            % Flip the lookup and catalog column in or out of view.
+            obj.DataColumnHidden = ~obj.DataColumnHidden;
+            obj.applyPanelVisibility();
+            obj.reportPanelVisibility("Data column", obj.DataColumnHidden, "toggleDataColumn");
+        end
+
+        function onToggleDisplayRow(obj)
+            % Flip the display and overlay controls above the tiles in or out
+            % of view.
+            obj.DisplayRowHidden = ~obj.DisplayRowHidden;
+            obj.applyPanelVisibility();
+            obj.reportPanelVisibility("Display row", obj.DisplayRowHidden, "toggleDisplayRow");
+        end
+
+        function onToggleAllPanels(obj)
+            % Give the image tiles the whole window, or put everything back.
+            % Anything still on screen means the next press hides, so one key
+            % always clears the window whatever was hidden piecemeal before it.
+            hide = ~obj.DataColumnHidden || ~obj.DisplayRowHidden;
+
+            obj.DataColumnHidden = hide;
+            obj.DisplayRowHidden = hide;
+            obj.applyPanelVisibility();
+            obj.reportPanelVisibility("Data column and display row", hide, "toggleAllPanels");
+        end
+
+        function reportPanelVisibility(obj, name, hidden, action)
+            % Say what a toggle just did, and name the key that undoes it.
+            % The panels are off screen exactly when this matters, so the
+            % status bar is the only place left to say it.
+
+            if ~hidden
+                obj.setStatus("%s shown.", name);
+                return
+            end
+
+            key = strtrim(erase(HistologyImageBrowser.shortcutHint(action), ["(", ")"]));
+
+            if key == ""
+                obj.setStatus("%s hidden. The View menu brings it back.", name);
+            else
+                obj.setStatus("%s hidden. %s, or the View menu, brings it back.", name, key);
+            end
+        end
+
+        function applyPanelVisibility(obj)
+            % Collapse the browse column and the display row to nothing, or
+            % give them their room back. Only the grid tracks change size; the
+            % panels and every control in them stay built, so hiding them costs
+            % nothing to undo and loses no filter, selection, or setting.
+
+            if obj.DataColumnHidden
+                obj.ContentGrid.ColumnWidth = {0, "1x"};
+                obj.ContentGrid.ColumnSpacing = 0;
+            else
+                obj.ContentGrid.ColumnWidth = {obj.BrowseColumnWidth, "1x"};
+                obj.ContentGrid.ColumnSpacing = 8;
+            end
+
+            if obj.DisplayRowHidden
+                obj.ViewColumnGrid.RowHeight = {0, "1x"};
+                obj.ViewColumnGrid.RowSpacing = 0;
+            else
+                obj.ViewColumnGrid.RowHeight = {"fit", "1x"};
+                obj.ViewColumnGrid.RowSpacing = 6;
+            end
+
+            % A check reads as "this is on screen now", so the marks follow
+            % what is shown rather than what is hidden.
+            obj.DataColumnMenu.Checked = matlab.lang.OnOffSwitchState(~obj.DataColumnHidden);
+            obj.DisplayRowMenu.Checked = matlab.lang.OnOffSwitchState(~obj.DisplayRowHidden);
+            obj.AllPanelsMenu.Checked = matlab.lang.OnOffSwitchState( ...
+                ~obj.DataColumnHidden && ~obj.DisplayRowHidden);
+        end
+
+        function tf = keyTargetIsTextEntry(obj)
+            % True when the last thing clicked was somewhere text is typed.
+            %
+            % A uifigure hands every key press to WINDOWKEYPRESSFCN even while
+            % an edit field has the caret, so the few shortcuts whose keys mean
+            % something inside a field -- Ctrl+A, Ctrl+Z, Ctrl+Home, Ctrl+End --
+            % have to know when to stand aside. CurrentObject is what a click
+            % last landed on, which is how focus gets into a field in the first
+            % place; it does not follow Tab, so it is used only to decline keys
+            % the field wants, never to enable anything.
+
+            tf = false;
+
+            try
+                target = obj.Fig.CurrentObject;
+            catch
+                return
+            end
+
+            if isempty(target) || ~isvalid(target)
+                return
+            end
+
+            textEntry = ["matlab.ui.control.EditField", ...
+                "matlab.ui.control.NumericEditField", ...
+                "matlab.ui.control.TextArea", ...
+                "matlab.ui.control.Spinner"];
+
+            tf = ismember(string(class(target)), textEntry);
+
+            if tf
+                return
+            end
+
+            % A dropdown accepts typing only when it is editable, and the
+            % catalog table is read only, so neither is listed outright.
+            if isa(target, "matlab.ui.control.DropDown")
+                tf = strcmp(string(target.Editable), "on");
+            end
+        end
+
         function syncBackgroundControls(obj)
-            % Show the color in use on the dropdown and the swatch beside it.
+            % Rebuild the background list around the color now in use, and fill
+            % the dropdown with that color so it doubles as the swatch.
 
             if isempty(obj.BackgroundDropDown) || ~isvalid(obj.BackgroundDropDown)
                 return
             end
 
-            obj.BackgroundDropDown.Value = ...
-                HistologyImageBrowser.backgroundCode(obj.ImageBackground);
+            [names, codes, value] = obj.backgroundItems();
 
-            if isempty(obj.BackgroundSwatch) || ~isvalid(obj.BackgroundSwatch)
-                return
+            % Items, ItemsData, and Value are set together because the list
+            % length changes as a custom color comes and goes, and each of the
+            % three on its own would disagree with the other two.
+            set(obj.BackgroundDropDown, ...
+                Items = names, ...
+                ItemsData = num2cell(codes), ...
+                Value = value);
+
+            obj.BackgroundDropDown.BackgroundColor = obj.ImageBackground;
+            obj.BackgroundDropDown.FontColor = obj.tileTextColor();
+
+            % The menu carries the same list, and it is this function rather
+            % than a value change that grows and shrinks the custom entry.
+            obj.syncDisplayMenu();
+        end
+
+        function [names, codes, value] = backgroundItems(obj)
+            % Build the background list: the presets, the custom color in use
+            % when there is one, and the entry that opens the picker.
+            %
+            % The picker entry has to stay separate from the color it produced,
+            % because a dropdown reports nothing when the value it already
+            % holds is chosen again -- with one shared entry, a custom color
+            % could never be adjusted a second time.
+
+            names = HistologyImageBrowser.BackgroundNames;
+            codes = HistologyImageBrowser.BackgroundCodes;
+
+            value = HistologyImageBrowser.backgroundCode(obj.ImageBackground);
+
+            if value == HistologyImageBrowser.CustomBackgroundCode
+                names(end + 1) = sprintf("Custom  %.2f %.2f %.2f", obj.ImageBackground);
+                codes(end + 1) = HistologyImageBrowser.CustomBackgroundCode;
             end
 
-            obj.BackgroundSwatch.BackgroundColor = obj.ImageBackground;
-            obj.BackgroundSwatch.FontColor = obj.tileTextColor();
-            obj.BackgroundSwatch.Tooltip = sprintf("Background RGB %.2f %.2f %.2f. Click to change.", ...
-                obj.ImageBackground);
+            names(end + 1) = "Choose color...";
+            codes(end + 1) = HistologyImageBrowser.PickBackgroundCode;
         end
 
         function color = tileTextColor(obj)
@@ -552,12 +800,20 @@ classdef HistologyImageBrowser < handle
             end
 
             obj.ColormapDropDown.Value = name;
+
+            % Set behind the dropdown's back, so nothing else will tell the
+            % menu that the checked colormap moved.
+            obj.syncDisplayMenu();
         end
 
         function onLayoutOptionChanged(obj)
             % Rearrange the view after the profile placement or size changes.
             obj.savePreferences();
             obj.applyViewLayout();
+
+            % APPLYVIEWLAYOUT decides whether the profile size still applies,
+            % so the menu is told after it has run rather than before.
+            obj.syncDisplayMenu();
 
             % Tiles are not drawn while the image panel is hidden, so coming
             % back to a layout that shows them needs a full redraw.
@@ -772,6 +1028,64 @@ classdef HistologyImageBrowser < handle
 
     methods (Static)
         summary = missingMetadata(row)  % Name the annotations a section lacks.
+
+        bindings = keyBindings()        % Every keyboard shortcut, in one table.
+
+        style = roiStateStyle(state, tileColor)  % Aesthetics for one ROI save state.
+
+        function label = shortcutLabel(binding)
+            % Render one binding the way a menu names a shortcut, e.g.
+            % "Ctrl+Shift+R". Modifiers are always written in the same order,
+            % whatever order the key event happened to report them in.
+
+            names = ["control", "alt", "shift"];
+            shown = ["Ctrl", "Alt", "Shift"];
+
+            parts = shown(ismember(names, binding.Modifier));
+            parts(end + 1) = HistologyImageBrowser.keyLabel(binding.Key);
+
+            label = strjoin(parts, "+");
+        end
+
+        function hint = shortcutHint(action)
+            % Name the key that runs an action, parenthesized for a menu item
+            % or the tail of a tooltip. It is read out of the binding table so
+            % a control cannot advertise a shortcut that was renamed or
+            % dropped, and it comes back empty when the action has no key.
+
+            bindings = HistologyImageBrowser.keyBindings();
+            match = bindings(string({bindings.Action}) == string(action));
+
+            if isempty(match)
+                hint = "";
+                return
+            end
+
+            hint = "  (" + HistologyImageBrowser.shortcutLabel(match(1)) + ")";
+        end
+
+        function label = keyLabel(key)
+            % Name one key the way a keyboard does rather than the way a key
+            % press event does.
+
+            known = ["uparrow", "downarrow", "leftarrow", "rightarrow", "escape"];
+            shown = ["Up", "Down", "Left", "Right", "Esc"];
+
+            index = find(known == string(key), 1);
+
+            if ~isempty(index)
+                label = shown(index);
+                return
+            end
+
+            % Function keys and single characters both read best in capitals,
+            % and every other key name is already a word.
+            label = upper(string(key));
+
+            if strlength(label) > 2 && ~startsWith(label, "F")
+                label = extractBefore(label, 2) + lower(extractAfter(label, 1));
+            end
+        end
 
         function label = menuPathLabel(path, emptyText)
             % Shorten a path enough to sit on a menu item without pushing the

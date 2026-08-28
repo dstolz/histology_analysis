@@ -16,10 +16,16 @@ obj.RevertRoiButton.Enable = on_off(editing && obj.RoiEditDirty);
 
 obj.RoiEditLabel.Text = hint(obj, editing);
 
+% The ROI items on the Display menu follow these same Enable states, and this
+% is the one place they are decided.
+obj.syncDisplayMenu();
+
 end
 
 function text = hint(obj, editing)
 %HINT Say what the ROI controls will do, and how wide the band is.
+% The wording tracks the same states the overlay is stroked from, so the panel
+% and the tile never disagree about whether the line is on disk.
 
 width = obj.describeRoiWidth(obj.RoiWidthField.Value);
 
@@ -29,11 +35,16 @@ if ~editing
 end
 
 if obj.RoiEditDirty
-    text = "Band " + width + ", unsaved. Save ROI rewrites the .roi and values.csv.";
+    text = "Band " + width + ", UNSAVED. Save ROI rewrites the .roi and values.csv.";
     return
 end
 
-text = "Band " + width + ". Drag the line ends, or Draw Line to replace it.";
+if obj.RoiSavedStem == obj.RoiEditStem
+    text = "Band " + width + ". Saved to disk; the line matches its .roi file.";
+    return
+end
+
+text = "Band " + width + ", from file. Drag the line ends, or Draw Line to replace it.";
 
 end
 

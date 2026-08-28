@@ -102,8 +102,66 @@ measurement, and the values-CSV round trip against synthetic inputs, so it runs 
 Given a real root folder it additionally builds a catalog and drives a live browser through
 filtering, selection, and the ROI edit / save / revert cycle.
 
+## Menus
+
+`Dataset` picks the root folder and tracker CSV and loads them. `View` collapses the data
+column and the display row, separately or together, to give the image tiles the window.
+
+`Display` mirrors every control in the Display panel, so collapsing the display row costs
+reach rather than capability. The panel keeps the state; each menu item writes to the control
+it mirrors and then runs that control's own callback, so a menu choice and a click go down
+the same path, and `syncDisplayMenu` pushes the panel's state back the other way. Dropdowns
+become checked submenus, checkboxes become checked items, and the numeric settings (contrast
+percentiles, max tiles, profile size, ROI band width) become items that prompt for a value
+and show it in their own label. Anything that already has a keyboard shortcut routes through
+`runShortcut`, so menu, key, and button converge on one implementation.
+
+## Keyboard shortcuts
+
+uifigure menus ignore the `Accelerator` property, so every shortcut is bound on the figure
+itself. `@HistologyImageBrowser/keyBindings.m` is the single table naming the keys; the menu
+labels, the button tooltips, and the **View > Keyboard Shortcuts** dialog (`F1`) are all
+rendered from it, so a shortcut cannot be advertised in one place and bound in another.
+
+| Keys | Action |
+|---|---|
+| `Ctrl+Down` / `Ctrl+Right` | Next section |
+| `Ctrl+Up` / `Ctrl+Left` | Previous section |
+| `Ctrl+Home` / `Ctrl+End` | First / last section |
+| `Ctrl+A` | Select every section passing the filters |
+| `Ctrl+F` | Jump to the search box |
+| `Ctrl+Shift+R` | Clear every filter |
+| `Ctrl+L` | Load the dataset |
+| `Ctrl+E` | Start or finish editing the line ROI |
+| `Ctrl+D` | Draw a new line over the image |
+| `Ctrl+S` | Save the ROI and remeasure its profile |
+| `Ctrl+Z` | Discard unsaved ROI changes |
+| `Esc` | Leave ROI editing |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Line ROI / sampling band / intensity shading on or off |
+| `Ctrl+Shift+D` / `Ctrl+Shift+P` | Hide or show the data column / the display row |
+| `Ctrl+H` | Hide or show both together |
+| `Ctrl+O` | Redraw the view in a normal figure |
+| `Ctrl+P` | Export the view to an image file |
+| `Ctrl+Shift+F` | Open the folder holding the selected image |
+| `F1` | Show the shortcut list |
+
+Every shortcut carries a modifier. Bare letters are not bound: a uifigure hands key presses
+to `WindowKeyPressFcn` whether or not an edit field has the caret, so typing into the search
+box would have fired them. The few chords that also mean something inside a text field —
+`Ctrl+A`, `Ctrl+Z`, `Ctrl+Home`, `Ctrl+End`, `Ctrl+Left`, `Ctrl+Right` — stand aside when a
+field was the last thing clicked.
+
+Shortcuts run the same callbacks the buttons and menus do, so the guards those already carry
+(nothing selected, nothing loaded, no Image Processing Toolbox) report through the status bar
+exactly as they do for a click, and `Ctrl+S` / `Ctrl+Z` stay behind the same `Enable` state
+the Save and Revert buttons show.
+
 ## Preferences
 
 Window and display settings persist under the MATLAB preference group
 `HistologyImageBrowser`. That is a name rather than a path, so settings saved before this
 code moved out of `helper_fnc` carry over unchanged.
+
+The window reopens at the size and position it was closed at, and reopens maximized if it
+was closed maximized. A saved position that no longer lands on an attached monitor is
+dropped, so unplugging a second display cannot strand the window off screen.

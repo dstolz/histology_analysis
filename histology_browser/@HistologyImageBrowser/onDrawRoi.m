@@ -49,8 +49,12 @@ end
 
 obj.setStatus("Drag across the image to draw a %d px wide line.", width);
 
+% Drawn in the unsaved color, because that is what the line will be the
+% instant the mouse comes up: nothing is written until Save ROI.
+drawStyle = HistologyImageBrowser.roiStateStyle("new");
+
 try
-    drawn = drawline(ax, Color = [1 0.85 0.1], LineWidth = 1.5);
+    drawn = drawline(ax, Color = drawStyle.Color, LineWidth = drawStyle.LineWidth);
 catch ME
     obj.setError("Could not start drawing: %s", ME.message);
     obj.renderSelection();
@@ -81,6 +85,8 @@ geometry.strokeWidth = width;
 
 obj.RoiEditGeom = geometry;
 obj.RoiEditDirty = true;
+obj.RoiEditDragging = false;
+obj.RoiSavedStem = "";
 
 obj.updateRoiPreview();
 obj.updateRoiEditControls();

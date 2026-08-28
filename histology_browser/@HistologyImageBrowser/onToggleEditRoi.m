@@ -12,7 +12,7 @@ if ~obj.EditRoiButton.Value
 end
 
 if exist("images.roi.Line", "class") ~= 8
-    obj.EditRoiButton.Value = false;
+    refuse(obj);
     obj.setError("Editing a line ROI needs the Image Processing Toolbox.");
     uialert(obj.Fig, ...
         "Editing a line ROI needs the Image Processing Toolbox, which is not installed.", ...
@@ -24,7 +24,7 @@ end
 rows = obj.selectedRows();
 
 if height(rows) ~= 1
-    obj.EditRoiButton.Value = false;
+    refuse(obj);
     obj.setWarning("Select exactly one section before editing its ROI.");
 
     return
@@ -34,7 +34,7 @@ row = rows(1, :);
 geometry = obj.initialRoiGeometry(row);
 
 if isempty(geometry)
-    obj.EditRoiButton.Value = false;
+    refuse(obj);
     obj.setError("No readable image for %s, so there is nothing to draw an ROI over.", row.Stem);
 
     return
@@ -46,6 +46,13 @@ obj.RoiEditGeom = geometry;
 % A line that was just invented has nothing on disk to match, so it counts as
 % an unsaved change from the moment it appears.
 obj.RoiEditDirty = geometry.isNew;
+obj.RoiEditDragging = false;
+
+% A confirmation left over from another section would read as though this one
+% had just been written, so it is dropped when a new session opens.
+if obj.RoiSavedStem ~= obj.RoiEditStem
+    obj.RoiSavedStem = "";
+end
 obj.RoiPreview = struct();
 obj.RoiWidthField.Value = geometry.strokeWidth;
 
@@ -65,5 +72,15 @@ if geometry.isNew
 end
 
 obj.setStatus("Editing the ROI for %s. Drag its ends, then Save ROI.", row.Stem);
+
+end
+
+function refuse(obj)
+%REFUSE Put the button back up after declining to start an edit.
+% The ROI controls, and the Display menu items mirroring them, follow the
+% button, so they are told rather than left showing an edit that never began.
+
+obj.EditRoiButton.Value = false;
+obj.updateRoiEditControls();
 
 end

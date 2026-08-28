@@ -6,7 +6,8 @@ function onRoiEditChanged(obj, position, isFinal)
 %
 % Parameters
 %   position: 2x2 [x1 y1; x2 y2] from the ROI event.
-%   isFinal: True at the end of a drag, when the profile is remeasured.
+%   isFinal: True at the end of a drag, when the profile is remeasured and
+%       the shaded band is drawn again.
 
 if obj.RoiEditStem == "" || ~isequal(size(position), [2 2])
     return
@@ -21,15 +22,21 @@ geometry.y2 = round(position(2, 2));
 obj.RoiEditGeom = geometry;
 obj.RoiEditDirty = true;
 
-if isFinal
-    obj.updateRoiPreview();
-end
+% Moving the line makes the last save no longer describe it, so the green
+% confirmation goes as soon as the geometry does.
+obj.RoiSavedStem = "";
 
-obj.refreshRoiOverlay();
+% While the line is moving, the shading still belongs to the old position, so
+% the band is left empty and the measurement waits for the button to come up.
+obj.RoiEditDragging = ~isFinal;
 
 if ~isFinal
+    obj.refreshRoiOverlay();
     return
 end
+
+obj.updateRoiPreview();
+obj.refreshRoiOverlay();
 
 obj.renderProfilePlot();
 obj.updateRoiEditControls();

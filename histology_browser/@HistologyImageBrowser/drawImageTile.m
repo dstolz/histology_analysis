@@ -29,12 +29,17 @@ end
 isRGB = ndims(img) == 3;
 
 if isRGB
-    image(ax, [1 imageSize(2)], [1 imageSize(1)], img);
+    hImage = image(ax, [1 imageSize(2)], [1 imageSize(1)], img);
 else
-    imagesc(ax, [1 imageSize(2)], [1 imageSize(1)], img);
+    hImage = imagesc(ax, [1 imageSize(2)], [1 imageSize(1)], img);
     clim(ax, [0 1]);
     colormap(ax, resolve_colormap(obj.ColormapDropDown.Value));
 end
+
+% Hovering the picture used to raise a data tip over whatever was underneath
+% the pointer, which got in the way of reading the section and of dragging an
+% ROI across it. Zoom, pan and restore view still work on the axes.
+hImage.PickableParts = "none";
 
 axis(ax, "image");
 ax.XTick = [];

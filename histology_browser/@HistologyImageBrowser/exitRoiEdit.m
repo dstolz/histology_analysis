@@ -66,6 +66,7 @@ obj.RoiEditor = [];
 obj.RoiEditStem = "";
 obj.RoiEditGeom = struct();
 obj.RoiEditDirty = false;
+obj.RoiEditDragging = false;
 obj.RoiPreview = struct();
 
 if ~isempty(obj.EditRoiButton) && isvalid(obj.EditRoiButton)

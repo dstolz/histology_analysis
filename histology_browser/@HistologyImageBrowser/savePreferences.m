@@ -27,4 +27,32 @@ setpref(group, "RoiWidth", obj.RoiWidthField.Value);
 setpref(group, "ColormapStains", obj.ColormapStains);
 setpref(group, "ColormapChoices", obj.ColormapChoices);
 
+save_figure_geometry(obj, group);
+
+end
+
+function save_figure_geometry(obj, group)
+%SAVE_FIGURE_GEOMETRY Record where the window sits and how it is shown.
+% A maximized window reports its maximized bounds as its position, so that
+% geometry is left as it was and only the state is written. The window then
+% reopens maximized, and restores down to wherever it sat before.
+
+if isempty(obj.Fig) || ~isvalid(obj.Fig)
+    return
+end
+
+state = string(obj.Fig.WindowState);
+
+if state == "normal"
+    setpref(group, "FigurePosition", obj.Fig.Position);
+end
+
+% Minimized is a passing state rather than a way to open, so it is recorded
+% as the ordinary window it would restore to.
+if state == "minimized"
+    state = "normal";
+end
+
+setpref(group, "FigureWindowState", state);
+
 end

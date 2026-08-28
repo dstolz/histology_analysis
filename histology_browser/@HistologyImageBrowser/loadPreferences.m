@@ -32,11 +32,79 @@ apply_dropdown(obj.ProfileLayoutDropDown, profile_layout_pref(group));
 apply_numeric(obj.ProfileSizeField, read_pref(group, "ProfileSize", []));
 apply_numeric(obj.RoiWidthField, read_pref(group, "RoiWidth", []));
 apply_background(obj, read_pref(group, "ImageBackground", []));
+apply_figure_geometry(obj, group);
 
 % The restored paths are only visible on the Dataset menu and in the title bar.
 obj.refreshDatasetMenu();
 
 obj.applyViewLayout();
+
+% Every control above was written without firing its callback, so the Display
+% menu is told once, here, rather than a dozen times on the way down.
+obj.syncDisplayMenu();
+
+end
+
+function apply_figure_geometry(obj, group)
+%APPLY_FIGURE_GEOMETRY Restore where the window sat and how it was shown.
+
+apply_figure_position(obj, read_pref(group, "FigurePosition", []));
+
+state = read_pref(group, "FigureWindowState", "");
+
+if ismember(state, ["maximized", "fullscreen"])
+    obj.Fig.WindowState = state;
+end
+
+end
+
+function apply_figure_position(obj, position)
+%APPLY_FIGURE_POSITION Reopen the window where it was left, when that is still
+% a place it can be reached. A position saved on a monitor that has since been
+% detached, or one too small to work in, would strand the window, so it is
+% dropped and BUILDUI's own placement stands.
+
+if isempty(position) || ~isnumeric(position) || numel(position) ~= 4
+    return
+end
+
+position = double(position(:)');
+
+minSize = [400 300];
+
+if any(~isfinite(position)) || any(position(3:4) < minSize)
+    return
+end
+
+if ~on_screen(position)
+    return
+end
+
+obj.Fig.Position = position;
+
+end
+
+function tf = on_screen(position)
+%ON_SCREEN True when enough of a window rectangle lands on an attached monitor
+% for its title bar to be grabbable.
+
+minOverlap = [120 60];
+
+monitors = get(groot, "MonitorPositions");
+tf = false;
+
+for iMonitor = 1:size(monitors, 1)
+    monitor = monitors(iMonitor, :);
+
+    overlap = [ ...
+        min(position(1) + position(3), monitor(1) + monitor(3)) - max(position(1), monitor(1)), ...
+        min(position(2) + position(4), monitor(2) + monitor(4)) - max(position(2), monitor(2))];
+
+    if all(overlap >= minOverlap)
+        tf = true;
+        return
+    end
+end
 
 end
 

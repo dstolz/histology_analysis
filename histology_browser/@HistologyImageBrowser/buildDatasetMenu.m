@@ -3,7 +3,8 @@ function buildDatasetMenu(obj)
 % The root folder, the tracker CSV, and the load action used to take a panel
 % across the top of the window; they are chosen once per sitting, so they live
 % on a menu now and the freed row goes to the catalog and the image tiles.
-% Accelerators are left off because uifigure menus ignore them.
+% uifigure menus ignore the Accelerator property, so the one key this menu
+% offers is bound on the figure in ONFIGUREKEYPRESS and only named here.
 
 obj.DatasetMenu = uimenu(obj.Fig, Text = "Dataset");
 
@@ -21,7 +22,7 @@ obj.ClearMetadataMenu = uimenu(obj.DatasetMenu, ...
     MenuSelectedFcn = @(~,~) obj.onClearMetadata());
 
 obj.LoadMenu = uimenu(obj.DatasetMenu, ...
-    Text = "Load Dataset", ...
+    Text = "Load Dataset" + obj.shortcutHint("loadDataset"), ...
     Separator = "on", ...
     MenuSelectedFcn = @(~,~) obj.onLoadData());
 

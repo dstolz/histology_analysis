@@ -20,7 +20,8 @@ obj.SearchField = uieditfield(grid, "text", ...
     ValueChangedFcn = @(~,~) obj.applyFilters());
 obj.SearchField.Layout.Row = 1;
 obj.SearchField.Layout.Column = [1 4];
-obj.SearchField.Tooltip = "Space-separated terms; a row must match every term.";
+obj.SearchField.Tooltip = "Space-separated terms; a row must match every term." ...
+    + obj.shortcutHint("focusSearch");
 
 headers = ["Subject", "Hemisphere", "Stain", "Atlas plate"];
 
@@ -67,6 +68,8 @@ obj.ResetFiltersButton = uibutton(grid, "push", ...
     ButtonPushedFcn = @(~,~) obj.onResetFilters());
 obj.ResetFiltersButton.Layout.Row = 5;
 obj.ResetFiltersButton.Layout.Column = 4;
+obj.ResetFiltersButton.Tooltip = "Clear every filter and show the whole catalog." ...
+    + obj.shortcutHint("resetFilters");
 
 end
 

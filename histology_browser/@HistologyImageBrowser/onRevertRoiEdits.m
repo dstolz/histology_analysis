@@ -23,6 +23,10 @@ end
 
 obj.RoiEditGeom = geometry;
 obj.RoiEditDirty = geometry.isNew;
+
+% Back on the file's geometry, so the tile reads as the file rather than as
+% whatever was last written from here.
+obj.RoiSavedStem = "";
 obj.RoiWidthField.Value = geometry.strokeWidth;
 
 % Back on the saved geometry, the file beside it is the profile to show; only

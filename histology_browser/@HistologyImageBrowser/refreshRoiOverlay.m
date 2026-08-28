@@ -21,6 +21,10 @@ end
 
 delete(findobj(ax, Tag = "roiOverlay"));
 
+% The first move of a drag is what turns a clean edit dirty, so the handle is
+% restyled here rather than waiting for the redraw at the end of the drag.
+obj.applyRoiEditorStyle();
+
 hold(ax, "on");
 % Editing shows one tile at a time, which always takes the first tile color.
 obj.drawRoiOverlay(ax, row, lines(1));
