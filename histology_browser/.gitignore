@@ -1,0 +1,10 @@
+# Google service account keys. The private key in one of these grants whatever
+# access the account has been given, to anyone holding the file, and it cannot
+# be rotated without going back to the Cloud console. Keep them outside the
+# repository entirely; these patterns are a backstop for when one is dropped in
+# here to try something out and then forgotten.
+*service-account*.json
+*service_account*.json
+*-credentials.json
+*_credentials.json
+secrets/

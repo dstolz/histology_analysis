@@ -5,6 +5,12 @@ group = char(obj.PrefGroup);
 
 setpref(group, "LastRootPath", obj.RootPath);
 setpref(group, "LastMetadataPath", obj.MetadataPath);
+
+% Where the tracker is, not what is in it. The key file is named rather than
+% read, so nothing secret is written to the preference store.
+setpref(group, "SheetUrl", obj.SheetUrl);
+setpref(group, "SheetTab", obj.SheetTab);
+setpref(group, "SheetCredentials", obj.SheetCredentials);
 setpref(group, "Variant", obj.VariantDropDown.Value);
 setpref(group, "Colormap", obj.ColormapDropDown.Value);
 setpref(group, "LowPercentile", obj.LowPercentileField.Value);

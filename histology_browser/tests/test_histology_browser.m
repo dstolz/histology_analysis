@@ -28,6 +28,8 @@ nFailed = nFailed + run_case("ImageJ ROI decoder", @check_roi_decoder);
 nFailed = nFailed + run_case("ImageJ ROI encoder", @check_roi_encoder);
 nFailed = nFailed + run_case("line profile measurement", @check_profile_measurement);
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
+nFailed = nFailed + run_case("tracker table joins without a CSV", @check_metadata_table_option);
+nFailed = nFailed + run_case("sheet tracker settings", @check_sheet_settings);
 
 if rootPath == "" || ~isfolder(rootPath)
     fprintf("- Skipping catalog and GUI checks (no dataset folder supplied).\n");
@@ -55,6 +57,144 @@ try
 catch ME
     nFailed = 1;
     fprintf(2, "FAIL  %s: %s\n", name, ME.message);
+end
+
+end
+
+function check_metadata_table_option()
+%CHECK_METADATA_TABLE_OPTION A tracker already in memory annotates a dataset.
+% This is the path a tracker read from Google Sheets takes. It has to land in
+% exactly the same place the CSV did, so the check is that the columns come out
+% on the combined table the same way.
+
+stem = "SUBJ-ID-1174IHC_ECM26A260608S1_1A_L_WFA-PV_Z3_260616_1";
+
+root = string(tempname);
+mkdir(root);
+cleanup = onCleanup(@() rmdir(root, "s"));
+
+write_values_csv(fullfile(root, stem + "_values.csv"), (0:9)', rand(10, 1));
+
+tracker = table( ...
+    stem, "42", "Left ACx", ...
+    VariableNames = ["Image Filename", "Atlas Plate #", "Notes"]);
+
+S = combine_values_csv(root, metadataTable = tracker);
+
+assert(S.metadata.hasMetadata, "The in-memory tracker was not used");
+assert(S.metadata.source == "table", ...
+    "The tracker source was reported as '%s' rather than 'table'", S.metadata.source);
+assert(height(S.combined) == 10, ...
+    "Combined %d rows rather than 10", height(S.combined));
+
+vars = string(S.combined.Properties.VariableNames);
+assert(ismember("Atlas Plate #", vars), "A tracker column did not reach the combined table");
+assert(all(S.combined.("Notes") == "Left ACx"), "A tracker value was not carried across");
+
+% A tracker with no key column cannot be joined, and saying so beats producing
+% a catalog that silently has no metadata on it.
+try
+    combine_values_csv(root, metadataTable = table("x", VariableNames = "Something Else"));
+    error("A tracker with no Image Filename column was accepted");
+catch ME
+    assert(ME.identifier == "combine_values_csv:MissingImageFilenameColumn", ...
+        "Wrong error for a tracker with no key column: %s", ME.identifier);
+end
+
+end
+
+function check_sheet_settings()
+%CHECK_SHEET_SETTINGS The sheet menu reflects what is configured.
+% No network is touched: building a tracker object and labelling the menu are
+% both offline, and they are what breaks when the wiring is wrong.
+
+% Closing the browser saves preferences, so this check would otherwise leave
+% its scratch settings behind as the real configuration. They are put back
+% however the check ends.
+saved = snapshot_sheet_prefs();
+restorePrefs = onCleanup(@() restore_sheet_prefs(saved));
+
+app = HistologyImageBrowser();
+cleanup = onCleanup(@() delete(app.Fig));
+
+% Whatever was configured on this machine is beside the point here, so the
+% starting state is set rather than assumed.
+app.SheetUrl = "";
+app.SheetTab = "Sections";
+app.SheetCredentials = "";
+app.Tracker = [];
+app.refreshDatasetMenu();
+
+assert(contains(app.SheetMenu.Text, "(none)"), ...
+    "The sheet menu did not start out empty");
+assert(app.SheetPrepareMenu.Enable == "off", ...
+    "Preparing the sheet was offered with no sheet configured");
+assert(isempty(app.sheetTracker()), "A tracker was built with no sheet configured");
+
+app.SheetUrl = "https://docs.google.com/spreadsheets/d/1yz6v2yP/edit?gid=108";
+app.refreshDatasetMenu();
+
+% Naming the spreadsheet is enough to read it once a key file is named too,
+% but writing is only offered when there is a key file to write with.
+assert(app.SheetClearMenu.Enable == "on", "Clearing a configured sheet was not offered");
+assert(app.SheetPrepareMenu.Enable == "off", ...
+    "Preparing the sheet was offered without a key file");
+
+app.SheetCredentials = "definitely-not-a-real-key.json";
+app.refreshDatasetMenu();
+
+assert(app.SheetPrepareMenu.Enable == "on", ...
+    "Preparing the sheet was not offered once a key file was named");
+assert(contains(app.SheetMenu.Text, "Sections"), ...
+    "The sheet menu does not name the tab: %s", app.SheetMenu.Text);
+
+tracker = app.sheetTracker();
+assert(tracker.SpreadsheetId == "1yz6v2yP", ...
+    "The spreadsheet ID was not taken from the URL");
+
+% The same object comes back until something about the configuration changes.
+assert(tracker == app.sheetTracker(), "A second tracker was built needlessly");
+
+app.SheetTab = "Other";
+assert(app.sheetTracker().SheetName == "Other", ...
+    "The tracker was not rebuilt after the tab changed");
+
+app.onClearSheet();
+assert(app.SheetUrl == "", "Clearing the sheet left it configured");
+assert(contains(app.SheetMenu.Text, "(none)"), "The menu still names a sheet");
+
+end
+
+function saved = snapshot_sheet_prefs()
+%SNAPSHOT_SHEET_PREFS Record the sheet preferences as they stand.
+
+group = char(HistologyImageBrowser.PrefGroup);
+names = ["SheetUrl", "SheetTab", "SheetCredentials"];
+
+saved = struct(group = group, names = names, values = {cell(size(names))}, ...
+    existed = false(size(names)));
+
+for iName = 1:numel(names)
+    saved.existed(iName) = ispref(group, char(names(iName)));
+
+    if saved.existed(iName)
+        saved.values{iName} = getpref(group, char(names(iName)));
+    end
+end
+
+end
+
+function restore_sheet_prefs(saved)
+%RESTORE_SHEET_PREFS Put the sheet preferences back as they were.
+
+for iName = 1:numel(saved.names)
+    name = char(saved.names(iName));
+
+    if saved.existed(iName)
+        setpref(saved.group, name, saved.values{iName});
+    elseif ispref(saved.group, name)
+        rmpref(saved.group, name);
+    end
 end
 
 end

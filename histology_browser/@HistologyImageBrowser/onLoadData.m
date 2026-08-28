@@ -3,6 +3,7 @@ function onLoadData(obj)
 
 rootPath = strtrim(obj.RootPath);
 metadataPath = strtrim(obj.MetadataPath);
+useSheet = obj.SheetUrl ~= "";
 
 if rootPath == "" || ~isfolder(rootPath)
     obj.setError("Root folder does not exist: %s", rootPath);
@@ -10,7 +11,10 @@ if rootPath == "" || ~isfolder(rootPath)
     return
 end
 
-if metadataPath ~= "" && ~isfile(metadataPath)
+% The CSV is only checked when it is the one that will be used. A stale path
+% left over from before the sheet was configured is not worth refusing a load
+% over, since nothing is going to read it.
+if ~useSheet && metadataPath ~= "" && ~isfile(metadataPath)
     obj.setError("Tracker CSV does not exist: %s", metadataPath);
     uialert(obj.Fig, "The tracker CSV does not exist: " + metadataPath, "Invalid Tracker CSV");
     return
@@ -34,7 +38,16 @@ try
         "progressFcn", @(i, n, f) update_progress(dlg, i, n, f), ...
         "cancelRequestedFcn", @() dlg.CancelRequested};
 
-    if metadataPath ~= ""
+    % The sheet is read before the values files are walked, so a tracker that
+    % cannot be reached is reported before the slow part of the load rather
+    % than after it.
+    if useSheet
+        dlg.Message = "Reading the tracker from Google Sheets...";
+        drawnow;
+
+        trackerTable = read_sheet_tracker(obj);
+        combineArgs = [{"metadataTable", trackerTable}, combineArgs];
+    elseif metadataPath ~= ""
         combineArgs = [{"metadataCSV", metadataPath}, combineArgs];
     end
 
@@ -61,6 +74,11 @@ try
     obj.savePreferences();
 
     [summary, level] = summarize_load(S, C);
+
+    if useSheet
+        summary = summary + sprintf(" Tracker read from the '%s' tab.", obj.SheetTab);
+    end
+
     obj.pushStatus(level, "%s", summary);
 
 catch ME
@@ -69,6 +87,29 @@ catch ME
 end
 
 clear restoreMenu
+
+end
+
+function trackerTable = read_sheet_tracker(obj)
+%READ_SHEET_TRACKER Fetch the tracker, saying plainly when it cannot be reached.
+% The Sheets errors are precise about what is wrong but say it in Google's
+% terms, so the one thing they cannot say is added here: which of the browser's
+% settings to go and look at.
+
+tracker = obj.sheetTracker();
+
+try
+    trackerTable = tracker.metadataTable(refresh = true);
+catch ME
+    error("HistologyImageBrowser:SheetUnreadable", ...
+        "Could not read the '%s' tab: %s\n\nCheck Dataset > Google Sheet " + ...
+        "Tracker > Configure, and that the sheet is shared with the " + ...
+        "service account.", obj.SheetTab, ME.message)
+end
+
+for iWarning = 1:numel(tracker.Warnings)
+    obj.pushStatus("warning", "%s", tracker.Warnings(iWarning));
+end
 
 end
 

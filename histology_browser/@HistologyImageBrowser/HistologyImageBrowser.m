@@ -26,6 +26,10 @@ classdef HistologyImageBrowser < handle
         RootFolderMenu matlab.ui.container.Menu
         MetadataMenu matlab.ui.container.Menu
         ClearMetadataMenu matlab.ui.container.Menu
+        SheetMenu matlab.ui.container.Menu
+        SheetConfigureMenu matlab.ui.container.Menu
+        SheetPrepareMenu matlab.ui.container.Menu
+        SheetClearMenu matlab.ui.container.Menu
         LoadMenu matlab.ui.container.Menu
 
         DisplayMenu matlab.ui.container.Menu
@@ -95,6 +99,15 @@ classdef HistologyImageBrowser < handle
     properties
         RootPath string = ""        % Folder scanned for images and values files.
         MetadataPath string = ""    % Optional section tracker CSV.
+
+        % The same tracker, read from the Google Sheet it is maintained in
+        % rather than from an export of it. Configured here and used by
+        % ONLOADDATA in place of the CSV, so what the browser shows is what the
+        % sheet says now rather than what it said when somebody last exported.
+        SheetUrl string = ""        % Spreadsheet URL or ID.
+        SheetTab string = "Sections"
+        SheetCredentials string = "" % Service account JSON key file.
+        Tracker = []                % SECTIONTRACKER once one has been built.
 
         Data struct = struct()      % Structured output from COMBINE_VALUES_CSV.
         Catalog table = table()     % One row per image stem.
@@ -185,6 +198,9 @@ classdef HistologyImageBrowser < handle
             arguments
                 rootPath (1,1) string = ""
                 options.metadataCSV (1,1) string = ""
+                options.sheetUrl (1,1) string = ""
+                options.sheetTab (1,1) string = ""
+                options.sheetCredentials (1,1) string = ""
             end
 
             obj.ImageCache = containers.Map("KeyType", "char", "ValueType", "any");
@@ -200,6 +216,24 @@ classdef HistologyImageBrowser < handle
 
             if options.metadataCSV ~= ""
                 obj.MetadataPath = options.metadataCSV;
+            end
+
+            % Named on the call rather than restored from preferences, so a
+            % script can point one session at a different sheet without
+            % changing what the next one opens on.
+            if options.sheetUrl ~= ""
+                obj.SheetUrl = options.sheetUrl;
+                obj.Tracker = [];
+            end
+
+            if options.sheetTab ~= ""
+                obj.SheetTab = options.sheetTab;
+                obj.Tracker = [];
+            end
+
+            if options.sheetCredentials ~= ""
+                obj.SheetCredentials = options.sheetCredentials;
+                obj.Tracker = [];
             end
 
             obj.refreshDatasetMenu();
@@ -370,6 +404,42 @@ classdef HistologyImageBrowser < handle
             obj.setStatus("Tracker CSV cleared. Load again to drop its annotations.");
         end
 
+        function onClearSheet(obj)
+            % Stop reading the tracker from the sheet, without touching it.
+            if obj.SheetUrl == ""
+                return
+            end
+
+            obj.SheetUrl = "";
+            obj.Tracker = [];
+            obj.refreshDatasetMenu();
+            obj.savePreferences();
+            obj.setStatus("Sheet tracker cleared. The sheet itself was not changed.");
+        end
+
+        function tracker = sheetTracker(obj)
+            % The tracker object for the configured sheet, built on demand.
+            % Held between loads so a sitting spends one token request rather
+            % than one per read.
+
+            if obj.SheetUrl == ""
+                tracker = [];
+                return
+            end
+
+            needsNew = isempty(obj.Tracker) || ~isvalid(obj.Tracker) ...
+                || obj.Tracker.SpreadsheetId ~= gsheet.spreadsheetId(obj.SheetUrl) ...
+                || obj.Tracker.SheetName ~= obj.SheetTab ...
+                || obj.Tracker.CredentialsPath ~= obj.SheetCredentials;
+
+            if needsNew
+                obj.Tracker = SectionTracker(obj.SheetUrl, obj.SheetCredentials, ...
+                    sheetName = obj.SheetTab);
+            end
+
+            tracker = obj.Tracker;
+        end
+
         function refreshDatasetMenu(obj)
             % Show the current selections on the Dataset menu and in the title.
             % The paths used to sit in edit fields, so the menu labels and the
@@ -390,11 +460,37 @@ classdef HistologyImageBrowser < handle
                 obj.ClearMetadataMenu.Enable = "on";
             end
 
+            obj.refreshSheetMenu();
+
             if obj.RootPath == ""
                 obj.Fig.Name = "Histology Image Browser";
             else
                 obj.Fig.Name = "Histology Image Browser  -  " + obj.RootPath;
             end
+        end
+
+        function refreshSheetMenu(obj)
+            % Label the sheet submenu with what it is pointed at, and offer the
+            % actions that only mean something once it is.
+
+            if isempty(obj.SheetMenu) || ~isvalid(obj.SheetMenu)
+                return
+            end
+
+            configured = obj.SheetUrl ~= "";
+
+            if configured
+                obj.SheetMenu.Text = "Google Sheet Tracker:  " + obj.SheetTab;
+            else
+                obj.SheetMenu.Text = "Google Sheet Tracker:  (none)";
+            end
+
+            % Preparing the sheet writes to it, which needs a key file even
+            % though naming the spreadsheet does not.
+            readyToWrite = configured && obj.SheetCredentials ~= "";
+
+            obj.SheetPrepareMenu.Enable = matlab.lang.OnOffSwitchState(readyToWrite);
+            obj.SheetClearMenu.Enable = matlab.lang.OnOffSwitchState(configured);
         end
 
         function onResetFilters(obj)

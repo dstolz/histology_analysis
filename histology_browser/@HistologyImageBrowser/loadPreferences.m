@@ -17,6 +17,8 @@ if metadataPath ~= "" && isfile(metadataPath)
     obj.MetadataPath = metadataPath;
 end
 
+apply_sheet_settings(obj, group);
+
 apply_dropdown(obj.VariantDropDown, read_pref(group, "Variant", ""));
 apply_dropdown(obj.ColormapDropDown, read_pref(group, "Colormap", ""));
 apply_stain_colormaps(obj, group);
@@ -42,6 +44,40 @@ obj.applyViewLayout();
 % Every control above was written without firing its callback, so the Display
 % menu is told once, here, rather than a dozen times on the way down.
 obj.syncDisplayMenu();
+
+end
+
+function apply_sheet_settings(obj, group)
+%APPLY_SHEET_SETTINGS Restore which sheet the tracker is read from.
+% A key file that has since been moved or deleted is dropped, but the sheet
+% itself is kept: naming a new key file is a smaller thing to ask than naming
+% the spreadsheet again, and the sheet is still readable with one.
+
+sheetUrl = read_pref(group, "SheetUrl", "");
+
+if sheetUrl == ""
+    return
+end
+
+try
+    gsheet.spreadsheetId(sheetUrl);
+catch
+    return
+end
+
+obj.SheetUrl = sheetUrl;
+
+sheetTab = read_pref(group, "SheetTab", "");
+
+if sheetTab ~= ""
+    obj.SheetTab = sheetTab;
+end
+
+credentials = read_pref(group, "SheetCredentials", "");
+
+if credentials ~= "" && isfile(credentials)
+    obj.SheetCredentials = credentials;
+end
 
 end
 
