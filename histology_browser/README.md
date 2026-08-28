@@ -94,6 +94,37 @@ it.
 |---|---|
 | `Row UID` | Names a row in a way that survives sorting, filtering, and edits to every other column. |
 | `Last Updated` | UTC ISO 8601 timestamp of the last write this code made to the row, so a value that changed on its own is distinguishable from one the browser wrote. |
+| `Measured` | Whether the section has been measured. `yes` or blank. |
+
+`Row UID` and `Last Updated` are bookkeeping and are never writable by hand — `updateRows` refuses them. `Measured` is an ordinary column that happens to be created here; it holds a judgement someone makes while reviewing, so it is written like any other.
+
+### Reviewing sections
+
+The **Review** panel under the catalog table writes two things to the tracker for
+whatever is selected: the atlas plate number, and the measured flag. Both act on the
+whole selection, so a stack of sections from one slide can be marked in one go.
+
+- **Atlas plate** shows the selection's own number, and writes it on Enter or **Set**.
+  A selection whose plates disagree shows a blank field rather than one of them.
+  Clearing the field empties the cell, after a confirmation.
+- **Mark Measured** / **Clear** set and unset the flag. Two buttons rather than one
+  checkbox, because a selection can be part measured and a checkbox has no honest way
+  to show that.
+- **Ctrl+M** toggles: it marks until everything selected is marked, and only then starts
+  clearing, so it is safe to press repeatedly down a stack.
+
+The `Meas` column in the catalog table shows a tick for measured sections, so what is
+still outstanding is visible while working. A successful write updates the table in
+place without moving the selection.
+
+Sections the tracker has no row for are skipped rather than refusing the whole write,
+and the panel says how many before the button is pressed. The panel stays disabled,
+naming the reason, when there is no sheet, no key file, no selection, or when the rows
+have no `Row UID` yet.
+
+Rows are found by `Row UID`, which the catalog carries across during the join. That
+matters because the read-side join tolerates a tracker entry being a *prefix* of an
+image name — fine for reading, too loose to write through.
 
 From MATLAB:
 
@@ -160,6 +191,7 @@ Several other things stop a write rather than guessing:
 | `addpath_nogit.m` | Add a folder tree to the MATLAB path, skipping `.git`. |
 | `tests/test_histology_browser.m` | Smoke test; see below. |
 | `tests/test_section_tracker.m` | Checks for the sheet tracker, against an in-memory sheet. |
+| `tests/fake_section_tracker.m` | The in-memory sheet both test files drive the tracker against. |
 
 ## Requirements
 
@@ -211,6 +243,10 @@ throwaway key generated for the purpose and against real `jsondecode` output.
 `View` collapses the data column and the display row, separately or together, to give the
 image tiles the window.
 
+Under the catalog table, the **Review** panel writes the atlas plate number and the
+measured flag for the selected sections back to the tracker's sheet — see
+[Reviewing sections](#reviewing-sections).
+
 `Display` mirrors every control in the Display panel, so collapsing the display row costs
 reach rather than capability. The panel keeps the state; each menu item writes to the control
 it mirrors and then runs that control's own callback, so a menu choice and a click go down
@@ -236,6 +272,7 @@ rendered from it, so a shortcut cannot be advertised in one place and bound in a
 | `Ctrl+F` | Jump to the search box |
 | `Ctrl+Shift+R` | Clear every filter |
 | `Ctrl+L` | Load the dataset |
+| `Ctrl+M` | Mark the selected sections measured, or clear them if all are |
 | `Ctrl+E` | Start or finish editing the line ROI |
 | `Ctrl+D` | Draw a new line over the image |
 | `Ctrl+S` | Save the ROI and remeasure its profile |

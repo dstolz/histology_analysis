@@ -1,9 +1,9 @@
 function report = ensureSchema(obj, options)
-%ENSURESCHEMA Give the tracker tab the two columns this class needs.
-% Adds a Row UID column and a Last Updated column if they are missing, then
-% gives an identifier to every entry that lacks one. Both steps are idempotent:
-% running this on a tab that already has them, and whose rows are all
-% identified, writes nothing.
+%ENSURESCHEMA Give the tracker tab the columns this class needs.
+% Adds Row UID, Last Updated, and Measured if they are missing, then gives an
+% identifier to every entry that lacks one. Both steps are idempotent: running
+% this on a tab that already has them, and whose rows are all identified,
+% writes nothing.
 %
 % This is the one place the class changes the shape of the tab rather than the
 % contents of a row, so it is deliberately a separate call. It is also the only
@@ -40,7 +40,7 @@ report = struct( ...
 
 missing = string.empty(1, 0);
 
-for name = [obj.UidColumn, obj.UpdatedColumn]
+for name = SectionTracker.provisionedColumns()
     if ~obj.hasColumn(name)
         missing(end+1) = name; %#ok<AGROW>
     end

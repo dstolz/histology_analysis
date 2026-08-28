@@ -35,6 +35,9 @@ switch action
     case "loadDataset"
         obj.onLoadData();
 
+    case "toggleMeasured"
+        toggle_measured(obj);
+
     case "toggleEditRoi"
         % The state button carries the mode, so it is flipped first and the
         % callback then reads it exactly as it would after a click.
@@ -156,6 +159,25 @@ end
 
 obj.EditRoiButton.Value = false;
 obj.onToggleEditRoi();
+
+end
+
+function toggle_measured(obj)
+%TOGGLE_MEASURED Flip the measured flag for whatever is selected.
+% The panel offers two explicit buttons, because a selection can be part
+% measured and a single control cannot honestly show that. One key still has to
+% pick a direction, so it clears only when there is nothing left to mark, which
+% is what makes it safe to hold down through a stack of sections: it marks
+% until everything selected is marked, and only then starts undoing.
+
+target = obj.reviewTarget();
+
+if ~target.writable
+    obj.setWarning("%s", target.reason);
+    return
+end
+
+obj.onSetMeasured(~all(obj.View.Measured(target.writableRows)));
 
 end
 

@@ -18,8 +18,10 @@ arguments
 end
 
 % Add the repo root (this file lives in tests/, one level down) so the
-% browser and its helpers resolve regardless of where it is checked out.
+% browser and its helpers resolve regardless of where it is checked out, and
+% this folder too, for the shared test fixtures.
 addpath(fileparts(fileparts(mfilename("fullpath"))));
+addpath(fileparts(mfilename("fullpath")));
 
 nFailed = 0;
 
@@ -30,6 +32,8 @@ nFailed = nFailed + run_case("line profile measurement", @check_profile_measurem
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
 nFailed = nFailed + run_case("tracker table joins without a CSV", @check_metadata_table_option);
 nFailed = nFailed + run_case("sheet tracker settings", @check_sheet_settings);
+nFailed = nFailed + run_case("review writes to the tracker", @check_review_writes);
+nFailed = nFailed + run_case("review controls follow the selection", @check_review_controls);
 
 if rootPath == "" || ~isfolder(rootPath)
     fprintf("- Skipping catalog and GUI checks (no dataset folder supplied).\n");
@@ -162,6 +166,181 @@ assert(app.sheetTracker().SheetName == "Other", ...
 app.onClearSheet();
 assert(app.SheetUrl == "", "Clearing the sheet left it configured");
 assert(contains(app.SheetMenu.Text, "(none)"), "The menu still names a sheet");
+
+end
+
+function check_review_writes()
+%CHECK_REVIEW_WRITES Marking a section reaches the sheet and the table.
+% The whole point of the review panel is that one click changes two things: the
+% tracker, and what the person doing the reviewing is looking at. A write that
+% reached the sheet but left the table showing the old value would look like it
+% had not worked.
+
+[app, state, cleanup] = review_fixture(); %#ok<ASGLU>
+
+% The second section in the fixture, selected as it would be by clicking it.
+app.CatalogTable.Selection = 2;
+app.onSelectionChanged();
+
+app.onSetMeasured(true);
+
+grid = state("grid");
+row = find(strtrim(grid(:, 4)) == "SUBJ-ID-896_2A_R_WFA-PV-DAPI_Z3_250408_1");
+
+assert(strtrim(grid(row, 11)) == "yes", "The flag did not reach the sheet");
+assert(strtrim(grid(row, 10)) ~= "", "The write was not stamped");
+assert(app.View.Measured(2), "The catalog still says the section is unmeasured");
+assert(app.CatalogTable.Data.Meas(2) ~= "", "The table still shows the section unmarked");
+
+% Nothing else was touched.
+assert(~any(app.View.Measured([1 3])), "Sections that were not selected were marked");
+
+% Working through a stack of sections means the selection must not jump back to
+% the top after every mark.
+assert(isequal(app.CatalogTable.Selection, 2), ...
+    "The selection moved when the table was refreshed");
+
+app.AtlasPlateField.Value = '42';
+app.onSetAtlasPlate();
+
+grid = state("grid");
+assert(strtrim(grid(row, 7)) == "42", "The plate number did not reach the sheet");
+assert(app.View.AtlasPlate(2) == 42, "The catalog kept the old plate number");
+assert(app.CatalogTable.Data.Plate(2) == 42, "The table kept the old plate number");
+
+% A plate number is a number; a cell holding anything else would break the
+% filters and the sort that read this column.
+app.AtlasPlateField.Value = 'thirty';
+app.onSetAtlasPlate();
+
+grid = state("grid");
+assert(strtrim(grid(row, 7)) == "42", "A plate number that is not a number was written");
+
+% Several sections at once is the ordinary case for a stack from one slide.
+app.CatalogTable.Selection = [1 3];
+app.onSelectionChanged();
+app.onSetMeasured(true);
+
+% The fourth section has no tracker row and so can never be marked; the first
+% three are the ones a write reaches.
+assert(all(app.View.Measured(1:3)), "Marking a multiple selection missed a section");
+assert(~app.View.Measured(4), "A section with no tracker row was marked");
+
+% The keyboard toggle clears only once there is nothing left to mark, which is
+% what makes it safe to press repeatedly down a stack. It has to reckon that
+% against the sections it can actually write to: counting the fourth would
+% leave it forever trying to mark a section it can never reach.
+app.onSelectAll();
+app.runShortcut("toggleMeasured");
+assert(~any(app.View.Measured), "The toggle did not clear an all-measured selection");
+
+app.runShortcut("toggleMeasured");
+assert(all(app.View.Measured(1:3)), "The toggle did not mark an unmeasured selection");
+
+end
+
+function check_review_controls()
+%CHECK_REVIEW_CONTROLS The panel shows the selection's own state.
+
+[app, state, cleanup] = review_fixture(); %#ok<ASGLU>
+
+app.CatalogTable.Selection = 3;
+app.onSelectionChanged();
+
+assert(app.MeasuredButton.Enable == "on", "Reviewing was not offered for a tracker row");
+assert(string(app.AtlasPlateField.Value) == "30", ...
+    "The field shows '%s' rather than the section's own plate", app.AtlasPlateField.Value);
+assert(contains(app.ReviewLabel.Text, "None measured"), ...
+    "The label does not say how much is done: %s", app.ReviewLabel.Text);
+
+% Rows 2 and 3 carry different plate numbers. Showing one of them would mean a
+% field reading 20 that overwrites 30 the moment somebody presses Enter.
+app.CatalogTable.Selection = [2 3];
+app.onSelectionChanged();
+assert(string(app.AtlasPlateField.Value) == "", ...
+    "A selection whose plates disagree showed one of them: '%s'", app.AtlasPlateField.Value);
+
+% The fourth fixture row has no tracker identifier, standing for a section the
+% tracker has no row for.
+app.CatalogTable.Selection = 4;
+app.onSelectionChanged();
+
+assert(app.MeasuredButton.Enable == "off", ...
+    "Reviewing was offered for a section with no tracker row");
+assert(contains(app.ReviewLabel.Text, "no row in the tracker"), ...
+    "The label does not say why: %s", app.ReviewLabel.Text);
+
+% A mixed selection writes what it can and says what it skipped.
+app.CatalogTable.Selection = [1 4];
+app.onSelectionChanged();
+
+assert(app.MeasuredButton.Enable == "on", ...
+    "A selection with one writable section was refused entirely");
+assert(contains(app.ReviewLabel.Text, "skipped"), ...
+    "The label does not warn that a section will be skipped: %s", app.ReviewLabel.Text);
+
+app.onSetMeasured(true);
+assert(app.View.Measured(1), "The writable section of a mixed selection was not marked");
+
+grid = state("grid");
+assert(sum(strtrim(grid(:, 11)) == "yes") == 1, "More rows were written than expected");
+
+end
+
+function [app, state, cleanup] = review_fixture()
+%REVIEW_FIXTURE A browser holding a catalog that maps onto the fake sheet.
+% The catalog is built by hand rather than by loading a dataset, because what
+% is under test is the path from a selection to a tracker write, and no images
+% on disk are needed to exercise it.
+
+saved = snapshot_sheet_prefs();
+restorePrefs = onCleanup(@() restore_sheet_prefs(saved));
+
+[tracker, state] = fake_section_tracker();
+tracker.ensureSchema();
+tracker.read();
+
+app = HistologyImageBrowser();
+closeApp = onCleanup(@() delete(app.Fig));
+
+% Matched to the fake tracker so SHEETTRACKER hands back that one rather than
+% building a live one against a spreadsheet that does not exist.
+app.SheetUrl = "fake-spreadsheet";
+app.SheetTab = "Sections";
+app.SheetCredentials = "fake-key.json";
+app.Tracker = tracker;
+
+% Built by the real cataloger against an empty folder, so the join that puts a
+% tracker row's identifier onto a catalog row is the one under test rather than
+% something arranged by hand to look like its output.
+root = string(tempname);
+mkdir(root);
+removeRoot = onCleanup(@() rmdir(root, "s"));
+
+app.Catalog = build_histology_image_catalog(root, ...
+    metadataTable = tracker.metadataTable(), includeMissing = true);
+
+assert(height(app.Catalog) == 4, ...
+    "The fixture catalog has %d rows rather than 4", height(app.Catalog));
+assert(all(app.Catalog.TrackerUid ~= ""), ...
+    "The catalog did not carry the tracker identifiers across");
+
+% The last row stands for a section the tracker has no row for, which is the
+% state a write has to refuse rather than guess at.
+app.Catalog.TrackerUid(4) = "";
+app.Catalog.InTracker(4) = false;
+
+app.View = app.Catalog;
+app.refreshCatalogTable();
+
+cleanup = onCleanup(@() release(restorePrefs, closeApp, removeRoot));
+
+end
+
+function release(varargin)
+%RELEASE Hold several cleanup objects until the caller's own one is destroyed.
+
+clear varargin
 
 end
 

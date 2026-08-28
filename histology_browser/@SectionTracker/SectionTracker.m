@@ -65,11 +65,17 @@ classdef SectionTracker < handle
         % The column already used to join the tracker to images on disk.
         KeyColumn = "Image Filename"
 
-        % Columns this class maintains. Named here rather than inline because
+        % Columns this class creates. Named here rather than inline because
         % ENSURESCHEMA creates them, UPDATEROWS writes them, and READ has to
         % recognize them when they already exist.
+        %
+        % The first two are bookkeeping and are never written by hand. Measured
+        % is different: it is created here for convenience, but what goes in it
+        % is a judgement someone makes while reviewing a section, so it is an
+        % ordinary writable column.
         UidColumn = "Row UID"
         UpdatedColumn = "Last Updated"
+        MeasuredColumn = "Measured"
 
         % Timestamps go in as text in UTC, which sorts correctly as text and
         % cannot be re-read as a different instant by a spreadsheet carrying a
@@ -217,6 +223,43 @@ classdef SectionTracker < handle
 
             stamp = string(datetime("now", TimeZone = "UTC"), ...
                 SectionTracker.TimestampFormat);
+        end
+
+        function names = provisionedColumns()
+            %PROVISIONEDCOLUMNS Columns ENSURESCHEMA adds when they are absent.
+            % A static rather than a constant, so the three names have one
+            % definition each and this list cannot fall out of step with them.
+
+            names = [SectionTracker.UidColumn, ...
+                SectionTracker.UpdatedColumn, ...
+                SectionTracker.MeasuredColumn];
+        end
+
+        function tf = isMeasured(value)
+            %ISMEASURED Read a Measured cell as a yes or a no.
+            % The browser writes "yes", but the column is in a spreadsheet that
+            % people type into, so the other obvious ways of saying yes are
+            % accepted too. Anything else, blank included, is no.
+
+            value = lower(strtrim(string(value)));
+            tf = ismember(value, ["yes", "y", "true", "1", "x", "done"]);
+        end
+
+        function text = measuredText(tf)
+            %MEASUREDTEXT What to write into a Measured cell.
+            % Clearing the flag leaves the cell empty rather than writing "no",
+            % because the rows nobody has reviewed yet are blank and a reviewed
+            % row that came back negative should read the same as those.
+
+            arguments
+                tf (1,1) logical
+            end
+
+            if tf
+                text = "yes";
+            else
+                text = "";
+            end
         end
     end
 end

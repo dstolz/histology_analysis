@@ -44,6 +44,12 @@ classdef HistologyImageBrowser < handle
         AllPanelsMenu matlab.ui.container.Menu
         ShortcutsMenu matlab.ui.container.Menu
 
+        AtlasPlateField matlab.ui.control.EditField
+        SetAtlasPlateButton matlab.ui.control.Button
+        MeasuredButton matlab.ui.control.Button
+        ClearMeasuredButton matlab.ui.control.Button
+        ReviewLabel matlab.ui.control.Label
+
         SearchField matlab.ui.control.EditField
         SubjectList matlab.ui.control.ListBox
         HemisphereList matlab.ui.control.ListBox
@@ -461,6 +467,10 @@ classdef HistologyImageBrowser < handle
             end
 
             obj.refreshSheetMenu();
+
+            % Configuring or clearing the sheet changes whether reviewing is
+            % possible at all, which is the panel's whole enabled state.
+            obj.updateReviewControls();
 
             if obj.RootPath == ""
                 obj.Fig.Name = "Histology Image Browser";

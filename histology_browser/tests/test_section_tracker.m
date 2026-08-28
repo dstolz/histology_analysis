@@ -9,7 +9,10 @@ function test_section_tracker()
 %
 % See also SECTIONTRACKER, GSHEET.GETVALUES, TEST_HISTOLOGY_BROWSER.
 
+% The repo root holds the browser and its helpers; this folder holds the shared
+% test fixtures. Both are added so the checks run from anywhere.
 addpath(fileparts(fileparts(mfilename("fullpath"))));
+addpath(fileparts(mfilename("fullpath")));
 
 nFailed = 0;
 
@@ -30,6 +33,7 @@ nFailed = nFailed + run_case("maintained columns are protected", @check_protecte
 nFailed = nFailed + run_case("deleted row is not written over", @check_deleted_row);
 nFailed = nFailed + run_case("a row moving mid-write is caught", @check_row_moved);
 nFailed = nFailed + run_case("tracker feeds the catalog", @check_metadata_table);
+nFailed = nFailed + run_case("measured flag round trip", @check_measured_flag);
 
 if nFailed == 0
     fprintf("All checks passed.\n");
@@ -300,7 +304,7 @@ end
 function check_header_discovery()
 %CHECK_HEADER_DISCOVERY The header is found below the rows above it.
 
-tracker = fake_tracker();
+tracker = fake_section_tracker();
 tracker.read();
 
 assert(tracker.HeaderRow == 4, ...
@@ -335,7 +339,7 @@ end
 function check_find_rows()
 %CHECK_FIND_ROWS Rows are selected by what they contain.
 
-tracker = fake_tracker();
+tracker = fake_section_tracker();
 tracker.read();
 
 idx = tracker.findRows({"Hemisphere", "L"});
@@ -368,12 +372,12 @@ end
 function check_ensure_schema()
 %CHECK_ENSURE_SCHEMA The two maintained columns are created and filled.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 
 report = tracker.ensureSchema();
 
-assert(numel(report.columnsAdded) == 2, ...
-    "Added %d columns rather than 2", numel(report.columnsAdded));
+assert(numel(report.columnsAdded) == 3, ...
+    "Added %d columns rather than 3", numel(report.columnsAdded));
 assert(report.uidsAssigned == 4, ...
     "Identified %d rows rather than 4", report.uidsAssigned);
 
@@ -399,7 +403,7 @@ end
 function check_schema_idempotent()
 %CHECK_SCHEMA_IDEMPOTENT Running it again changes nothing.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 before = state("grid");
@@ -419,12 +423,12 @@ function check_widen_tab()
 % Trimming a tab to exactly the columns it uses is an ordinary thing to do, and
 % writing past the right edge of the grid is refused rather than growing it.
 
-[tracker, state] = fake_tracker(columnCount = 8);
+[tracker, state] = fake_section_tracker(columnCount = 8);
 
 tracker.ensureSchema();
 
-assert(state("appended") == 2, ...
-    "Grew the tab by %d columns rather than 2", state("appended"));
+assert(state("appended") == 3, ...
+    "Grew the tab by %d columns rather than 3", state("appended"));
 assert(tracker.hasColumn("Row UID"), "The identifier column was not created");
 
 end
@@ -435,7 +439,7 @@ function check_write_after_sort()
 % read at one position, the tab is then sorted so it sits somewhere else, and
 % the value still has to reach that row and no other.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 target = "SUBJ-ID-896_2C_R_WFA-PV-DAPI_Z3_250408_1";
@@ -472,7 +476,7 @@ end
 function check_write_by_uid()
 %CHECK_WRITE_BY_UID An identifier still finds its row after a reorder.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 tracker.read();
@@ -497,7 +501,7 @@ end
 function check_timestamp_written()
 %CHECK_TIMESTAMP_WRITTEN Every write dates itself.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 tracker.updateRows({"Hemisphere", "LR"}, {"Notes", "Both hemispheres"});
@@ -523,7 +527,7 @@ function check_expected_count()
 % Criteria that were meant to name one row and name two are a mistake, and the
 % point of catching it is that nothing is written while it is caught.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 before = state("grid");
@@ -541,7 +545,7 @@ end
 function check_protected_columns()
 %CHECK_PROTECTED_COLUMNS The maintained columns cannot be set by hand.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 before = state("grid");
@@ -564,7 +568,7 @@ function check_deleted_row()
 % The row that was there has been removed, and whatever now occupies its
 % position belongs to somebody else. Refusing is the only safe answer.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 tracker.read();
@@ -586,7 +590,7 @@ function check_row_moved()
 % resolving a row and writing to it there is a window. What can be done is to
 % notice, so the write is reported rather than passing for a success.
 
-[tracker, state] = fake_tracker();
+[tracker, state] = fake_section_tracker();
 tracker.ensureSchema();
 
 % Reorder the tab the instant the write lands, which is the worst case the
@@ -602,7 +606,7 @@ end
 function check_metadata_table()
 %CHECK_METADATA_TABLE The tracker joins onto the catalog like the CSV did.
 
-tracker = fake_tracker();
+tracker = fake_section_tracker();
 T = tracker.metadataTable();
 
 assert(ismember("Image Filename", string(T.Properties.VariableNames)), ...
@@ -617,6 +621,56 @@ assert(str2double(plates(3)) == 30, ...
 
 end
 
+function check_measured_flag()
+%CHECK_MEASURED_FLAG The review flag is provisioned, writable, and readable.
+% Measured is created by ENSURESCHEMA like the bookkeeping columns, but it is
+% not one of them: what goes in it is a judgement made during review, so unlike
+% Row UID and Last Updated it has to be writable.
+
+[tracker, state] = fake_section_tracker();
+
+report = tracker.ensureSchema();
+
+assert(numel(report.columnsAdded) == 3, ...
+    "Added %d columns rather than 3", numel(report.columnsAdded));
+assert(any(report.columnsAdded == "Measured"), "The Measured column was not added");
+
+grid = state("grid");
+assert(strtrim(grid(4, 11)) == "Measured", ...
+    "The Measured header went to the wrong column: '%s'", strtrim(grid(4, 11)));
+
+% Nobody has reviewed anything yet, so every cell is blank and every row reads
+% as not measured. A blank default is what lets the flag be added to a tracker
+% of existing rows without asserting anything about them.
+assert(~any(SectionTracker.isMeasured(tracker.column("Measured"))), ...
+    "Rows read as measured before anything was written");
+
+tracker.updateRows({"Hemisphere", "LR"}, {"Measured", SectionTracker.measuredText(true)});
+
+grid = state("grid");
+row = find(strtrim(grid(:, 5)) == "LR");
+assert(strtrim(grid(row, 11)) == "yes", "The flag was not written");
+assert(strtrim(grid(row, 10)) ~= "", "Writing the flag did not stamp the time");
+
+tracker.read();
+assert(sum(SectionTracker.isMeasured(tracker.column("Measured"))) == 1, ...
+    "Exactly one row should read as measured");
+
+% Clearing empties the cell rather than writing "no", so a row that was
+% reviewed and found wanting reads the same as one nobody has reached yet.
+tracker.updateRows({"Hemisphere", "LR"}, {"Measured", SectionTracker.measuredText(false)});
+grid = state("grid");
+assert(strtrim(grid(row, 11)) == "", "Clearing the flag left something in the cell");
+
+% The column is in a spreadsheet people type into, so the obvious other ways of
+% saying yes count, and anything else does not.
+assert(all(SectionTracker.isMeasured(["yes", "YES", " y ", "true", "1", "x", "done"])), ...
+    "A reasonable way of typing yes was not accepted");
+assert(~any(SectionTracker.isMeasured(["", "no", "n", "0", "maybe", "  "])), ...
+    "Something that is not a yes was read as one");
+
+end
+
 function reverse_entries(state)
 %REVERSE_ENTRIES Sort the fixture's entries into the opposite order.
 % Standing in for someone sorting the tab in the browser, which is the ordinary
@@ -626,135 +680,6 @@ grid = state("grid");
 entries = 5:size(grid, 1);
 grid(entries, :) = grid(fliplr(entries), :);
 state("grid") = grid;
-
-end
-
-function [tracker, state] = fake_tracker(options)
-%FAKE_TRACKER A tracker wired to an in-memory sheet.
-% The fixture mirrors the real tab's shape rather than a tidy one: a title row
-% and blank rows above the header, a column whose header is blank but whose
-% cells are not, and a blank row among the entries.
-
-arguments
-    options.columnCount (1,1) double = 26
-end
-
-% Columns 2 and 8 have no header but do have cells. One sits between named
-% columns and one past the last of them, which are the two ways an unnamed
-% column can be got wrong: dropped from the table it must stay out of, and
-% written over by a column added on the right.
-header = ["Subject ID", "", "Content", "Image Filename", "Hemisphere", "Notes", "Atlas Plate #", ""];
-
-grid = [ ...
-    "Section tracker", "",        "",            "",                                          "",   "", "",   ""; ...
-    "",                "",        "",            "",                                          "",   "", "",   ""; ...
-    "",                "",        "",            "",                                          "",   "", "",   ""; ...
-    header; ...
-    "SUBJ-ID-896",     "scratch", "DAPI",        "SUBJ-ID-896_2A_L_DAPI_Z1_250408_1",         "L",  "", "",   "keep"; ...
-    "SUBJ-ID-896",     "scratch", "WFA-PV-DAPI", "SUBJ-ID-896_2A_R_WFA-PV-DAPI_Z3_250408_1",  "R",  "", "20", "keep"; ...
-    "",                "",        "",            "",                                          "",   "", "",   ""; ...
-    "SUBJ-ID-896",     "scratch", "dapi",        "SUBJ-ID-896_2B_LR_DAPI_Z1_250408_1",        "LR", "", "30", "keep"; ...
-    "SUBJ-ID-896",     "scratch", "WFA-PV-DAPI", "SUBJ-ID-896_2C_R_WFA-PV-DAPI_Z3_250408_1",  "L",  "", "30", "keep"];
-
-state = containers.Map("KeyType", "char", "ValueType", "any");
-state("grid") = grid;
-state("writes") = 0;
-state("appended") = 0;
-state("columnCount") = options.columnCount;
-state("sabotage") = false;
-
-tracker = SectionTracker("fake-spreadsheet", "fake-key.json", sheetName = "Sections");
-tracker.Transport = fake_transport(state);
-
-end
-
-function transport = fake_transport(state)
-%FAKE_TRANSPORT Sheets API entry points backed by a string grid in memory.
-
-transport = struct( ...
-    getValues = @(~) fake_get(state), ...
-    updateValues = @(updates) fake_update(state, updates), ...
-    sheetInfo = @() fake_info(state), ...
-    appendColumns = @(~, n) fake_append(state, n));
-
-end
-
-function grid = fake_get(state)
-%FAKE_GET Return the whole tab, as the real read does.
-
-grid = struct( ...
-    values = state("grid"), ...
-    firstRow = 1, ...
-    firstColumn = 1, ...
-    range = "Sections!A1");
-
-end
-
-function info = fake_info(state)
-%FAKE_INFO Report the tab's identity and grid size.
-
-info = struct( ...
-    sheetId = 1, ...
-    title = "Sections", ...
-    rowCount = size(state("grid"), 1), ...
-    columnCount = state("columnCount"));
-
-end
-
-function fake_update(state, updates)
-%FAKE_UPDATE Apply a batch to the grid, refusing to write past its edge.
-
-grid = state("grid");
-
-for iUpdate = 1:numel(updates)
-    [row, column] = parse_range(updates(iUpdate).range);
-    values = string(updates(iUpdate).values);
-
-    if column + numel(values) - 1 > state("columnCount")
-        error("fake:RangeExceedsGrid", ...
-            "Wrote past the right edge of the tab, which Google refuses.")
-    end
-
-    if size(grid, 2) < column + numel(values) - 1
-        grid = [grid, strings(size(grid, 1), ...
-            column + numel(values) - 1 - size(grid, 2))]; %#ok<AGROW>
-    end
-
-    grid(row, column:column + numel(values) - 1) = values;
-end
-
-state("grid") = grid;
-state("writes") = state("writes") + 1;
-
-if state("sabotage")
-    % Somebody sorts the tab in the instant between the write landing and the
-    % check that follows it.
-    state("sabotage") = false;
-    entries = 5:size(grid, 1);
-    grid(entries, :) = grid(fliplr(entries), :);
-    state("grid") = grid;
-end
-
-end
-
-function fake_append(state, n)
-%FAKE_APPEND Widen the grid, as APPENDDIMENSION does.
-
-state("appended") = state("appended") + n;
-state("columnCount") = state("columnCount") + n;
-
-end
-
-function [row, column] = parse_range(range)
-%PARSE_RANGE Recover the first cell of an A1 range.
-
-cellRef = extractAfter(range, "!");
-cellRef = extractBefore(cellRef + ":", ":");
-
-parts = regexp(cellRef, "^(?<column>[A-Za-z]+)(?<row>\d+)$", "names");
-
-row = str2double(parts.row);
-column = gsheet.columnNumber(parts.column);
 
 end
 
