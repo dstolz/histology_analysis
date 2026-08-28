@@ -17,6 +17,15 @@ if metadataPath ~= "" && isfile(metadataPath)
     obj.MetadataPath = metadataPath;
 end
 
+% Restored without being read. A saved URL is checked when it is set and again
+% at every load, and opening the browser should not wait on the network to find
+% out something the next load will say anyway.
+publishedUrl = read_pref(group, "PublishedUrl", "");
+
+if publishedUrl ~= "" && contains(publishedUrl, "/spreadsheets/d/e/")
+    obj.PublishedUrl = publishedUrl;
+end
+
 apply_dropdown(obj.VariantDropDown, read_pref(group, "Variant", ""));
 apply_dropdown(obj.ColormapDropDown, read_pref(group, "Colormap", ""));
 apply_stain_colormaps(obj, group);

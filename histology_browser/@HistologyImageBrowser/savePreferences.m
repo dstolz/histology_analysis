@@ -5,6 +5,10 @@ group = char(obj.PrefGroup);
 
 setpref(group, "LastRootPath", obj.RootPath);
 setpref(group, "LastMetadataPath", obj.MetadataPath);
+
+% The published URL is a link to a document, not a secret: anyone who has it
+% can read the published tab, which is what publishing it means.
+setpref(group, "PublishedUrl", obj.PublishedUrl);
 setpref(group, "Variant", obj.VariantDropDown.Value);
 setpref(group, "Colormap", obj.ColormapDropDown.Value);
 setpref(group, "LowPercentile", obj.LowPercentileField.Value);

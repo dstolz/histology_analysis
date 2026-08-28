@@ -28,6 +28,8 @@ nFailed = nFailed + run_case("ImageJ ROI decoder", @check_roi_decoder);
 nFailed = nFailed + run_case("ImageJ ROI encoder", @check_roi_encoder);
 nFailed = nFailed + run_case("line profile measurement", @check_profile_measurement);
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
+nFailed = nFailed + run_case("published sheet URLs", @check_published_url);
+nFailed = nFailed + run_case("published sheet settings", @check_published_settings);
 
 if rootPath == "" || ~isfolder(rootPath)
     fprintf("- Skipping catalog and GUI checks (no dataset folder supplied).\n");
@@ -55,6 +57,208 @@ try
 catch ME
     nFailed = 1;
     fprintf(2, "FAIL  %s: %s\n", name, ME.message);
+end
+
+end
+
+function check_published_url()
+%CHECK_PUBLISHED_URL A published link is recognized, and an edit link is not.
+% The download itself needs a network and a published sheet, so what is checked
+% here is everything around it: which URLs are accepted, how they are rewritten,
+% and that a reply which is not CSV is caught rather than handed to READTABLE
+% to fail somewhere baffling. A file:// URL stands in for the server, which
+% WEBREAD reads exactly as it reads an http one.
+
+published = "https://docs.google.com/spreadsheets/d/e/2PACX-abc/pub" + ...
+    "?gid=1084786865&single=true&output=csv";
+
+% The single most likely thing to be pasted is the ordinary edit URL. It names
+% the right document and will never work, so it has to be named for what it is.
+assert_fails(@() fetch_published_tracker( ...
+    "https://docs.google.com/spreadsheets/d/1yz6v2yP/edit?gid=108#gid=108"), ...
+    "fetch_published_tracker:NotPublished", "An edit URL was accepted");
+
+assert_fails(@() fetch_published_tracker(""), ...
+    "fetch_published_tracker:NoUrl", "An empty URL was accepted");
+
+% Whatever format the Publish to web dialog was left on, the tab is asked for
+% as CSV: someone who took the default gets a link serving a web page, and it
+% names the right document and tab, so it is rewritten rather than refused.
+asked = strings(0, 1);
+record = @(url, ~) collect(url);
+
+for candidate = [ ...
+        "https://docs.google.com/spreadsheets/d/e/2PACX-abc/pubhtml?gid=108&single=true"; ...
+        "https://docs.google.com/spreadsheets/d/e/2PACX-abc/pub?gid=108&single=true&output=html"; ...
+        "https://docs.google.com/spreadsheets/d/e/2PACX-abc/pub?gid=108&single=true&output=csv"]'
+
+    downloaded = fetch_published_tracker(candidate, fetch = @(u, t) fake_reply(u, t, record));
+    delete(downloaded);
+end
+
+assert(all(contains(asked, "output=csv")), ...
+    "A link was fetched in a format other than CSV: %s", strjoin(asked, " "));
+assert(~any(contains(asked, "pubhtml")), "A web page link was fetched as-is");
+assert(~any(contains(asked, "output=html")), "A link kept its non-CSV format");
+assert(all(contains(asked, "gid=108")), "Rewriting the link lost which tab it names");
+
+% An anchor is for the browser and means nothing to the server, and the publish
+% dialog's link can carry one.
+downloaded = fetch_published_tracker(published + "#gid=1084786865", ...
+    fetch = @(u, t) fake_reply(u, t, record));
+delete(downloaded);
+assert(~any(contains(asked, "#")), "An anchor was sent to the server");
+
+% A tab that is no longer published still answers, with a web page saying so.
+% Handing that to READTABLE would fail a long way from the cause.
+assert_fails(@() fetch_published_tracker(published, ...
+    fetch = @(~,~) "<!DOCTYPE html><html><body>Sorry, unable to open the file.</body></html>"), ...
+    "fetch_published_tracker:NotCsv", "A web page was accepted as the tracker");
+
+assert_fails(@() fetch_published_tracker(published, fetch = @(~,~) "   "), ...
+    "fetch_published_tracker:EmptySheet", "An empty reply was accepted");
+
+% A refused download is reported as one rather than escaping as whatever
+% WEBREAD happened to raise.
+assert_fails(@() fetch_published_tracker(published, ...
+    fetch = @(~,~) error("MATLAB:webservices:HTTP404StatusCodeError", "Not Found")), ...
+    "fetch_published_tracker:DownloadFailed", "A failed download was not reported");
+
+% The real thing. A published tab keeps the rows above its header, exactly as
+% the exported CSV did, so the header search COMBINE_VALUES_CSV already does
+% finds it in the same way.
+downloaded = fetch_published_tracker(published, fetch = @(~,~) sample_sheet());
+removeDownload = onCleanup(@() delete(downloaded));
+
+assert(isfile(downloaded), "Nothing was written to disk");
+
+lines = readlines(downloaded);
+headerLine = find(contains(lines, "Image Filename"), 1, "first");
+assert(headerLine == 3, "The header landed on line %d rather than 3", headerLine);
+
+T = readtable(downloaded, detectImportOptions(downloaded, ...
+    NumHeaderLines = headerLine - 1, VariableNamingRule = "preserve"));
+
+assert(height(T) == 2, "The downloaded CSV has %d rows rather than 2", height(T));
+assert(string(T.("Atlas Plate #")(1)) == "42", "A column did not survive the download");
+
+% The Notes column is full of commas, and a quoted field holding one has to
+% stay a single field.
+assert(string(T.Notes(1)) == "994 um band, left ACx", ...
+    "A quoted field was split on its comma: '%s'", string(T.Notes(1)));
+
+% Notes also carry micrometre and degree signs, which would be mangled if the
+% download were written out in the machine's own locale rather than as UTF-8.
+assert(isequal(double(char(string(T.Notes(2)))), [181 109 32 97 116 32 51 48 176]), ...
+    "Non-ASCII characters did not survive being written to disk");
+
+    function collect(url)
+        %COLLECT Remember which URL the download was asked for.
+
+        asked(end+1) = string(url);
+    end
+
+end
+
+function text = fake_reply(url, timeout, record)
+%FAKE_REPLY Stand in for the server, noting what was asked for.
+
+assert(timeout > 0, "The download was given no time to complete");
+
+record(url);
+text = sample_sheet();
+
+end
+
+function text = sample_sheet()
+%SAMPLE_SHEET A published Sections tab, shaped like the real one.
+% Two rows above the header, a quoted field holding commas, and the non-ASCII
+% characters that turn up in tracker notes.
+
+text = join([ ...
+    "Section tracker,,"; ...
+    ",,"; ...
+    "Image Filename,Notes,Atlas Plate #"; ...
+    "SUBJ-ID-1174IHC_ECM26A260608S1_1A_L_WFA-PV_Z3_260616_1," + ...
+        """994 um band, left ACx"",42"; ...
+    "SUBJ-ID-1174IHC_ECM26A260608S1_1B_R_WFA-PV_Z3_260616_1," + ...
+        string(char(181)) + "m at 30" + string(char(176)) + ",43"], newline);
+
+end
+
+function assert_fails(fcn, identifier, message)
+%ASSERT_FAILS Check that a call fails, and fails for the stated reason.
+
+try
+    fcn();
+catch ME
+    assert(ME.identifier == string(identifier), ...
+        "%s (failed with %s rather than %s)", message, ME.identifier, identifier);
+    return
+end
+
+error("%s (the call succeeded)", message);
+
+end
+
+function check_published_settings()
+%CHECK_PUBLISHED_SETTINGS The menu says whether a published sheet is set.
+
+saved = snapshot_published_pref();
+restorePref = onCleanup(@() restore_published_pref(saved));
+
+app = HistologyImageBrowser();
+cleanup = onCleanup(@() delete(app.Fig));
+
+app.PublishedUrl = "";
+app.refreshDatasetMenu();
+
+assert(contains(app.PublishedSheetMenu.Text, "(none)"), ...
+    "The menu did not start out empty: %s", app.PublishedSheetMenu.Text);
+assert(app.ClearPublishedSheetMenu.Enable == "off", ...
+    "Clearing was offered with no sheet set");
+
+app.PublishedUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-abc/pub" + ...
+    "?gid=1084786865&single=true&output=csv";
+app.refreshDatasetMenu();
+
+% A published URL is a hundred unreadable characters, so the menu names the one
+% part that tells two published tabs apart rather than all of it.
+assert(contains(app.PublishedSheetMenu.Text, "1084786865"), ...
+    "The menu does not name the tab: %s", app.PublishedSheetMenu.Text);
+assert(strlength(app.PublishedSheetMenu.Text) < 60, ...
+    "The menu label is too wide to sit on a menu: %s", app.PublishedSheetMenu.Text);
+assert(app.ClearPublishedSheetMenu.Enable == "on", ...
+    "Clearing a set sheet was not offered");
+
+app.onClearPublishedSheet();
+assert(app.PublishedUrl == "", "Clearing left the sheet set");
+assert(contains(app.PublishedSheetMenu.Text, "(none)"), "The menu still names a sheet");
+
+end
+
+function saved = snapshot_published_pref()
+%SNAPSHOT_PUBLISHED_PREF Record the published sheet preference as it stands.
+% Closing the browser saves preferences, so a check that sets one would
+% otherwise leave its scratch value behind as the real configuration.
+
+group = char(HistologyImageBrowser.PrefGroup);
+
+saved = struct(group = group, existed = ispref(group, "PublishedUrl"), value = "");
+
+if saved.existed
+    saved.value = getpref(group, "PublishedUrl");
+end
+
+end
+
+function restore_published_pref(saved)
+%RESTORE_PUBLISHED_PREF Put the published sheet preference back as it was.
+
+if saved.existed
+    setpref(saved.group, "PublishedUrl", saved.value);
+elseif ispref(saved.group, "PublishedUrl")
+    rmpref(saved.group, "PublishedUrl");
 end
 
 end
