@@ -26,6 +26,8 @@ classdef HistologyImageBrowser < handle
         RootFolderMenu matlab.ui.container.Menu
         MetadataMenu matlab.ui.container.Menu
         ClearMetadataMenu matlab.ui.container.Menu
+        PublishedSheetMenu matlab.ui.container.Menu
+        ClearPublishedSheetMenu matlab.ui.container.Menu
         LoadMenu matlab.ui.container.Menu
 
         DisplayMenu matlab.ui.container.Menu
@@ -95,6 +97,12 @@ classdef HistologyImageBrowser < handle
     properties
         RootPath string = ""        % Folder scanned for images and values files.
         MetadataPath string = ""    % Optional section tracker CSV.
+
+        % The same tracker, downloaded from the published copy of the sheet it
+        % is maintained in rather than from an export somebody made by hand.
+        % Used in place of the CSV when set, so a load picks up whatever the
+        % sheet said the last time Google republished it.
+        PublishedUrl string = ""
 
         Data struct = struct()      % Structured output from COMBINE_VALUES_CSV.
         Catalog table = table()     % One row per image stem.
@@ -185,6 +193,7 @@ classdef HistologyImageBrowser < handle
             arguments
                 rootPath (1,1) string = ""
                 options.metadataCSV (1,1) string = ""
+                options.publishedUrl (1,1) string = ""
             end
 
             obj.ImageCache = containers.Map("KeyType", "char", "ValueType", "any");
@@ -200,6 +209,13 @@ classdef HistologyImageBrowser < handle
 
             if options.metadataCSV ~= ""
                 obj.MetadataPath = options.metadataCSV;
+            end
+
+            % Named on the call rather than restored from preferences, so a
+            % script can point one session at a different sheet without
+            % changing what the next one opens on.
+            if options.publishedUrl ~= ""
+                obj.PublishedUrl = options.publishedUrl;
             end
 
             obj.refreshDatasetMenu();
@@ -370,6 +386,59 @@ classdef HistologyImageBrowser < handle
             obj.setStatus("Tracker CSV cleared. Load again to drop its annotations.");
         end
 
+        function onSetPublishedSheet(obj)
+            % Ask for the published sheet URL and check it before accepting it.
+            % Everything that can be wrong with one of these -- an edit link
+            % pasted instead of a published link, a tab that was unpublished,
+            % the wrong tab -- looks the same from here until something tries
+            % to read it, so it is read now rather than at the next load.
+
+            answer = inputdlg( ...
+                {sprintf(['Published sheet URL:\n\n' ...
+                    'In the sheet: File > Share > Publish to web,\n' ...
+                    'pick the Sections tab and the CSV format.'])}, ...
+                "Published Sheet Tracker", [1 90], cellstr(obj.PublishedUrl));
+
+            if isempty(answer)
+                return
+            end
+
+            url = strtrim(string(answer{1}));
+
+            if url == ""
+                obj.onClearPublishedSheet();
+                return
+            end
+
+            obj.setBusy("Reading the published sheet ...");
+
+            try
+                csvPath = fetch_published_tracker(url);
+                cleanup = onCleanup(@() delete(csvPath));
+            catch ME
+                obj.setError("The published sheet was not accepted: %s", ME.message);
+                uialert(obj.Fig, ME.message, "Sheet Not Read");
+                return
+            end
+
+            obj.PublishedUrl = url;
+            obj.refreshDatasetMenu();
+            obj.savePreferences();
+            obj.setSuccess("Published sheet set. Load again to apply it.");
+        end
+
+        function onClearPublishedSheet(obj)
+            % Stop reading the tracker from the sheet.
+            if obj.PublishedUrl == ""
+                return
+            end
+
+            obj.PublishedUrl = "";
+            obj.refreshDatasetMenu();
+            obj.savePreferences();
+            obj.setStatus("Published sheet cleared. Load again to drop its annotations.");
+        end
+
         function refreshDatasetMenu(obj)
             % Show the current selections on the Dataset menu and in the title.
             % The paths used to sit in edit fields, so the menu labels and the
@@ -389,6 +458,11 @@ classdef HistologyImageBrowser < handle
             else
                 obj.ClearMetadataMenu.Enable = "on";
             end
+
+            obj.PublishedSheetMenu.Text = "Published Sheet:  " ...
+                + HistologyImageBrowser.publishedSheetLabel(obj.PublishedUrl);
+            obj.ClearPublishedSheetMenu.Enable = ...
+                matlab.lang.OnOffSwitchState(obj.PublishedUrl ~= "");
 
             if obj.RootPath == ""
                 obj.Fig.Name = "Histology Image Browser";
@@ -1107,6 +1181,31 @@ classdef HistologyImageBrowser < handle
             else
                 label = path;
             end
+        end
+
+        function label = publishedSheetLabel(url)
+            % Name the published sheet on the menu without the key. A published
+            % URL is a hundred characters of document key and query string,
+            % none of it readable, and a menu item that wide would push the
+            % menu off the screen. The gid is the one part that distinguishes
+            % one published tab from another, so that is what is shown; the
+            % whole URL is in the dialog that sets it.
+
+            url = strtrim(string(url));
+
+            if url == ""
+                label = "(none)";
+                return
+            end
+
+            gid = regexp(url, "gid=(\d+)", "tokens", "once");
+
+            if isempty(gid)
+                label = "set";
+                return
+            end
+
+            label = "set (gid " + string(gid{1}) + ")";
         end
 
         function color = backgroundColor(code)
