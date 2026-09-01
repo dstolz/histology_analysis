@@ -20,6 +20,9 @@ setpref(group, "ShowBandGrid", obj.ShowBandGridCheck.Value);
 setpref(group, "ColorByIntensity", obj.ColorByIntensityCheck.Value);
 setpref(group, "ProfileLayout", obj.ProfileLayoutDropDown.Value);
 setpref(group, "ProfileSize", obj.ProfileSizeField.Value);
+setpref(group, "ProfileNorm", obj.ProfileNormDropDown.Value);
+setpref(group, "ProfileScope", obj.ProfileScopeDropDown.Value);
+setpref(group, "ProfileDistance", obj.ProfileDistanceDropDown.Value);
 setpref(group, "ImageBackground", obj.ImageBackground);
 
 % The band width is a property of how the study samples cortex, not of one

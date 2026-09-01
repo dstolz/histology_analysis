@@ -82,13 +82,22 @@ function build_profile_menu(obj)
 %BUILD_PROFILE_MENU Build the menu the profile axes and its traces raise.
 % The overlay toggles and the colormap are left off it: neither is drawn on
 % this plot, and a menu offering settings that visibly do nothing to the thing
-% clicked is worse than a short one. Where the plot sits, and how to get the
-% view out of the window, are what is actually being asked here.
+% clicked is worse than a short one. Where the plot sits, how its axes are
+% scaled, and how to get the view out of the window, are what is actually being
+% asked here.
 
 obj.ProfileContextMenu = uicontextmenu(obj.Fig);
 obj.ProfileContextMenu.ContextMenuOpeningFcn = @(src, evt) note_clicked_object(obj, src, evt);
 
 choice(obj, obj.ProfileContextMenu, obj.ProfileLayoutDropDown, "Profiles");
+
+% The normalizations are the settings whose subject is this plot and nothing
+% else, so unlike the overlay toggles and the colormap they belong on the menu
+% the plot itself raises.
+choice(obj, obj.ProfileContextMenu, obj.ProfileNormDropDown, "Normalize", ...
+    Separator = true);
+choice(obj, obj.ProfileContextMenu, obj.ProfileScopeDropDown, "Normalize Over");
+choice(obj, obj.ProfileContextMenu, obj.ProfileDistanceDropDown, "Distance Axis");
 
 item(obj, obj.ProfileContextMenu, "Open in Figure", "openInFigure", ...
     @() obj.runShortcut("openInFigure"), Separator = true);

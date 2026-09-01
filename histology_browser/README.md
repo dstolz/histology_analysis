@@ -214,6 +214,47 @@ line and the status bar names the section it went to. The geometry lives in the 
 rather than in the graphics object, so an edit survives its tile scrolling past the Max tiles
 cap: the draggable handle goes away, the status bar says so, and **Save ROI** still writes.
 
+## Normalizing the profile plot
+
+The bottom row of the Display panel rescales the profile plot without touching the data
+behind it. **Normalize** puts the intensity axis through one of
+
+| Choice | What each sample becomes |
+|---|---|
+| Raw intensity | the measured value, unchanged |
+| Baseline subtracted | `y - min`, which moves the trace without stretching it |
+| Min-max (0-1) | `(y - min) / (max - min)` |
+| Percent of max | `100 * y / max` |
+| Fold of mean | `y / mean` |
+| Z-score | `(y - mean) / sd` |
+
+and **over** decides where the `min`, `max`, `mean` and `sd` in that column come from. *Each
+trace* takes them from the trace being scaled, which puts sections of very different
+brightness on one scale and, in doing so, throws away how they differed. *All traces* takes
+one set from every sample on the plot, which keeps that difference — the honest choice when
+the sections are meant to be compared to each other rather than each read for its own shape.
+The control greys out with the intensity axis left raw, because there is then nothing for it
+to be measured over.
+
+**Distance** rescales the other axis, independently: *From line start* subtracts each line's
+own first sample, and *Percent of line* runs every line from 0 to 100 whatever its length,
+which is what lines two profiles up by relative depth rather than by microns. Both are per
+trace whatever **over** says, because a line's own start and its own length are the only
+things they can mean.
+
+Every one of these changes the picture and none of them changes the data. The rescaling
+happens in `normalizeProfiles` on the copy `renderProfilePlot` is about to draw, so the
+`*values.csv` files, a remeasured ROI, and the table **Export to Workspace** hands out all
+stay in the units they were measured in. The axis labels follow the choice, so a plot that is
+no longer in intensity units says so. Degenerate traces are left alone rather than divided by
+zero: a flat trace under **Min-max** lands on zero — true, and visible — instead of becoming
+a column of `NaN` that would draw as nothing and read as a missing file.
+
+The normalizations also redraw only the profile plot. They rescale numbers on the way to one
+axes and have nothing to say about a pixel in a tile, so `onProfileOptionChanged` goes
+straight to `renderProfilePlot` rather than through the render-key comparison described under
+**Redrawing only what changed**.
+
 ## Keyboard shortcuts
 
 uifigure menus ignore the `Accelerator` property, so every shortcut is bound on the figure
@@ -314,7 +355,9 @@ channel, the colormap, the panel background, the four overlay switches, **Edit R
 per-tile items act on the tile that was actually right-clicked rather than on the first
 selected row: they select that section first, exactly as clicking its row in the results
 table would, and then run the same action the button and the keyboard shortcut run. The
-profile plot's menu carries where the plot sits, plus the same two output items.
+profile plot's menu carries where the plot sits and the three normalizations that rescale its
+axes — the settings whose subject is that plot and nothing else — plus the same two output
+items.
 
 Nothing in these menus is a second implementation of anything. Each item writes the control
 in the Display panel that it mirrors and then runs that control's own callback, or goes

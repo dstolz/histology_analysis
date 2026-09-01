@@ -43,6 +43,14 @@ apply_checkbox(obj.ShowBandGridCheck, read_pref(group, "ShowBandGrid", []));
 apply_checkbox(obj.ColorByIntensityCheck, read_pref(group, "ColorByIntensity", []));
 apply_dropdown(obj.ProfileLayoutDropDown, profile_layout_pref(group));
 apply_numeric(obj.ProfileSizeField, read_pref(group, "ProfileSize", []));
+
+% APPLY_DROPDOWN drops a code the current release no longer offers, so a
+% normalization that has been renamed or withdrawn comes back as the setting
+% that changes nothing rather than leaving the dropdown showing a choice
+% NORMALIZEPROFILES would then have to fall back from on every redraw.
+apply_dropdown(obj.ProfileNormDropDown, read_pref(group, "ProfileNorm", ""));
+apply_dropdown(obj.ProfileScopeDropDown, read_pref(group, "ProfileScope", ""));
+apply_dropdown(obj.ProfileDistanceDropDown, read_pref(group, "ProfileDistance", ""));
 apply_numeric(obj.RoiWidthField, read_pref(group, "RoiWidth", []));
 apply_background(obj, read_pref(group, "ImageBackground", []));
 apply_figure_geometry(obj, group);

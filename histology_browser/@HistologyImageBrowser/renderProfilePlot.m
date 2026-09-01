@@ -2,7 +2,13 @@ function renderProfilePlot(obj)
 %RENDERPROFILEPLOT Plot the profiles of the selected sections on shared axes.
 % Tile colors are reused so a trace is easy to match to its image.
 %
-% See also ATTACHCONTEXTMENU, RENDERSELECTION.
+% The traces are read in one pass and drawn in another, with NORMALIZEPROFILES
+% between them, because a normalization measured over all traces cannot be
+% applied to the first one until the last one has been read. Reading and
+% drawing in a single loop was what this did before there was anything to
+% measure across the plot.
+%
+% See also ATTACHCONTEXTMENU, NORMALIZEPROFILES, RENDERSELECTION.
 
 ax = obj.ProfileAxes;
 
@@ -11,8 +17,6 @@ ax = obj.ProfileAxes;
 cla(ax);
 legend(ax, "off");
 
-xlabel(ax, "distance along line (\mum)");
-ylabel(ax, "intensity");
 grid(ax, "on");
 box(ax, "on");
 
@@ -29,6 +33,16 @@ end
 
 function draw_profiles(obj, ax)
 %DRAW_PROFILES Plot one trace per selected section, or say why there is none.
+
+% Set before the early returns, so an empty plot is still labelled for the
+% normalization in force rather than for whatever the last selection used.
+N = obj.normalizeProfiles(struct([]), ...
+    Normalization = obj.profileNorm(), ...
+    Distance = obj.profileDistance(), ...
+    Scope = obj.profileScope());
+
+xlabel(ax, N.xLabel);
+ylabel(ax, N.yLabel);
 
 if ~obj.showProfile()
     return
@@ -48,30 +62,9 @@ else
     colors = turbo(nDrawn);
 end
 
-hold(ax, "on");
+[traces, missingLabels] = read_traces(obj, rows, nDrawn);
 
-nPlotted = 0;
-missingLabels = strings(0, 1);
-
-for iRow = 1:nDrawn
-    P = obj.readProfile(rows(iRow, :));
-
-    if ~P.hasData
-        missingLabels(end + 1) = section_label(rows(iRow, :)); %#ok<AGROW>
-        continue
-    end
-
-    plot(ax, P.distance, P.intensity, ...
-        LineWidth = 1.25, ...
-        Color = colors(iRow, :), ...
-        DisplayName = trace_label(rows(iRow, :), P));
-
-    nPlotted = nPlotted + 1;
-end
-
-hold(ax, "off");
-
-if nPlotted == 0
+if isempty(traces)
     text(ax, 0.5, 0.5, no_profile_message(missingLabels), ...
         Units = "normalized", ...
         HorizontalAlignment = "center", ...
@@ -80,9 +73,28 @@ if nPlotted == 0
     return
 end
 
+N = obj.normalizeProfiles(traces, ...
+    Normalization = obj.profileNorm(), ...
+    Distance = obj.profileDistance(), ...
+    Scope = obj.profileScope());
+
+xlabel(ax, N.xLabel);
+ylabel(ax, N.yLabel);
+
+hold(ax, "on");
+
+for iTrace = 1:numel(N.profiles)
+    plot(ax, N.profiles(iTrace).distance, N.profiles(iTrace).intensity, ...
+        LineWidth = 1.25, ...
+        Color = colors(N.profiles(iTrace).colorIndex, :), ...
+        DisplayName = N.profiles(iTrace).label);
+end
+
+hold(ax, "off");
+
 axis(ax, "tight");
 
-if nPlotted <= 12
+if numel(N.profiles) <= 12
     legend(ax, Interpreter = "none", Location = "best", Box = "off");
 end
 
@@ -96,6 +108,36 @@ if ~isempty(missingLabels)
         Interpreter = "none", ...
         FontSize = 8, ...
         Color = [0.4 0.4 0.4]);
+end
+
+end
+
+function [traces, missingLabels] = read_traces(obj, rows, nDrawn)
+%READ_TRACES Collect the profiles that have data, and name the ones that do not.
+% Each trace carries the color index and legend entry its row earns, so the
+% drawing pass never has to look at the catalog again -- which matters because
+% NORMALIZEPROFILES returns a copy, and a copy that had to be lined back up
+% against the rows by position would break the moment a row contributed
+% nothing.
+
+% Declared with its fields rather than as a bare empty struct, so the first
+% append lands in an array that already has the shape it is growing.
+traces = struct(distance = {}, intensity = {}, colorIndex = {}, label = {});
+missingLabels = strings(0, 1);
+
+for iRow = 1:nDrawn
+    P = obj.readProfile(rows(iRow, :));
+
+    if ~P.hasData
+        missingLabels(end + 1) = section_label(rows(iRow, :)); %#ok<AGROW>
+        continue
+    end
+
+    traces(end + 1, 1) = struct( ...
+        distance = double(P.distance(:)), ...
+        intensity = double(P.intensity(:)), ...
+        colorIndex = iRow, ...
+        label = trace_label(rows(iRow, :), P)); %#ok<AGROW>
 end
 
 end

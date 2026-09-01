@@ -58,6 +58,10 @@ obj.ProfilePanel.Visible = on_off(obj.showProfile());
 % The size control only means something when the view is actually split.
 obj.ProfileSizeField.Enable = on_off(obj.showImages() && obj.showProfile());
 
+% The normalizations mean nothing when the plot they rescale is not on screen,
+% which is the half of their enable state this function is the one to know.
+obj.updateProfileControls();
+
 end
 
 function place(panel, row, column)
