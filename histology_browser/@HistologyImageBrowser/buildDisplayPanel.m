@@ -9,8 +9,8 @@ panel.Layout.Row = 1;
 % reach the right edge of the window at its opening size. Anything added here
 % has to be paid for out of the widths below, which is why a new group of
 % settings takes a row of its own rather than a column.
-grid = uigridlayout(panel, [4 14]);
-grid.RowHeight = {"fit", "fit", "fit", "fit"};
+grid = uigridlayout(panel, [5 14]);
+grid.RowHeight = {"fit", "fit", "fit", "fit", "fit"};
 grid.ColumnWidth = {"fit", 92, "fit", 92, "fit", 92, "fit", 60, 60, "fit", 50, "fit", 100, 90};
 grid.Padding = [8 8 8 8];
 grid.RowSpacing = 4;
@@ -149,7 +149,62 @@ obj.ExportButton.Tooltip = "Save the current view to an image file." ...
     + obj.shortcutHint("exportView");
 
 build_roi_edit_row(obj, grid);
+build_surface_row(obj, grid);
 build_profile_row(obj, grid);
+
+end
+
+function build_surface_row(obj, grid)
+%BUILD_SURFACE_ROW Build the controls that mark the brain surface on a line.
+% A row of its own under the ROI edit row it belongs to, because that row has
+% no width left in it and because these four are one question -- where on this
+% line does the brain start -- rather than four settings that happen to be
+% adjacent. They read left to right as the order they are used in: switch the
+% marks on, let the profile place one, place one by hand, take one off.
+%
+% Only the switch applies with nothing being edited. The other three change a
+% line, and a line is only changeable inside an edit session, so
+% UPDATEROIEDITCONTROLS greys them the way it greys Save and Revert.
+
+% The one overlay switch with a callback of its own, because it is the one
+% drawn on the profile plot as well as on the tiles.
+obj.ShowSurfaceCheck = uicheckbox(grid, ...
+    Text = "Brain surface", ...
+    Value = true, ...
+    ValueChangedFcn = @(~,~) obj.onSurfaceOverlayChanged());
+place(obj.ShowSurfaceCheck, 4, [1 2]);
+obj.ShowSurfaceCheck.Tooltip = "Tick each line where its brain surface was marked, " + ...
+    "and rule the profile plot at the same depth." ...
+    + obj.shortcutHint("toggleSurfaceOverlay");
+
+obj.DetectSurfaceButton = uibutton(grid, "push", ...
+    Text = "Detect", ...
+    Enable = "off", ...
+    ButtonPushedFcn = @(~,~) obj.onDetectSurface());
+place(obj.DetectSurfaceButton, 4, [3 4]);
+obj.DetectSurfaceButton.Tooltip = "Find the brain surface in the profile under the line, " + ...
+    "where it steps up out of the background." ...
+    + obj.shortcutHint("detectSurface");
+
+obj.MarkSurfaceButton = uibutton(grid, "push", ...
+    Text = "Mark Surface", ...
+    Enable = "off", ...
+    ButtonPushedFcn = @(~,~) obj.onMarkSurface());
+place(obj.MarkSurfaceButton, 4, [5 6]);
+obj.MarkSurfaceButton.Tooltip = "Click on the image to place the brain surface; " + ...
+    "the point is taken onto the line." + obj.shortcutHint("markSurface");
+
+obj.ClearSurfaceButton = uibutton(grid, "push", ...
+    Text = "Clear", ...
+    Enable = "off", ...
+    ButtonPushedFcn = @(~,~) obj.onClearSurface());
+place(obj.ClearSurfaceButton, 4, [7 8]);
+obj.ClearSurfaceButton.Tooltip = "Take the brain surface mark off this line. " + ...
+    "Save ROI then removes it from disk.";
+
+obj.SurfaceLabel = uilabel(grid, Text = "");
+place(obj.SurfaceLabel, 4, [9 14]);
+obj.SurfaceLabel.FontColor = [0.35 0.35 0.35];
 
 end
 
@@ -165,40 +220,40 @@ function build_profile_row(obj, grid)
 % The row reads left to right as the sentence it is: normalize <this> over
 % <that>, distance <this>.
 
-place(uilabel(grid, Text = "Normalize"), 4, 1);
+place(uilabel(grid, Text = "Normalize"), 5, 1);
 
 obj.ProfileNormDropDown = uidropdown(grid, ...
     Items = obj.ProfileNormNames, ...
     ItemsData = num2cell(obj.ProfileNormCodes), ...
     Value = "none", ...
     ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
-place(obj.ProfileNormDropDown, 4, [2 3]);
+place(obj.ProfileNormDropDown, 5, [2 3]);
 obj.ProfileNormDropDown.Tooltip = "Rescale the intensity axis of the profile plot. " + ...
     "The plot only; the values files and everything exported from the app " + ...
     "stay in the units they were measured in.";
 
 scopeLabel = uilabel(grid, Text = "over");
 scopeLabel.HorizontalAlignment = "right";
-place(scopeLabel, 4, 4);
+place(scopeLabel, 5, 4);
 
 obj.ProfileScopeDropDown = uidropdown(grid, ...
     Items = obj.ProfileScopeNames, ...
     ItemsData = num2cell(obj.ProfileScopeCodes), ...
     Value = "each", ...
     ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
-place(obj.ProfileScopeDropDown, 4, [5 6]);
+place(obj.ProfileScopeDropDown, 5, [5 6]);
 obj.ProfileScopeDropDown.Tooltip = "Whether each trace is scaled by its own numbers, " + ...
     "which hides how bright one section was against another, or every trace " + ...
     "by one set taken over the whole plot, which keeps that difference.";
 
-place(uilabel(grid, Text = "Distance"), 4, 7);
+place(uilabel(grid, Text = "Distance"), 5, 7);
 
 obj.ProfileDistanceDropDown = uidropdown(grid, ...
     Items = obj.ProfileDistanceNames, ...
     ItemsData = num2cell(obj.ProfileDistanceCodes), ...
     Value = "none", ...
     ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
-place(obj.ProfileDistanceDropDown, 4, [8 9]);
+place(obj.ProfileDistanceDropDown, 5, [8 9]);
 obj.ProfileDistanceDropDown.Tooltip = "Rescale the distance axis, to line the traces up " + ...
     "at their starts or to read them as a percentage of each line's own length.";
 

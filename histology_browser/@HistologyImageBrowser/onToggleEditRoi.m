@@ -11,8 +11,13 @@ function onToggleEditRoi(obj)
 % See also ATTACHROIEDITOR, ONDRAWROI, EXITROIEDIT.
 
 if ~obj.EditRoiButton.Value
+    % Captured before the session is cleared, because the tile that has to be
+    % redrawn is the one the edit is being taken off, and by then nothing else
+    % remembers which one that was.
+    stem = obj.RoiEditStem;
+
     if obj.exitRoiEdit(true)
-        obj.renderSelection();
+        obj.refreshRoiEdit(stem);
     end
 
     return
@@ -75,14 +80,44 @@ obj.RoiWidthField.Value = geometry.strokeWidth;
 % An untouched ROI already has its profile on disk, so reading the full
 % resolution page waits until the line actually moves. A line with no file
 % behind it has nothing to show until it is measured.
+%
+% A line that has just been invented has no brain surface either, so one is
+% looked for as soon as there is a profile to look in. Quietly, because the
+% message this function ends on is about the line -- and only for a new line: an
+% existing ROI came off disk with whatever mark it has, and turning an edit
+% session that has changed nothing into an unsaved one just by opening it would
+% put an UNSAVED badge on a tile nobody has touched.
+detected = false;
+
 if geometry.isNew
     obj.updateRoiPreview();
+    detected = obj.detectSurface(Announce = false, Overwrite = false);
 end
 
 obj.updateRoiEditControls();
-obj.renderSelection();
 
-obj.setStatus("%s Drag its ends, then Save ROI.", opening_note(row, height(rows), geometry.isNew));
+% Only the one tile taking the line changes, so the rest of the grid keeps the
+% pixels it already has rather than being read off disk again.
+obj.refreshRoiEdit();
+
+obj.setStatus("%s%s Drag its ends, then Save ROI.", ...
+    opening_note(row, height(rows), geometry.isNew), surface_note(obj, detected));
+
+end
+
+function note = surface_note(obj, detected)
+%SURFACE_NOTE Mention a brain surface the detector found on the way in.
+% Only when one was just placed. A line that came off disk with a mark already
+% on it, and one that has none and could not be given one, both say nothing
+% here: neither is news, and the ROI hint under the buttons states either.
+
+note = "";
+
+if ~detected
+    return
+end
+
+note = " Marked the brain surface " + obj.describeSurface(obj.RoiEditGeom) + ".";
 
 end
 

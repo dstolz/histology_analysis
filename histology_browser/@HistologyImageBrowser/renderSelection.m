@@ -1,11 +1,12 @@
 function renderSelection(obj)
 %RENDERSELECTION Draw every selected section as a tile, plus their profiles.
 % This is the expensive path: the tiled layout is destroyed and rebuilt, so
-% every image is read again and every pixel restretched. ONDISPLAYOPTIONCHANGED
-% sends only the changes that actually alter the pixels here, and REFRESHOVERLAYS
-% takes the rest.
+% every image is read again and every pixel restretched. Only a change that
+% actually alters the pixels is worth it, so the two kinds of change that do
+% not are routed elsewhere: ONDISPLAYOPTIONCHANGED sends an overlay option to
+% REFRESHOVERLAYS, and every step of an ROI edit goes to REFRESHROIEDIT.
 %
-% See also REFRESHOVERLAYS, DRAWIMAGETILE, RENDERPROFILEPLOT.
+% See also REFRESHOVERLAYS, REFRESHROIEDIT, DRAWIMAGETILE, RENDERPROFILEPLOT.
 
 % Recorded before anything is drawn rather than after, so that every way out of
 % this function -- including the early return on an empty selection -- leaves
@@ -48,29 +49,25 @@ if obj.showImages()
         Padding = "tight", ...
         TileSpacing = "tight");
 
-    colors = tile_colors(nDrawn);
+    colors = HistologyImageBrowser.tileColors(nDrawn);
+
+    % Which tile Edit ROI and Draw Line will act on is not something the
+    % pictures say, and finding out by pressing the button and watching a line
+    % land on the wrong section is a poor way to be told. It is marked only
+    % when there is a choice to mark: with one tile drawn, the mark would be
+    % on the only thing it could be on.
+    activeStem = obj.activeRoiStem();
 
     for iRow = 1:nDrawn
         ax = nexttile(obj.ImageLayout);
-        obj.drawImageTile(ax, rows(iRow, :), colors(iRow, :));
+        isActive = nDrawn > 1 && string(rows.Stem(iRow)) == activeStem;
+        obj.drawImageTile(ax, rows(iRow, :), colors(iRow, :), isActive);
     end
 end
 
 obj.renderProfilePlot();
 
 report_status(obj, nSelected, nDrawn, rows(1:nDrawn, :));
-
-end
-
-function colors = tile_colors(n)
-%TILE_COLORS Assign one distinguishable color per tile.
-
-if n <= 7
-    colors = lines(max(n, 1));
-    return
-end
-
-colors = turbo(n);
 
 end
 

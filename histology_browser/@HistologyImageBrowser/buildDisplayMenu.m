@@ -36,13 +36,15 @@ number(obj, obj.DisplayMenu, {obj.MaxTilesField}, ...
     "Max Tiles", "%g", Prompts = "Images drawn at once");
 
 % -- Overlays -------------------------------------------------------------
-% These three have keys of their own, so the item runs the shortcut and picks
-% up its status message as well as its toggle.
+% All four have keys of their own, so the item runs the shortcut and picks up
+% its status message as well as its toggle.
 toggle(obj, obj.DisplayMenu, obj.ShowRoiCheck, "Line ROI", "toggleRoiOverlay", ...
     Separator = true);
 toggle(obj, obj.DisplayMenu, obj.ShowBandCheck, "Sampling Band", "toggleBandOverlay");
 toggle(obj, obj.DisplayMenu, obj.ColorByIntensityCheck, "Shade ROI by Intensity", ...
     "toggleIntensityShading");
+toggle(obj, obj.DisplayMenu, obj.ShowSurfaceCheck, "Brain Surface Marks", ...
+    "toggleSurfaceOverlay");
 
 % -- Profile plot ---------------------------------------------------------
 choice(obj, obj.DisplayMenu, obj.ProfileLayoutDropDown, "Profiles", Separator = true);
@@ -88,6 +90,35 @@ toggle(obj, menu, obj.ShowBandGridCheck, "Band Grid", Separator = true);
 number(obj, menu, {obj.RoiWidthField}, "Band Width", "%g px", ...
     Prompts = "Band width, in pixels");
 
+% Where on the line the brain starts. Below the band, because a surface is a
+% point on a line that has already been placed, and grouped rather than folded
+% into the items above because all three are unavailable together: they need an
+% edit session, which is exactly the Enable state their buttons carry.
+action(obj, menu, "Detect Brain Surface", "detectSurface", ...
+    Separator = true, Mirror = obj.DetectSurfaceButton);
+action(obj, menu, "Mark Brain Surface", "markSurface", Mirror = obj.MarkSurfaceButton);
+
+% No shortcut of its own, so the item presses the button rather than going
+% through RUNSHORTCUT to an action KEYBINDINGS does not carry.
+press(obj, menu, "Clear Brain Surface", obj.ClearSurfaceButton, ...
+    @() obj.onClearSurface());
+
+end
+
+function press(obj, parent, text, control, callback)
+%PRESS Mirror a button that has no keyboard shortcut behind it.
+% ACTION goes through RUNSHORTCUT, which is right for anything KEYBINDINGS
+% names and wrong for anything it does not: naming an action that is not in the
+% table would send the item to nothing but a "no handler" message, and
+% inventing a binding to avoid that would put a key on the menu that no key
+% press answers. The item follows the button's Enable either way.
+
+menu = uimenu(parent, ...
+    Text = text, ...
+    MenuSelectedFcn = @(~,~) callback());
+
+record(obj, "enable", menu, {control}, text, "");
+
 end
 
 function choice(obj, parent, control, text, options)
@@ -114,10 +145,12 @@ end
 function toggle(obj, parent, control, text, action, options)
 %TOGGLE Mirror a checkbox or state button as a checked menu item.
 % An option with no key of its own is named without an action, and the item
-% then writes its control and runs that control's callback -- the same path a
-% click takes. Naming an action KEYBINDINGS does not carry would send the item
-% through RUNSHORTCUT to nothing but a "no handler" message, and inventing a
-% binding to avoid that would put a key on the menu that no key press answers.
+% then writes its control and runs that control's callback through
+% CHOOSEFROMMENU -- the same path a click takes, and the same path the tile
+% context menu takes. Naming an action KEYBINDINGS does not carry would send
+% the item through RUNSHORTCUT to nothing but a "no handler" message, and
+% inventing a binding to avoid that would put a key on the menu that no key
+% press answers.
 
 arguments
     obj
@@ -129,7 +162,7 @@ arguments
 end
 
 if action == ""
-    selected = @(~,~) flip_control(obj, control);
+    selected = @(~,~) obj.chooseFromMenu(control, ~control.Value);
 else
     selected = @(~,~) obj.runShortcut(action);
 end
@@ -140,14 +173,6 @@ menu = uimenu(parent, ...
     MenuSelectedFcn = selected);
 
 record(obj, "toggle", menu, {control}, text, "");
-
-end
-
-function flip_control(obj, control)
-%FLIP_CONTROL Turn a mirrored checkbox over and redraw, as a click on it would.
-
-control.Value = ~control.Value;
-obj.onDisplayOptionChanged();
 
 end
 

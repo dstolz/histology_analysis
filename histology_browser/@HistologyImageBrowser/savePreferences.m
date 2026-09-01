@@ -18,6 +18,7 @@ setpref(group, "ShowRoi", obj.ShowRoiCheck.Value);
 setpref(group, "ShowBand", obj.ShowBandCheck.Value);
 setpref(group, "ShowBandGrid", obj.ShowBandGridCheck.Value);
 setpref(group, "ColorByIntensity", obj.ColorByIntensityCheck.Value);
+setpref(group, "ShowSurface", obj.ShowSurfaceCheck.Value);
 setpref(group, "ProfileLayout", obj.ProfileLayoutDropDown.Value);
 setpref(group, "ProfileSize", obj.ProfileSizeField.Value);
 setpref(group, "ProfileNorm", obj.ProfileNormDropDown.Value);

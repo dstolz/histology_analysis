@@ -47,6 +47,10 @@ obj.applyStainColormap();
 
 obj.renderSelection();
 
+% The hint names the section the ROI buttons will act on, and the selection
+% just moved it.
+obj.updateRoiEditControls();
+
 warn_if_edit_off_screen(obj);
 
 end

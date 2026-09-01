@@ -41,6 +41,7 @@ apply_checkbox(obj.ShowRoiCheck, read_pref(group, "ShowRoi", []));
 apply_checkbox(obj.ShowBandCheck, read_pref(group, "ShowBand", []));
 apply_checkbox(obj.ShowBandGridCheck, read_pref(group, "ShowBandGrid", []));
 apply_checkbox(obj.ColorByIntensityCheck, read_pref(group, "ColorByIntensity", []));
+apply_checkbox(obj.ShowSurfaceCheck, read_pref(group, "ShowSurface", []));
 apply_dropdown(obj.ProfileLayoutDropDown, profile_layout_pref(group));
 apply_numeric(obj.ProfileSizeField, read_pref(group, "ProfileSize", []));
 

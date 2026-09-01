@@ -36,7 +36,9 @@ it discovers, per acquisition:
 
 - image renditions — raw `.czi` plus the `_proj`, `_mid`, and `_composite` exports;
 - a `.roi` sidecar holding the measured line, in ImageJ's binary ROI format;
-- one or more `*values.csv` profile files.
+- one or more `*values.csv` profile files;
+- optionally a `*_roi_surface.json` written by this browser, holding where the brain
+  surface sits on the line — see **Marking the brain surface**.
 
 Filenames are expected to follow
 
@@ -115,6 +117,8 @@ creating a Cloud project under a `umd.edu` account is blocked by organization po
 | `build_histology_image_catalog.m` | One row per section: all renditions, the ROI sidecar, the profiles, and joined tracker metadata. |
 | `parse_histology_filename.m` | Non-raising filename parser used by the catalog. |
 | `read_imagej_roi.m` / `write_imagej_roi.m` | Decode and encode ImageJ's binary `.roi` format. |
+| `detect_brain_surface.m` | Find where a line profile steps out of background into tissue. |
+| `read_surface_mark.m` / `write_surface_mark.m` / `surface_mark_path.m` | The brain surface sidecar beside a `.roi`. |
 | `measure_line_profile.m` | Measure a banded line profile from an image, matching the Fiji macro. |
 | `write_values_csv.m` | Write a measured profile back out in the macro's `*values.csv` format. |
 | `imagej_pixel_size.m` | Recover spatial calibration from a TIFF's ImageJ header. |
@@ -133,10 +137,15 @@ creating a Cloud project under a `umd.edu` account is blocked by organization po
 |---|---|---|
 | Dragging the line ROI | `images.roi.Line` | `@HistologyImageBrowser/attachRoiEditor.m` |
 | Drawing a new line ROI | `drawline` | `@HistologyImageBrowser/onDrawRoi.m` |
+| Dragging the brain surface mark | `images.roi.Point` | `@HistologyImageBrowser/attachSurfaceEditor.m` |
+| Clicking the brain surface onto the line | `drawpoint` | `@HistologyImageBrowser/onMarkSurface.m` |
 | Downsampling for display | `imresize` | `@HistologyImageBrowser/loadDisplayImage.m` |
 
-All three are guarded by `exist` checks, so without the toolbox the browser still opens,
-catalogs, displays, and plots — only ROI drawing/editing and display downsampling are lost.
+All five are guarded by `exist` checks, so without the toolbox the browser still opens,
+catalogs, displays, and plots — only ROI drawing/editing, placing a brain surface, and
+display downsampling are lost. `detect_brain_surface` is base MATLAB and needs none of it:
+its Otsu threshold is written out rather than taken from `graythresh`, so a surface can be
+found from a profile on a machine with no toolbox at all.
 
 **Bio-Formats** (`bfmatlab`) is optional and needed only to display raw `.czi`; every other
 rendition reads through `imread`. It does not have to be on the MATLAB path — when it is not,
@@ -152,9 +161,13 @@ test_histology_browser()                       % generates a dataset and checks 
 test_histology_browser("D:/GM6001_HISTOLOGY/") % checks the same things against real data
 ```
 
-It checks the filename parser, the ROI encode/decode round trip, profile measurement, and
-the values-CSV round trip against synthetic inputs, then builds a catalog and drives a live
-browser through filtering, selection, and the ROI edit / revert cycle.
+It checks the filename parser, the ROI encode/decode round trip, profile measurement, the
+values-CSV round trip, and the brain surface detector and its sidecar against synthetic
+inputs, then builds a catalog and drives a live browser through filtering, selection, the
+ROI edit / revert cycle, and marking a brain surface. The surface detector is checked
+against a profile built with its edge at a known sample, drawn both ways round, and against
+the traces it has to refuse — a line entirely inside tissue, one that only slopes, and a
+flat one.
 
 With no argument the catalog and GUI checks run against a dataset `make_test_dataset` writes
 to a temp folder and the test deletes afterwards, so the whole suite runs on a machine that
@@ -202,7 +215,8 @@ URL.
 
 **Edit ROI** puts a draggable line on the tile; **Draw Line** replaces it by dragging a new
 one at the width in the Width field. Nothing touches disk until **Save ROI**, which rewrites
-the `.roi` sidecar and remeasures the `*values.csv` beside it from the full resolution page.
+the `.roi` sidecar, remeasures the `*values.csv` beside it from the full resolution page,
+and writes or removes the brain surface mark.
 **Revert** goes back to the file. The stroke and the badge on the tile say where the line
 stands against its file — read from disk, edited but unsaved, or just written — so an unsaved
 edit is visible without the control panel in view, and leaving a section with unsaved changes
@@ -210,9 +224,94 @@ prompts rather than discarding them.
 
 An edit belongs to one section, because a drag happens on one tile, but it no longer requires
 that only one section be *selected*. With several on screen the first drawn tile takes the
-line and the status bar names the section it went to. The geometry lives in the browser
+line, and that tile says so before the button is pressed: it is framed more heavily than the
+others and its label is filled in with the tile's own color and reads **(ROI target)**. The
+ROI hint under the buttons names the same section in words, and the status bar names it again
+once the line lands there. The geometry lives in the browser
 rather than in the graphics object, so an edit survives its tile scrolling past the Max tiles
 cap: the draggable handle goes away, the status bar says so, and **Save ROI** still writes.
+
+## Marking the brain surface
+
+A cortical profile is only comparable to another one if both are read from the same
+depth, and the depth that means anything is depth below the pial surface — not distance
+from wherever the line happened to be started. **Detect**, **Mark Surface** and **Clear**,
+on the row under the ROI edit buttons, put that point on the line and take it off again.
+
+### What is stored
+
+One number: how far along the line, in pixels from its start point, the surface sits.
+Distance from the start rather than a fraction of the length, because dragging the deep
+end of a line should leave the surface where it was.
+
+It goes in a small JSON file named after the `.roi` it belongs to —
+`…_proj_roi.roi` gets `…_proj_roi_surface.json` — carrying the offset, the endpoints of
+the line it was marked against, and whether it was detected or placed by hand. Beside the
+ROI rather than inside it, because Fiji's format has no field for a point along a line and
+inventing one would produce files the line-measure macro could no longer open. The catalog
+scan looks for images, `.roi` and `*values.csv`, so the sidecar is invisible to it and
+cannot turn up as a stray section.
+
+Clearing a mark deletes that file rather than writing an empty one, so a section either
+has a surface beside its ROI or does not, and nothing downstream has to tell an absent
+sidecar from a blank one. Nothing reaches disk until **Save ROI**, which writes or removes
+it alongside the `.roi` and the `*values.csv`.
+
+### Finding it automatically
+
+A line drawn across a section starts in background and steps up into tissue, and
+`detect_brain_surface` looks for that step: the trace is smoothed, split into background
+and tissue by Otsu's threshold, and walked in from whichever end is background until it
+crosses and stays across for a couple of percent of its length — which is what keeps a
+speck of debris in the background from taking the mark. The crossing is interpolated
+between the two samples that straddle it.
+
+Otsu rather than a fixed threshold because nothing here is calibrated in absolute
+intensity: exposure, gain and stain vary between sections, and the only thing they share
+is that a profile crossing the edge of a section has a two-moded histogram. Which end is
+background is read off the trace rather than assumed, so a line drawn inward and one drawn
+outward both come out right.
+
+Otsu will cut anything in two, though, including a trace that only slopes. So a crossing
+has to be shown to be an edge before it is believed: the run between a tenth and nine
+tenths of the step has to be under a quarter of the profile. A section edge crosses that in
+a few samples; a line lying entirely inside tissue that merely dims with depth takes most
+of its length to, and is refused. A line with tissue at both ends is refused for the same
+reason, and one whose two levels are within about three noise sigmas is marked but reported
+as low confidence, because a weak step is still the best estimate the trace supports and
+the marker is there to be dragged.
+
+This runs on its own **when a line is created** — drawn with **Draw Line**, or placed
+across the middle of a section that never had one — and on demand from **Detect**. It does
+not run when an edit opens on an ROI that already has a file behind it: a guess made there
+would turn a section nobody has touched into one with unsaved changes.
+
+### Correcting it
+
+The mark is a draggable handle on the line, so a detection that landed a little off is a
+drag rather than a dialog; the handle slides along the line whatever the mouse does,
+because a point off the line has no depth along the profile. **Mark Surface** takes one
+from a click for a line that has no mark at all, and projects it onto the line the same
+way. **Clear** takes it off, which is the right answer for a section whose edge cannot be
+told from its background — an unmarked trace is visibly unaligned on the plot, where a
+wrong mark would quietly move a section somewhere it never was.
+
+The tile ticks the band across at the mark, on every tile rather than only the one being
+edited, and labels it `surface (auto)` while it is still the detector's answer — so a grid
+of sections says at a glance which of them have been checked over. **Brain surface**
+(`Ctrl+4`) switches the ticks and the rules on the profile plot on and off together.
+
+### Using it
+
+**Distance → From brain surface** on the profile plot shifts each trace so its own mark
+sits at zero, which is what lines two sections up by cortical depth. A trace with no mark
+falls back to its own line start — the axis it already had — and the plot says how many
+did, so an unmarked section reads as unaligned rather than as aligned at a surface nobody
+found.
+
+**Export to Workspace** carries the mark out beside the geometry, as `SurfaceOffset` along
+the line, the `SurfaceX`/`SurfaceY` it lands on, and `SurfaceSource` saying whether it was
+detected or placed by hand. That is what an alignment done at the command line works from.
 
 ## Normalizing the profile plot
 
@@ -237,10 +336,11 @@ The control greys out with the intensity axis left raw, because there is then no
 to be measured over.
 
 **Distance** rescales the other axis, independently: *From line start* subtracts each line's
-own first sample, and *Percent of line* runs every line from 0 to 100 whatever its length,
-which is what lines two profiles up by relative depth rather than by microns. Both are per
-trace whatever **over** says, because a line's own start and its own length are the only
-things they can mean.
+own first sample, *Percent of line* runs every line from 0 to 100 whatever its length,
+which is what lines two profiles up by relative depth rather than by microns, and *From
+brain surface* puts each trace's own surface mark at zero — see **Marking the brain
+surface**. All three are per trace whatever **over** says, because a line's own start, its
+own length, and its own surface are the only things they can mean.
 
 Every one of these changes the picture and none of them changes the data. The rescaling
 happens in `normalizeProfiles` on the copy `renderProfilePlot` is about to draw, so the
@@ -275,8 +375,10 @@ rendered from it, so a shortcut cannot be advertised in one place and bound in a
 | `Ctrl+D` | Draw a new line over the image |
 | `Ctrl+S` | Save the ROI and remeasure its profile |
 | `Ctrl+Z` | Discard unsaved ROI changes |
+| `Ctrl+B` | Find the brain surface in the profile and mark it |
+| `Ctrl+Shift+B` | Click on the image to mark the brain surface |
 | `Esc` | Leave ROI editing |
-| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Line ROI / sampling band / intensity shading on or off |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` / `Ctrl+4` | Line ROI / sampling band / intensity shading / brain surface marks on or off |
 | `Ctrl+Shift+D` / `Ctrl+Shift+P` | Hide or show the data column / the display row |
 | `Ctrl+H` | Hide or show both together |
 | `Ctrl+O` | Redraw the view in a normal figure |
@@ -342,6 +444,23 @@ a fresh install is in — `parse_histology_filename` runs the built-in conventio
 always did; `parse_histology_filename(name, pattern = ...)` and
 `build_histology_image_catalog(root, filenamePattern = ...)` take one from a script.
 
+## Reading a tile
+
+Each tile is framed, labelled and has its ROI stroked in one color, and the profile plot
+reuses it for that section's trace, so a picture can be matched to its curve without counting
+positions. Those colors come from `HistologyImageBrowser.tileColors`, which takes MATLAB's
+`lines` and `turbo` maps and lifts the dark end of them: both open on a near-black color, and
+sections are usually near-black fluorescence, so a navy frame or a navy ROI line on one is
+not a line anyone can see. Only brightness and saturation move — hue is what identifies the
+tile, so the set stays as separable as it was.
+
+The label sits inside the axes box, along the top left, on an opaque plate. A MATLAB title
+sits outside the box and takes a strip of the window with it, which on a grid of a dozen
+sections is a strip taken a dozen times out of the pictures. The plate is what keeps the
+label readable either way round: over a dark section it disappears and only the color reads,
+and over a bright brightfield one it is what the color reads against. The ROI state badge
+sits in the opposite corner so the two share the top edge without ever colliding.
+
 ## Right-click on a plot
 
 Every image tile and the profile plot carry a context menu, and it comes up from whatever
@@ -373,6 +492,17 @@ images, their contrast stretch, and the axes around them are all left standing, 
 being dragged keeps the very handle the mouse is holding. On a nine-tile view a sampling
 band toggle went from about 0.82 s to about 0.17 s that way, a little under five times
 faster.
+
+Editing an ROI takes the same cheap path. Opening a session, drawing a line, dragging one,
+marking a brain surface on it, saving, reverting and closing all change the same three
+things — the draggable handles, the overlay on the one tile the line belongs to, and the
+profile plot beside it — and not one of them changes a pixel of any image, so
+`refreshRoiEdit` updates that tile in place and the rest of the grid keeps the pictures it
+already has. Dragging the surface mark is cheaper still: it moves a point along a line the
+profile was already measured under, so nothing is remeasured at all, on every mouse move as
+well as at the end of the drag. It falls back to a full redraw only when
+there is no tile to update: the layout may not have been built yet, or the section may have
+failed to read and be showing a placeholder, which has no image coordinates to put a line in.
 
 Changes that alter the pixels or the set of tiles — the rendition, the channel, the
 colormap, the contrast percentiles, **Max tiles**, and the background — still rebuild the

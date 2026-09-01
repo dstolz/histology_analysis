@@ -92,6 +92,12 @@ classdef HistologyImageBrowser < handle
         RevertRoiButton matlab.ui.control.Button
         RoiEditLabel matlab.ui.control.Label
 
+        ShowSurfaceCheck matlab.ui.control.CheckBox
+        MarkSurfaceButton matlab.ui.control.Button
+        DetectSurfaceButton matlab.ui.control.Button
+        ClearSurfaceButton matlab.ui.control.Button
+        SurfaceLabel matlab.ui.control.Label
+
         NewFigureButton matlab.ui.control.Button
         ExportButton matlab.ui.control.Button
         OpenFolderButton matlab.ui.control.Button
@@ -201,6 +207,14 @@ classdef HistologyImageBrowser < handle
         RoiPreview struct = struct()    % Profile measured from the unsaved geometry.
         RoiEditor = []              % images.roi.Line drawn on the edited tile.
 
+        % images.roi.Point marking the brain surface on the edited line, and
+        % true while it is the thing being dragged. The point is constrained to
+        % the line rather than free in the image: a surface off the line has no
+        % depth along the profile, which is the only thing the mark is for, so
+        % ONSURFACEEDITCHANGED projects every position back onto it.
+        SurfaceEditor = []
+        SurfaceEditDragging logical = false
+
         % True between the first move of a drag and the mouse coming back up.
         % The shading under the band is measured data, and data measured from a
         % line that is still moving would be wrong, so it is left out until the
@@ -279,10 +293,18 @@ classdef HistologyImageBrowser < handle
         % The same for the distance axis, which is normalized per trace
         % whatever the scope says: a line's own start and its own length are
         % the only things "from line start" and "percent of line" can mean.
-        ProfileDistanceNames = ["As measured", "From line start", "Percent of line"]
-        ProfileDistanceCodes = ["none", "start", "percent"]
+        %
+        % "From brain surface" is the one that needs a mark to mean anything.
+        % A trace whose section has none falls back to its own line start,
+        % which is what the distance axis already meant for it, and
+        % RENDERPROFILEPLOT says how many did -- so an unmarked section reads
+        % as unaligned rather than as aligned at a surface nobody found.
+        ProfileDistanceNames = ["As measured", "From line start", ...
+            "Percent of line", "From brain surface"]
+        ProfileDistanceCodes = ["none", "start", "percent", "surface"]
         ProfileDistanceLabels = ["distance along line (\mum)", ...
-            "distance from line start (\mum)", "distance along line (% of length)"]
+            "distance from line start (\mum)", "distance along line (% of length)", ...
+            "depth from brain surface (\mum)"]
 
         % Background presets for the image panel, and their stored codes.
         % Light gray is the shade a uipanel uses by default, so an untouched
@@ -343,6 +365,12 @@ classdef HistologyImageBrowser < handle
         % rearranged, so an existing user sees no change until they ask for one.
         DefaultCatalogColumns = ["SubjectID", "SectionID", "Hemisphere", "Stain", ...
             "AtlasPlate", "NProfiles", "Variants", "Status"]
+
+        % Catalog columns the section tracker is the only source of. Named
+        % when a load has to go ahead without the tracker, so what came up
+        % blank is said once rather than discovered a column at a time.
+        TrackerColumns = ["AtlasPlate", "Content", "Slide", "SliceID", ...
+            "ImageDate", "LaserPower", "Notes", "ProcessingID"]
 
         % Variable the display table carries each row's section stem in, drawn
         % at zero width. It is what maps a displayed row back to a catalog row
@@ -446,7 +474,7 @@ classdef HistologyImageBrowser < handle
 
         renderSelection(obj)            % Draw the selected images and profiles.
 
-        drawImageTile(obj, ax, row, tileColor)  % Draw one image with its overlay.
+        drawImageTile(obj, ax, row, tileColor, isActive)  % Draw one image with its overlay.
 
         drawRoiOverlay(obj, ax, row, tileColor) % Draw the line ROI and sampling band.
 
@@ -484,9 +512,23 @@ classdef HistologyImageBrowser < handle
 
         onDrawRoi(obj)                  % Draw a new line ROI on the image.
 
+        onMarkSurface(obj)              % Click on the image to place the surface mark.
+
+        onDetectSurface(obj)            % Find the surface from the profile, and mark it.
+
+        onClearSurface(obj)             % Take the surface mark off the edited line.
+
+        found = detectSurface(obj, options)  % Locate the surface under the edited line.
+
+        attachSurfaceEditor(obj, ax, row)    % Put the draggable surface mark on the tile.
+
+        onSurfaceEditChanged(obj, position, isFinal)  % Take a dragged surface position.
+
         imagePath = measureImagePath(obj, row)  % Image a profile is measured from.
 
         refreshRoiOverlay(obj)          % Redraw just the edited tile's overlay.
+
+        refreshRoiEdit(obj, stem)       % Redraw what an ROI edit changed, and nothing else.
 
         updateRoiPreview(obj)           % Remeasure the profile under the unsaved ROI.
 
@@ -1257,6 +1299,37 @@ classdef HistologyImageBrowser < handle
             tf = obj.profileLayout() ~= "only";
         end
 
+        function onSurfaceOverlayChanged(obj)
+            % Redraw after the brain surface switch, which is the one overlay
+            % option drawn in two places.
+            %
+            % Every other overlay is a graphic on a tile, so ONDISPLAY-
+            % OPTIONCHANGED's cheap path -- REFRESHOVERLAYS, which replaces the
+            % tagged objects on each tile and leaves the pictures standing --
+            % is the whole redraw they need. The surface marks are also ruled
+            % across the profile plot, and nothing REFRESHOVERLAYS does reaches
+            % that, so the plot is redrawn here as well.
+            %
+            % Here rather than inside REFRESHOVERLAYS, because that runs for
+            % every overlay switch and the other four have nothing to say about
+            % the plot: redrawing it there would make a sampling band toggle
+            % reread every selected section's profile to change nothing.
+
+            obj.onDisplayOptionChanged();
+
+            if ~obj.showProfile()
+                return
+            end
+
+            % A change of settings large enough to have gone down
+            % ONDISPLAYOPTIONCHANGED's expensive path has already redrawn the
+            % plot, and this redraws it a second time. That costs one wasted
+            % redraw in a case a click on this checkbox cannot produce, and the
+            % alternative is a second copy of the render-key comparison here to
+            % detect it.
+            obj.renderProfilePlot();
+        end
+
         function onProfileOptionChanged(obj)
             % Redraw the profile plot after a normalization choice.
             %
@@ -1385,21 +1458,117 @@ classdef HistologyImageBrowser < handle
             text = text + sprintf(" (%.0f um)", width * pixelSize);
         end
 
-        function row = editedRow(obj)
-            % Return the row being edited, or an empty table when idle.
-            row = obj.View([], :);
+        function text = describeSurface(obj, R)
+            % Say where the brain surface mark sits on a line, in the units
+            % anyone reading the tile can check it in.
+            %
+            % Pixels because that is what the mark is stored in and what the
+            % overlay is drawn in, microns beside them wherever the page is
+            % calibrated, and a percentage of the line because that is the one
+            % of the three that can be compared between two sections whose
+            % lines are different lengths.
+            %
+            % Parameters
+            %   R: Struct with x1, y1, x2, y2 and surface -- ROIFORROW's return
+            %      or the ROI edit geometry, which carry the same fields.
 
-            if obj.RoiEditStem == "" || height(obj.View) == 0
+            text = "not marked";
+
+            if ~isfield(R, "surface") || ~isscalar(R.surface) || ~isfinite(R.surface)
                 return
             end
 
-            index = find(string(obj.View.Stem) == obj.RoiEditStem, 1);
+            text = sprintf("at %.0f px", R.surface);
+
+            pixelSize = obj.roiEditPixelSize();
+
+            if isfinite(pixelSize) && pixelSize > 0
+                % Spelled "um" rather than with the micron sign, which does not
+                % survive every console and font this text is shown in.
+                text = text + sprintf(" (%.0f um)", R.surface * pixelSize);
+            end
+
+            lineLength = hypot(double(R.x2) - double(R.x1), double(R.y2) - double(R.y1));
+
+            if isfinite(lineLength) && lineLength > 0
+                text = text + sprintf(", %.0f%% along the line", ...
+                    100 * R.surface / lineLength);
+            end
+        end
+
+        function row = editedRow(obj)
+            % Return the row being edited, or an empty table when idle.
+            row = obj.rowForStem(obj.RoiEditStem);
+        end
+
+        function row = rowForStem(obj, stem)
+            % Row of the filtered view a section stem names, or an empty table.
+            %
+            % The view rather than the catalog, because a tile is only ever
+            % drawn from a row that is in the view, and every other reader of
+            % a row -- the overlay, the profile, the save -- looks there too.
+
+            row = obj.View([], :);
+
+            if stem == "" || height(obj.View) == 0
+                return
+            end
+
+            index = find(string(obj.View.Stem) == stem, 1);
 
             if isempty(index)
                 return
             end
 
             row = obj.View(index, :);
+        end
+
+        function ax = tileAxes(obj, stem)
+            % Tile currently showing one section, or [] when it is not drawn.
+            %
+            % The stem DRAWIMAGETILE stamps on each axes is what picks the
+            % right tile out of several: FINDOBJ returns them newest first, so
+            % taking the first would land on the last section of the selection
+            % rather than on the one being asked for.
+
+            ax = [];
+
+            if stem == "" || isempty(obj.ImagePanel) || ~isvalid(obj.ImagePanel)
+                return
+            end
+
+            candidates = findobj(obj.ImagePanel, Type = "axes");
+
+            for iAxes = 1:numel(candidates)
+                if HistologyImageBrowser.tileStem(candidates(iAxes)) == stem
+                    ax = candidates(iAxes);
+                    return
+                end
+            end
+        end
+
+        function stem = activeRoiStem(obj)
+            % Section the ROI controls act on, or "" when none is selected.
+            %
+            % An edit already open owns the line whichever tile it sits on;
+            % otherwise the first selected row takes it, which is the same
+            % choice ONTOGGLEEDITROI and ONDRAWROI make. Naming it in one
+            % place is what lets the tile say so before the button is pressed,
+            % rather than the user finding out by pressing it.
+
+            stem = obj.RoiEditStem;
+
+            if stem ~= ""
+                return
+            end
+
+            rows = obj.selectedRows();
+
+            if isempty(rows) || height(rows) == 0
+                return
+            end
+
+            stem = string(rows.Stem(1));
         end
 
         function onOpenFolder(obj)
@@ -1554,6 +1723,64 @@ classdef HistologyImageBrowser < handle
 
         style = roiStateStyle(state, tileColor)  % Aesthetics for one ROI save state.
 
+        function point = surfacePoint(R)
+            % Image coordinates of the brain surface mark on a line ROI, or []
+            % when the line carries no mark.
+            %
+            % The mark is stored as a distance from the line's start rather
+            % than as a point, because that is what survives the far end of the
+            % line being dragged. Everything that draws it -- the tick on the
+            % tile, the draggable handle, the exported columns -- turns it back
+            % into a point here rather than each doing the arithmetic itself.
+            %
+            % Parameters
+            %   R: Struct with x1, y1, x2, y2 and surface, as ROIFORROW and the
+            %      ROI edit geometry both carry.
+
+            point = [];
+
+            if ~isfield(R, "surface") || ~isscalar(R.surface) || ~isfinite(R.surface)
+                return
+            end
+
+            delta = [double(R.x2) - double(R.x1), double(R.y2) - double(R.y1)];
+            lineLength = hypot(delta(1), delta(2));
+
+            if ~isfinite(lineLength) || lineLength <= 0
+                return
+            end
+
+            % Clamped rather than refused, so a mark left over from a longer
+            % line lands on the end of the shorter one instead of floating off
+            % past it. The stroke says the line is unsaved either way.
+            offset = min(max(double(R.surface), 0), lineLength);
+
+            point = [double(R.x1), double(R.y1)] + offset * delta / lineLength;
+        end
+
+        function offset = projectOntoLine(R, point)
+            % Distance from a line's start to the foot of a point's
+            % perpendicular, clamped to the line. This is what turns a click or
+            % a drag anywhere near the line into a surface offset, so the mark
+            % can never end up somewhere the profile was not measured.
+            %
+            % Returns NaN for a line with no length, which has no offsets.
+
+            offset = NaN;
+
+            delta = [double(R.x2) - double(R.x1), double(R.y2) - double(R.y1)];
+            lineLength = hypot(delta(1), delta(2));
+
+            if ~isfinite(lineLength) || lineLength <= 0
+                return
+            end
+
+            unit = delta / lineLength;
+            fromStart = [double(point(1)) - double(R.x1), double(point(2)) - double(R.y1)];
+
+            offset = min(max(dot(fromStart, unit), 0), lineLength);
+        end
+
         [tf, message] = checkFilenamePattern(pattern)  % Judge a candidate pattern.
 
         pattern = tokenListPattern(delimiter, names)   % Compile a token list into one.
@@ -1581,6 +1808,46 @@ classdef HistologyImageBrowser < handle
             stem = string(ax.UserData.Stem);
         end
 
+        function colors = tileColors(n)
+            % One distinguishable color per tile, all legible on a dark image.
+            %
+            % A tile's color is the only thing tying a picture to its trace in
+            % the profile plot, so the three places that draw them --
+            % RENDERSELECTION, RENDERPROFILEPLOT and ONOPENINFIGURE -- all come
+            % here instead of each calling LINES or TURBO for itself.
+            %
+            % Both of those maps run dark at their ends: LINES opens on a navy
+            % and TURBO on a near-black violet. That color is not only the
+            % frame; it strokes the ROI across the section and now titles the
+            % tile from inside it, and sections are usually near-black
+            % fluorescence, so a navy line on one is not a line anyone can see.
+            % Hue is what identifies a tile, so hue is the one thing left
+            % alone: every color is lifted to at least MINVALUE and has its
+            % saturation capped, which keeps the set as separable as it was
+            % while none of it can sink into the background.
+
+            arguments
+                n (1,1) double
+            end
+
+            n = max(round(n), 1);
+
+            if n <= 7
+                colors = lines(n);
+            else
+                colors = turbo(n);
+            end
+
+            minValue = 0.78;
+            maxSaturation = 0.85;
+
+            hsv = rgb2hsv(colors);
+            hsv(:, 2) = min(hsv(:, 2), maxSaturation);
+            hsv(:, 3) = max(hsv(:, 3), minValue);
+
+            colors = hsv2rgb(hsv);
+        end
+
         function color = tileColor(ax, fallback)
             % Color a tile's frame and overlay were drawn in.
             % An axes drawn before the stamp existed, or one that is not a
@@ -1589,7 +1856,7 @@ classdef HistologyImageBrowser < handle
 
             arguments
                 ax
-                fallback (1,3) double = lines(1)
+                fallback (1,3) double = HistologyImageBrowser.tileColors(1)
             end
 
             color = fallback;

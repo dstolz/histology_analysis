@@ -62,7 +62,13 @@ if ~isempty(obj.RoiEditor) && isvalid(obj.RoiEditor)
     delete(obj.RoiEditor);
 end
 
+if ~isempty(obj.SurfaceEditor) && isvalid(obj.SurfaceEditor)
+    delete(obj.SurfaceEditor);
+end
+
 obj.RoiEditor = [];
+obj.SurfaceEditor = [];
+obj.SurfaceEditDragging = false;
 obj.RoiEditStem = "";
 obj.RoiEditGeom = struct();
 obj.RoiEditDirty = false;

@@ -8,6 +8,11 @@ function renderProfilePlot(obj)
 % drawing in a single loop was what this did before there was anything to
 % measure across the plot.
 %
+% A section whose brain surface has been marked gets a dashed rule at that
+% depth in its own trace's color, on the same switch as the tick the tiles
+% carry. Under "From brain surface" every rule lands on zero and they draw as
+% one, which is exactly what that alignment is claiming.
+%
 % See also ATTACHCONTEXTMENU, NORMALIZEPROFILES, RENDERSELECTION.
 
 ax = obj.ProfileAxes;
@@ -56,11 +61,9 @@ end
 
 nDrawn = min(height(rows), max(1, round(obj.MaxTilesField.Value)));
 
-if nDrawn <= 7
-    colors = lines(nDrawn);
-else
-    colors = turbo(nDrawn);
-end
+% The same colors the tiles are framed and titled in, from the same place, so
+% a trace can be matched to its picture without counting positions.
+colors = HistologyImageBrowser.tileColors(nDrawn);
 
 [traces, missingLabels] = read_traces(obj, rows, nDrawn);
 
@@ -83,31 +86,85 @@ ylabel(ax, N.yLabel);
 
 hold(ax, "on");
 
+traceLines = gobjects(numel(N.profiles), 1);
+
 for iTrace = 1:numel(N.profiles)
-    plot(ax, N.profiles(iTrace).distance, N.profiles(iTrace).intensity, ...
+    traceLines(iTrace) = plot(ax, N.profiles(iTrace).distance, N.profiles(iTrace).intensity, ...
         LineWidth = 1.25, ...
         Color = colors(N.profiles(iTrace).colorIndex, :), ...
         DisplayName = N.profiles(iTrace).label);
+end
+
+% Drawn after the traces so a rule sits over the curve it belongs to.
+if obj.ShowSurfaceCheck.Value
+    draw_surface_rules(ax, N.profiles, colors);
 end
 
 hold(ax, "off");
 
 axis(ax, "tight");
 
+% The traces are named rather than the axes being asked what is on it, so the
+% surface rules cannot end up in a legend that is meant to name sections: a
+% second entry per section would double a twelve-trace legend to say nothing.
 if numel(N.profiles) <= 12
-    legend(ax, Interpreter = "none", Location = "best", Box = "off");
+    legend(ax, traceLines, Interpreter = "none", Location = "best", Box = "off");
 end
 
 % With a mixed selection the plotted traces alone would not reveal that some
-% sections contributed nothing, so the omission is stated on the axes.
-if ~isempty(missingLabels)
-    text(ax, 0.99, 0.99, missing_note(missingLabels), ...
+% sections contributed nothing, or that some of them are sitting on their line
+% start because no surface was ever marked on them, so both are stated on the
+% axes rather than left to be inferred from a plot that looks complete.
+lines = notes(missingLabels, N);
+
+if ~isempty(lines)
+    text(ax, 0.99, 0.99, join(lines, "; "), ...
         Units = "normalized", ...
         HorizontalAlignment = "right", ...
         VerticalAlignment = "top", ...
         Interpreter = "none", ...
         FontSize = 8, ...
         Color = [0.4 0.4 0.4]);
+end
+
+end
+
+function lines = notes(missingLabels, N)
+%NOTES Collect what the plot has to say about what is not on it.
+
+lines = strings(0, 1);
+
+if ~isempty(missingLabels)
+    lines(end + 1, 1) = missing_note(missingLabels);
+end
+
+% Only under the alignment that needed a mark. Under every other distance
+% mapping an unmarked section is not missing anything.
+if N.distance == "surface" && N.nUnmarked > 0
+    lines(end + 1, 1) = sprintf("%d trace(s) not surface-marked, shown from the line start", ...
+        N.nUnmarked);
+end
+
+end
+
+function draw_surface_rules(ax, profiles, colors)
+%DRAW_SURFACE_RULES Rule each trace at the depth its brain surface was marked.
+% XLINE rather than a plotted pair of points, so the rule spans whatever the
+% intensity axis turns out to be after the normalization has had it, and so it
+% keeps spanning it if the axis is later zoomed.
+
+for iProfile = 1:numel(profiles)
+    surface = profiles(iProfile).surface;
+
+    if ~isscalar(surface) || ~isfinite(surface)
+        continue
+    end
+
+    xline(ax, surface, ...
+        LineStyle = "--", ...
+        LineWidth = 1, ...
+        Color = colors(profiles(iProfile).colorIndex, :), ...
+        Alpha = 0.9);
 end
 
 end
@@ -122,7 +179,7 @@ function [traces, missingLabels] = read_traces(obj, rows, nDrawn)
 
 % Declared with its fields rather than as a bare empty struct, so the first
 % append lands in an array that already has the shape it is growing.
-traces = struct(distance = {}, intensity = {}, colorIndex = {}, label = {});
+traces = struct(distance = {}, intensity = {}, surface = {}, colorIndex = {}, label = {});
 missingLabels = strings(0, 1);
 
 for iRow = 1:nDrawn
@@ -133,9 +190,15 @@ for iRow = 1:nDrawn
         continue
     end
 
+    % The surface rides along on the trace rather than being looked up again
+    % at drawing time, for the same reason the color and the label do:
+    % NORMALIZEPROFILES returns a copy, and anything that had to be lined back
+    % up against the rows by position would break the moment a row contributed
+    % nothing.
     traces(end + 1, 1) = struct( ...
         distance = double(P.distance(:)), ...
         intensity = double(P.intensity(:)), ...
+        surface = double(P.surface), ...
         colorIndex = iRow, ...
         label = trace_label(rows(iRow, :), P)); %#ok<AGROW>
 end

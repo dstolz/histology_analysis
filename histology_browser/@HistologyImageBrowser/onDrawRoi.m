@@ -7,6 +7,12 @@ function onDrawRoi(obj)
 % Several sections can be selected while this runs. An edit already open owns
 % the line whichever tile it sits on; otherwise the first drawn tile takes it,
 % which is the same tile ONTOGGLEEDITROI would have chosen.
+%
+% A new line takes a new brain surface. The old mark was a distance along the
+% old line and means nothing on this one, so it is dropped rather than carried
+% over, and DETECTSURFACE is asked for a fresh one off the profile the new line
+% measures. It is asked quietly: a guess offered unbidden should not push the
+% message about the line that was just drawn off the status bar.
 
 if exist("drawline", "file") == 0
     obj.setError("Drawing a line ROI needs the Image Processing Toolbox.");
@@ -54,11 +60,16 @@ end
 
 width = max(1, round(obj.RoiWidthField.Value));
 
-% The existing handle would swallow the first click, so it goes away for the
-% duration of the drag and is rebuilt from the new geometry afterwards.
+% The existing handles would swallow the first click, so both go away for the
+% duration of the drag and are rebuilt from the new geometry afterwards.
 if ~isempty(obj.RoiEditor) && isvalid(obj.RoiEditor)
     delete(obj.RoiEditor);
     obj.RoiEditor = [];
+end
+
+if ~isempty(obj.SurfaceEditor) && isvalid(obj.SurfaceEditor)
+    delete(obj.SurfaceEditor);
+    obj.SurfaceEditor = [];
 end
 
 obj.setStatus("Drag across the image to draw a %d px wide line.", width);
@@ -71,7 +82,12 @@ try
     drawn = drawline(ax, Color = drawStyle.Color, LineWidth = drawStyle.LineWidth);
 catch ME
     obj.setError("Could not start drawing: %s", ME.message);
-    obj.renderSelection();
+
+    % The handle was deleted a few lines up to keep it from swallowing the
+    % first click, so it has to be put back whether or not a line was drawn.
+    % A full redraw would also have overwritten the message just set with
+    % "Showing N sections", which is not what happened here.
+    obj.refreshRoiEdit();
 
     return
 end
@@ -85,7 +101,7 @@ end
 
 if ~isequal(size(position), [2 2]) || hypot(diff(position(:, 1)), diff(position(:, 2))) < 1
     obj.setWarning("No line was drawn; the ROI is unchanged.");
-    obj.renderSelection();
+    obj.refreshRoiEdit();
 
     return
 end
@@ -97,17 +113,43 @@ geometry.x2 = round(position(2, 1));
 geometry.y2 = round(position(2, 2));
 geometry.strokeWidth = width;
 
+% Belonged to the line that has just been replaced, so it is dropped before the
+% new one is measured rather than left pointing somewhere along it.
+geometry.surface = NaN;
+geometry.surfaceSource = "";
+
 obj.RoiEditGeom = geometry;
 obj.RoiEditDirty = true;
 obj.RoiEditDragging = false;
 obj.RoiSavedStem = "";
 
 obj.updateRoiPreview();
-obj.updateRoiEditControls();
-obj.renderSelection();
 
-obj.setStatus("Drew a %d px line over %.0f px. Save ROI writes it to disk.", ...
-    width, hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1));
+% After the preview, because the surface is read off the profile the line
+% measures and there is nothing to read until it exists.
+detected = obj.detectSurface(Announce = false);
+
+obj.updateRoiEditControls();
+obj.refreshRoiEdit();
+
+obj.setStatus("Drew a %d px line over %.0f px.%s Save ROI writes it to disk.", ...
+    width, hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1), ...
+    surface_note(obj, detected));
+
+end
+
+function note = surface_note(obj, detected)
+%SURFACE_NOTE Say whether a brain surface was found under the new line.
+% Both outcomes are worth a few words: one says a mark appeared that nobody
+% asked for and can be dragged, and the other says the line has no mark, which
+% is the state the alignment on the profile plot falls back from.
+
+if detected
+    note = " Marked the brain surface " + obj.describeSurface(obj.RoiEditGeom) + ";";
+    return
+end
+
+note = " No brain surface found under it;";
 
 end
 

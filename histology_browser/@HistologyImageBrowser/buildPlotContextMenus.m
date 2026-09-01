@@ -52,6 +52,8 @@ toggle(obj, obj.TileContextMenu, obj.ShowBandCheck, "Sampling Band", "toggleBand
 toggle(obj, obj.TileContextMenu, obj.ColorByIntensityCheck, "Shade ROI by Intensity", ...
     "toggleIntensityShading");
 toggle(obj, obj.TileContextMenu, obj.ShowBandGridCheck, "Band Grid");
+toggle(obj, obj.TileContextMenu, obj.ShowSurfaceCheck, "Brain Surface Marks", ...
+    "toggleSurfaceOverlay");
 
 % -- This tile's ROI ------------------------------------------------------
 % These three are the reason the clicked tile is recorded at all: they are the

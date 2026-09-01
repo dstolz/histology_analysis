@@ -12,6 +12,14 @@ function N = normalizeProfiles(profiles, options)
 % a remeasured ROI, the CSV rewritten beside a saved line -- is touched by
 % anything chosen here.
 %
+% "From brain surface" is the one distance mapping that needs something beyond
+% the samples: the depth the section's brain surface was marked at, carried on
+% each trace as a SURFACE field on the trace's own distance axis. A trace
+% without one falls back to "from line start", which is what its distance axis
+% already meant, rather than being left where it was or dropped -- and the
+% caller is told which traces those were, so an unmarked section reads as
+% unaligned instead of as aligned at a surface nobody found.
+%
 % Scope applies to the intensity axis alone. "each" scales every trace by its
 % own statistics, which puts sections of very different brightness on one scale
 % and, in doing so, throws away how they differed; "all" scales every trace by
@@ -29,7 +37,9 @@ function N = normalizeProfiles(profiles, options)
 %
 % Parameters
 %   profiles: Struct array with fields distance and intensity, one entry per
-%       trace. May be empty, in which case only the labels come back.
+%       trace, and optionally surface -- the depth of the brain surface on that
+%       trace's distance axis, NaN or absent when it has no mark. May be empty,
+%       in which case only the labels come back.
 %   options.Normalization: Code from PROFILENORMCODES. "none" by default.
 %   options.Distance: Code from PROFILEDISTANCECODES. "none" by default.
 %   options.Scope: Code from PROFILESCOPECODES. "each" by default.
@@ -40,6 +50,8 @@ function N = normalizeProfiles(profiles, options)
 %      - xLabel, yLabel: What the axes should now be called.
 %      - normalization, distance, scope: The codes actually applied, after any
 %        unrecognized one has fallen back to the setting that changes nothing.
+%      - nUnmarked: How many traces "from brain surface" had to fall back on,
+%        for the caller to say so. Zero under every other distance mapping.
 %
 % See also RENDERPROFILEPLOT, READPROFILE.
 
@@ -63,6 +75,7 @@ scope = fall_back(options.Scope, ...
 
 N = struct( ...
     "profiles", profiles, ...
+    "nUnmarked", 0, ...
     "xLabel", axis_label(distance, HistologyImageBrowser.ProfileDistanceCodes, ...
         HistologyImageBrowser.ProfileDistanceLabels), ...
     "yLabel", axis_label(normalization, HistologyImageBrowser.ProfileNormCodes, ...
@@ -75,13 +88,15 @@ if isempty(profiles)
     return
 end
 
-N.profiles = scale_distance(N.profiles, distance);
+[N.profiles, N.nUnmarked] = scale_distance(N.profiles, distance);
 N.profiles = scale_intensity(N.profiles, normalization, scope);
 
 end
 
-function profiles = scale_distance(profiles, code)
+function [profiles, nUnmarked] = scale_distance(profiles, code)
 %SCALE_DISTANCE Put every trace's distance axis through the chosen mapping.
+
+nUnmarked = 0;
 
 if code == "none"
     return
@@ -91,6 +106,22 @@ for iProfile = 1:numel(profiles)
     d = double(profiles(iProfile).distance(:));
 
     if isempty(d)
+        continue
+    end
+
+    if code == "surface"
+        surface = trace_surface(profiles(iProfile));
+
+        if isnan(surface)
+            % No mark to align on, so the trace falls back on its own start --
+            % the same axis "from line start" would give it. Counted rather
+            % than annotated here, because how to say so belongs to whatever is
+            % drawing the plot.
+            nUnmarked = nUnmarked + 1;
+            surface = min(d);
+        end
+
+        profiles(iProfile).distance = d - surface;
         continue
     end
 
@@ -104,6 +135,25 @@ for iProfile = 1:numel(profiles)
     end
 
     profiles(iProfile).distance = d;
+end
+
+end
+
+function surface = trace_surface(profile)
+%TRACE_SURFACE Read a trace's brain surface depth, or NaN when it has none.
+% Absent on a trace built by a caller that knows nothing about surfaces, which
+% is the same thing here as a section that was never marked.
+
+surface = NaN;
+
+if ~isfield(profile, "surface")
+    return
+end
+
+candidate = double(profile.surface);
+
+if isscalar(candidate) && isfinite(candidate)
+    surface = candidate;
 end
 
 end

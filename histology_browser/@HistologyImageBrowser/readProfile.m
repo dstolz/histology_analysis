@@ -6,14 +6,24 @@ function P = readProfile(obj, row)
 % is only a fallback for rows that combiner skipped, for example when the
 % filename did not match the tracker.
 %
+% The brain surface mark comes back on the same axis as the samples, so a
+% caller plotting the trace can put a marker on it, or shift the axis so the
+% surface sits at zero, without knowing that the mark is stored in pixels along
+% the line. The conversion is the fraction of the line the mark sits at, mapped
+% onto the span of the trace, which is exact because the trace spans the line
+% by construction and holds whether or not the page carries a calibration.
+%
 % Returns
-%   P: Struct with fields hasData, distance, intensity, roiLabel, source,
-%      and message.
+%   P: Struct with fields hasData, distance, intensity, surface,
+%      surfaceSource, roiLabel, source, and message. The surface is NaN when
+%      the section has no mark.
 
 P = struct( ...
     "hasData", false, ...
     "distance", zeros(0, 1), ...
     "intensity", zeros(0, 1), ...
+    "surface", NaN, ...
+    "surfaceSource", "", ...
     "roiLabel", "", ...
     "source", "", ...
     "message", "");
@@ -23,6 +33,7 @@ P = struct( ...
 P = read_from_preview(P, obj, row);
 
 if P.hasData
+    P = attach_surface(P, obj, row);
     return
 end
 
@@ -43,10 +54,47 @@ end
 P = read_from_combined(P, obj.Data, valuesPath);
 
 if P.hasData
+    P = attach_surface(P, obj, row);
     return
 end
 
 P = read_from_csv(P, valuesPath);
+P = attach_surface(P, obj, row);
+
+end
+
+function P = attach_surface(P, obj, row)
+%ATTACH_SURFACE Put the brain surface mark onto the trace's own distance axis.
+% ROIFORROW is what resolves the mark, so an unsaved one wins over the sidecar
+% exactly as an unsaved line wins over the .roi file, and everything that draws
+% the surface is reading the same number.
+
+if ~P.hasData
+    return
+end
+
+R = obj.roiForRow(row);
+
+if ~R.isValid || ~R.isLine || ~isfinite(R.surface)
+    return
+end
+
+lineLength = hypot(R.x2 - R.x1, R.y2 - R.y1);
+
+if ~isfinite(lineLength) || lineLength <= 0
+    return
+end
+
+span = P.distance(end) - P.distance(1);
+
+if ~isfinite(span) || span <= 0
+    return
+end
+
+fraction = min(max(R.surface / lineLength, 0), 1);
+
+P.surface = P.distance(1) + fraction * span;
+P.surfaceSource = R.surfaceSource;
 
 end
 

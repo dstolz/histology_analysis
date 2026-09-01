@@ -5,8 +5,14 @@ function onSaveRoiEdits(obj)
 % format, so the next run of the line-measure macro, and anyone opening the
 % section in Fiji, sees exactly the line that was dragged here.
 %
-% Both files are overwritten in place. Nothing is backed up, so a profile is
-% only ever as recoverable as the images it was measured from.
+% The brain surface mark goes out with them, into a small sidecar named after
+% the .roi file. Fiji has no field for a point along a line, so the mark
+% travels beside the ROI rather than inside it -- which also means clearing a
+% mark has to remove that sidecar rather than write an empty one, so that a
+% section either has a surface beside its ROI or does not.
+%
+% All three files are overwritten in place. Nothing is backed up, so a profile
+% is only ever as recoverable as the images it was measured from.
 
 row = obj.editedRow();
 
@@ -58,6 +64,11 @@ try
         name = roi_name(geometry, paths));
 
     write_values_csv(paths.valuesPath, P.distance, P.intensity);
+
+    % Last of the three, and the only one that can remove a file: a geometry
+    % whose surface is NaN takes the sidecar away rather than leaving one
+    % behind that says nothing.
+    surface = write_surface_mark(surface_mark_path(paths.roiPath), geometry);
 catch ME
     obj.setError("Could not save %s: %s", row.Stem, ME.message);
     uialert(obj.Fig, ME.message, "Save Failed");
@@ -85,11 +96,11 @@ obj.RoiSavedStem = string(row.Stem);
 obj.RoiPreview = struct();
 
 obj.updateRoiEditControls();
-obj.renderSelection();
+obj.refreshRoiEdit();
 
-obj.setSuccess("Saved %s and %s: %d samples, %s.%s", ...
+obj.setSuccess("Saved %s and %s: %d samples, %s.%s%s", ...
     filename(paths.roiPath), filename(paths.valuesPath), P.nSamples, ...
-    describe_calibration(P), extra_values_note(paths));
+    describe_calibration(P), surface_note(surface), extra_values_note(paths));
 
 end
 
@@ -327,6 +338,21 @@ replacement.intensity = P.intensity;
 
 T(isFile, :) = [];
 obj.Data.combined = [T; replacement];
+
+end
+
+function note = surface_note(surface)
+%SURFACE_NOTE Say what happened to the brain surface sidecar.
+% Written and removed are both worth a word, because neither is visible in the
+% two filenames the message already names and both change what the profile
+% plot can align on.
+
+if surface.written
+    note = sprintf(" Brain surface at %.0f px written beside it.", surface.offset);
+    return
+end
+
+note = " No brain surface marked.";
 
 end
 

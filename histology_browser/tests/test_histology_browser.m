@@ -10,10 +10,16 @@ function test_histology_browser(rootPath, options)
 % this deletes on the way out, so they run anywhere too.
 %
 % Driving the browser reads and writes its saved preferences, so the run
-% snapshots the whole preference group and puts it back on the way out. That
-% cannot protect a run from another MATLAB writing the same preference file at
-% the same time, and PREFDIR is fixed at startup: give concurrent runs a
-% preference directory of their own by launching them with MATLAB_PREFDIR set.
+% snapshots the whole preference group before the first check and puts it back
+% on the way out. That cannot protect a run from another MATLAB writing the
+% same preference file at the same time, and PREFDIR is fixed at startup: give
+% concurrent runs a preference directory of their own by launching them with
+% MATLAB_PREFDIR set to a folder that exists, since a path that does not is
+% ignored and the real preferences are used instead.
+%
+% Nothing here reaches the network. The saved published sheet is unset for the
+% length of the run, and the download itself is checked against a stand-in
+% fetch, so the suite runs offline and gives the same answer every time.
 %
 % Parameters
 %   rootPath: Optional histology root folder to exercise the GUI against.
@@ -31,6 +37,20 @@ end
 addpath(fileparts(fileparts(mfilename("fullpath"))));
 addpath(fileparts(mfilename("fullpath")));
 
+% Snapshotted before the first check rather than before the GUI ones, because
+% the browser saves its preferences whenever it loads, redraws, or closes, and
+% the published-sheet check builds one. Without this a run would leave the
+% user's own root folder, colormaps, ROI band width, and window geometry set
+% to whatever these checks needed.
+restorePreferences = preserve_preferences(); %#ok<NASGU>  Restores on the way out.
+
+% Taken out of the run's way once the group is safe. A published sheet in the
+% preference file is read by every browser these checks build, which sends
+% each of their loads to the network: minutes of waiting when it answers, and
+% an unrelated check failing on an empty catalog when it does not. What the
+% published sheet path itself does is checked against a stand-in fetch instead.
+clear_published_pref();
+
 nFailed = 0;
 
 nFailed = nFailed + run_case("filename parser", @check_filename_parser);
@@ -38,6 +58,8 @@ nFailed = nFailed + run_case("ImageJ ROI decoder", @check_roi_decoder);
 nFailed = nFailed + run_case("ImageJ ROI encoder", @check_roi_encoder);
 nFailed = nFailed + run_case("line profile measurement", @check_profile_measurement);
 nFailed = nFailed + run_case("profile normalization", @check_profile_normalization);
+nFailed = nFailed + run_case("brain surface detection", @check_surface_detection);
+nFailed = nFailed + run_case("brain surface sidecar", @check_surface_mark_files);
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
 nFailed = nFailed + run_case("published sheet URLs", @check_published_url);
 nFailed = nFailed + run_case("published sheet settings", @check_published_settings);
@@ -55,17 +77,14 @@ end
 if ~isfolder(rootPath)
     fprintf("- Skipping catalog and GUI checks (%s is not a folder).\n", rootPath);
 else
-    % The browser saves its preferences whenever it loads, redraws, or closes,
-    % so without this a test run would leave the user's own root folder,
-    % colormaps, and ROI band width set to whatever these checks needed.
-    restorePreferences = preserve_preferences(); %#ok<NASGU>  Restores on the way out.
-
     nFailed = nFailed + run_case("image catalog", @() check_catalog(rootPath, options.metadataCSV));
     nFailed = nFailed + run_case("browser GUI", @() check_gui(rootPath, options.metadataCSV));
     nFailed = nFailed + run_case("export to workspace", ...
         @() check_workspace_export(rootPath, options.metadataCSV));
     nFailed = nFailed + run_case("ROI edit grid", ...
         @() check_roi_edit_grid(rootPath, options.metadataCSV));
+    nFailed = nFailed + run_case("brain surface marking", ...
+        @() check_surface_marking(rootPath, options.metadataCSV));
     nFailed = nFailed + run_case("custom filename pattern", ...
         @() check_filename_pattern(rootPath));
     nFailed = nFailed + run_case("incremental overlay redraw", ...
@@ -74,6 +93,8 @@ else
         @() check_plot_context_menus(rootPath, options.metadataCSV));
     nFailed = nFailed + run_case("sections table sorting and columns", ...
         @() check_catalog_table(rootPath, options.metadataCSV));
+    nFailed = nFailed + run_case("load without the published tracker", ...
+        @() check_tracker_download_failure(rootPath, options.metadataCSV));
 end
 
 if nFailed == 0
@@ -139,6 +160,19 @@ invented = setdiff(fieldnames(getpref(group)), names);
 
 if ~isempty(invented)
     rmpref(group, invented);
+end
+
+end
+
+function clear_published_pref()
+%CLEAR_PUBLISHED_PREF Unset the saved published sheet for the length of a run.
+% Only safe to call once PRESERVE_PREFERENCES has snapshotted the group, which
+% is what puts the user's sheet back on the way out.
+
+group = char(HistologyImageBrowser.PrefGroup);
+
+if ispref(group, "PublishedUrl")
+    rmpref(group, "PublishedUrl");
 end
 
 end
@@ -285,9 +319,10 @@ end
 
 function check_published_settings()
 %CHECK_PUBLISHED_SETTINGS The menu says whether a published sheet is set.
-
-saved = snapshot_published_pref();
-restorePref = onCleanup(@() restore_published_pref(saved));
+% Builds a browser, which loads and saves the whole preference group rather
+% than the one value this is about, so it runs inside the snapshot the caller
+% takes before the first check. It leaves no sheet set, which is how the rest
+% of the run wants it.
 
 app = HistologyImageBrowser();
 cleanup = onCleanup(@() delete(app.Fig));
@@ -316,32 +351,6 @@ assert(app.ClearPublishedSheetMenu.Enable == "on", ...
 app.onClearPublishedSheet();
 assert(app.PublishedUrl == "", "Clearing left the sheet set");
 assert(contains(app.PublishedSheetMenu.Text, "(none)"), "The menu still names a sheet");
-
-end
-
-function saved = snapshot_published_pref()
-%SNAPSHOT_PUBLISHED_PREF Record the published sheet preference as it stands.
-% Closing the browser saves preferences, so a check that sets one would
-% otherwise leave its scratch value behind as the real configuration.
-
-group = char(HistologyImageBrowser.PrefGroup);
-
-saved = struct(group = group, existed = ispref(group, "PublishedUrl"), value = "");
-
-if saved.existed
-    saved.value = getpref(group, "PublishedUrl");
-end
-
-end
-
-function restore_published_pref(saved)
-%RESTORE_PUBLISHED_PREF Put the published sheet preference back as it was.
-
-if saved.existed
-    setpref(saved.group, "PublishedUrl", saved.value);
-elseif ispref(saved.group, "PublishedUrl")
-    rmpref(saved.group, "PublishedUrl");
-end
 
 end
 
@@ -588,6 +597,7 @@ assert(abs(mean(N.profiles(2).intensity)) < 1e-12, ...
 assert(isequal(N.profiles(2).distance, [0; 50; 100]), ...
     "Normalizing the intensity axis disturbed the distance axis");
 
+check_surface_normalization();
 check_degenerate_normalization();
 check_stale_normalization_code();
 
@@ -631,6 +641,345 @@ assert(N.distance == "none", "An unknown distance mapping was not dropped");
 assert(N.scope == "each", "An unknown scope was not dropped");
 assert(isequal(N.profiles(1).intensity, [2; 4; 6]), ...
     "An unknown normalization rescaled the trace anyway");
+
+end
+
+function check_surface_detection()
+%CHECK_SURFACE_DETECTION The background-to-signal step DETECT_BRAIN_SURFACE finds.
+% Built rather than measured, so the answer can be written down: the profile
+% steps out of background at a known sample, and the crossing has to come back
+% there whichever way round the line was drawn.
+
+nSamples = 300;
+edgeSample = 101;
+pixelSize = 2;
+
+distance = (0:nSamples - 1)' * pixelSize;
+intensity = synthetic_section_profile(nSamples, edgeSample);
+
+S = detect_brain_surface(distance, intensity);
+
+assert(S.found, "No surface was found in a profile with an obvious edge: %s", S.message);
+assert(S.direction == "forward", "The background end was misread as %s", S.direction);
+assert(abs(S.index - edgeSample) <= 5, ...
+    "The crossing came back at sample %.1f rather than near %d", S.index, edgeSample);
+assert(abs(S.distance - (edgeSample - 1) * pixelSize) <= 5 * pixelSize, ...
+    "The crossing distance %.1f does not match its sample index", S.distance);
+assert(S.confidence == "high", "A clean step was reported as low confidence");
+assert(S.background < S.threshold && S.tissue > S.threshold, ...
+    "The threshold did not fall between the background and tissue levels");
+
+% Drawn the other way round, the same section has its background at the far
+% end. Reading which end that is off the trace is the whole reason the search
+% direction is not a convention nobody remembers to follow.
+R = detect_brain_surface(distance, flipud(intensity));
+
+assert(R.found, "No surface was found in the reversed profile: %s", R.message);
+assert(R.direction == "reverse", "The reversed profile was searched from the wrong end");
+assert(abs(R.index - (nSamples + 1 - edgeSample)) <= 5, ...
+    "The reversed crossing came back at sample %.1f rather than near %d", ...
+    R.index, nSamples + 1 - edgeSample);
+
+% Named directions override the reading, so a caller who knows can say so.
+F = detect_brain_surface(distance, flipud(intensity), direction = "forward");
+assert(F.direction == "forward", "An explicit direction was not honored");
+
+% A line that never leaves tissue has no surface on it, and saying so is the
+% point: a mark guessed off a trace with no edge in it would be worse than
+% none, because nothing downstream could tell the two apart.
+inside = detect_brain_surface(distance, 200 - 0.2 * (0:nSamples - 1)');
+assert(~inside.found, "A surface was invented in a profile with no background in it");
+assert(inside.message ~= "", "Nothing was found and no reason was given");
+
+flat = detect_brain_surface(distance, ones(nSamples, 1));
+assert(~flat.found, "A surface was found in a flat profile");
+
+% Below eight samples any answer would be decided by one or two of them.
+short = detect_brain_surface((1:5)', [1; 1; 9; 9; 9]);
+assert(~short.found, "A surface was found in a profile too short to hold one");
+
+% Mismatched inputs are reported rather than thrown, because these come from a
+% values file that anything on disk could have written.
+ragged = detect_brain_surface((1:10)', (1:5)');
+assert(~ragged.found, "Mismatched distance and intensity were not refused");
+
+end
+
+function intensity = synthetic_section_profile(nSamples, edgeSample)
+%SYNTHETIC_SECTION_PROFILE A line that starts off the section and runs into it.
+% Background, a step at EDGESAMPLE, then a slow falloff into the depth of the
+% cortex, which is the shape these profiles actually have. The ripple stands in
+% for sample noise and is deterministic, so the check gives the same answer on
+% every machine and every run.
+
+index = (1:nSamples)';
+
+intensity = 10 * ones(nSamples, 1);
+
+inside = index >= edgeSample;
+intensity(inside) = 200 - 0.2 * (index(inside) - edgeSample);
+
+intensity = intensity + 0.5 * sin(index);
+
+end
+
+function check_surface_mark_files()
+%CHECK_SURFACE_MARK_FILES The sidecar a brain surface is stored in.
+% The mark lives beside the .roi rather than inside it, so what is checked is
+% the pairing of the two paths, the round trip, and -- the part that is easy to
+% get wrong -- clearing a mark by removing the file rather than writing an
+% empty one.
+
+roiPath = string(tempname) + "_proj_roi.roi";
+markPath = surface_mark_path(roiPath);
+
+assert(markPath == erase(roiPath, ".roi") + "_surface.json", ...
+    "The sidecar was not named after its ROI: %s", markPath);
+assert(surface_mark_path("") == "", "A missing ROI path produced a sidecar path anyway");
+
+cleanup = onCleanup(@() delete_if_present(markPath)); %#ok<NASGU>
+
+% Nothing on disk yet, which has to read as "no mark" rather than as an error.
+M = read_surface_mark(markPath);
+assert(~M.isValid, "An absent sidecar was read as a mark");
+assert(M.message ~= "", "An absent sidecar gave no reason");
+
+geometry = struct( ...
+    "x1", 100, "y1", 200, "x2", 700, "y2", 260, ...
+    "surface", 123.5, ...
+    "surfaceSource", "auto");
+
+info = write_surface_mark(markPath, geometry);
+assert(info.written, "The sidecar was not written");
+assert(isfile(markPath), "WRITE_SURFACE_MARK reported a write but left no file");
+
+M = read_surface_mark(markPath);
+assert(M.isValid, "The written sidecar did not read back: %s", M.message);
+assert(abs(M.offset - geometry.surface) < 1e-9, ...
+    "The offset came back as %.6f rather than %.6f", M.offset, geometry.surface);
+assert(M.x1 == geometry.x1 && M.y2 == geometry.y2, ...
+    "The line the mark was made against did not survive the round trip");
+assert(M.source == "auto", "The mark source came back as ""%s""", M.source);
+
+% Clearing has to leave the section in the state it was in before it was ever
+% marked, which is no file at all: a sidecar saying nothing would be a third
+% state for everything downstream to distinguish.
+geometry.surface = NaN;
+info = write_surface_mark(markPath, geometry);
+
+assert(~info.written, "Clearing a mark reported a write");
+assert(~isfile(markPath), "Clearing a mark left the sidecar behind");
+
+% A file that is not a mark must not throw when it is read: these sit in a data
+% folder beside files written by Fiji and by hand.
+fid = fopen(markPath, "w");
+fprintf(fid, "not json at all");
+fclose(fid);
+
+M = read_surface_mark(markPath);
+assert(~M.isValid, "A damaged sidecar was read as a mark");
+assert(M.message ~= "", "A damaged sidecar gave no reason");
+
+end
+
+function delete_if_present(filePath)
+%DELETE_IF_PRESENT Remove a file the check may or may not have left behind.
+
+if isfile(filePath)
+    delete(filePath);
+end
+
+end
+
+function check_surface_normalization()
+%CHECK_SURFACE_NORMALIZATION Lining traces up on the brain surface they carry.
+% The alignment this whole mark exists for, and the fallback that keeps it
+% honest: a trace with no mark is put on its own line start and counted, rather
+% than being left where it was and reading as though it had been aligned.
+
+profiles = struct( ...
+    distance = {(0:10:100)'; (0:10:100)'; (0:10:100)'}, ...
+    intensity = {(1:11)'; (1:11)'; (1:11)'}, ...
+    surface = {30; 70; NaN});
+
+N = HistologyImageBrowser.normalizeProfiles(profiles, Distance = "surface");
+
+assert(N.profiles(1).distance(1) == -30, ...
+    "The first trace was not shifted onto its own surface");
+assert(N.profiles(2).distance(1) == -70, ...
+    "The second trace was not shifted onto its own surface");
+assert(N.profiles(1).distance(4) == 0 && N.profiles(2).distance(8) == 0, ...
+    "The marked surfaces did not land on zero");
+
+% Unmarked falls back on the line start, which is the axis it already had.
+assert(N.profiles(3).distance(1) == 0, ...
+    "An unmarked trace was not put on its own line start");
+assert(N.nUnmarked == 1, "Expected one unmarked trace, counted %d", N.nUnmarked);
+assert(contains(N.xLabel, "surface"), "The distance axis was not relabelled: %s", N.xLabel);
+
+% A trace built by a caller that knows nothing about surfaces has no field at
+% all, which has to mean the same thing as an unmarked one rather than throw.
+plain = struct(distance = (0:10:50)', intensity = (1:6)');
+N = HistologyImageBrowser.normalizeProfiles(plain, Distance = "surface");
+
+assert(N.nUnmarked == 1, "A trace with no surface field was not counted as unmarked");
+assert(N.profiles(1).distance(1) == 0, "A trace with no surface field was not shifted to zero");
+
+% Nothing but the distance axis moves, and the other mappings ignore the mark.
+N = HistologyImageBrowser.normalizeProfiles(profiles, ...
+    Distance = "percent", Normalization = "range");
+assert(N.nUnmarked == 0, "A mapping that needs no mark counted unmarked traces");
+assert(N.profiles(1).distance(end) == 100, ...
+    "Percent of line stopped working once surfaces were in the traces");
+
+end
+
+function check_surface_marking(rootPath, metadataCSV)
+%CHECK_SURFACE_MARKING Placing, moving, and clearing a brain surface in the GUI.
+% Nothing is saved: this can run against the real dataset, so it stops short of
+% the write exactly as CHECK_ROI_EDITING does, and leaves the edit reverted.
+
+app = HistologyImageBrowser(rootPath, metadataCSV = metadataCSV);
+closeApp = onCleanup(@() close(app.Fig)); %#ok<NASGU>
+
+editable = find(app.View.RoiPath ~= "" & isfile(app.View.RoiPath), 1);
+
+if isempty(editable)
+    return
+end
+
+app.MaxTilesField.Value = 1;
+app.ShowSurfaceCheck.Value = true;
+app.CatalogTable.Selection = editable;
+app.onSelectionChanged();
+
+app.EditRoiButton.Value = true;
+app.onToggleEditRoi();
+leaveEdit = onCleanup(@() app.exitRoiEdit(false)); %#ok<NASGU>
+
+assert(app.RoiEditStem == app.View.Stem(editable), "Editing did not start on the selected section");
+
+% An ROI that came off disk keeps whatever mark it has. Opening an edit on one
+% must not turn it into an unsaved change, which is what an automatic detect on
+% every edit session would have done.
+assert(~app.RoiEditDirty, "Opening an edit on an existing ROI marked it unsaved");
+
+app.onClearSurface();
+
+assert(~isfinite(app.RoiEditGeom.surface), "Clearing the mark left one behind");
+assert(app.ClearSurfaceButton.Enable == "off", "Clear stayed live with nothing to clear");
+assert(isempty(surface_marks(app)), "A tick was drawn for a line with no mark");
+
+% Placed by hand, on the line, wherever the click lands. The projection is what
+% makes a click near the line mean a depth along it.
+G = app.RoiEditGeom;
+lineLength = hypot(G.x2 - G.x1, G.y2 - G.y1);
+unit = [G.x2 - G.x1, G.y2 - G.y1] / lineLength;
+normal = [-unit(2), unit(1)];
+
+target = 0.4 * lineLength;
+click = [G.x1, G.y1] + target * unit + 25 * normal;
+
+app.onSurfaceEditChanged(click, true);
+
+assert(abs(app.RoiEditGeom.surface - target) < 1e-6, ...
+    "A point 25 px off the line did not project onto it at %.1f, got %.1f", ...
+    target, app.RoiEditGeom.surface);
+assert(app.RoiEditDirty, "Marking the surface did not mark the edit unsaved");
+assert(app.ClearSurfaceButton.Enable == "on", "Clear stayed grey with a mark to clear");
+
+% A drag past either end stops at the end rather than running off the line,
+% because the profile only exists between them.
+app.onSurfaceEditChanged([G.x1, G.y1] - 500 * unit, true);
+assert(app.RoiEditGeom.surface == 0, "A mark dragged past the start did not stop at it");
+
+app.onSurfaceEditChanged([G.x2, G.y2] + 500 * unit, true);
+assert(abs(app.RoiEditGeom.surface - lineLength) < 1e-6, ...
+    "A mark dragged past the end did not stop at it");
+
+app.onSurfaceEditChanged(click, true);
+
+% The mark has to be readable off the tile and off the plot, and both follow
+% the one switch.
+point = HistologyImageBrowser.surfacePoint(app.RoiEditGeom);
+assert(~isempty(point), "A marked line produced no surface point");
+assert(abs(dot(point - [G.x1, G.y1], normal)) < 1e-6, "The surface point came off the line");
+
+assert(~isempty(surface_marks(app)), "The marked surface was not ticked on the tile");
+assert(~isempty(surface_rules(app)), "The marked surface was not ruled on the profile plot");
+
+% The one overlay switch drawn in two places, so it has to reach both. Through
+% the key rather than the callback, because RUNSHORTCUT is the route that could
+% most easily have been left redrawing only the tiles.
+app.runShortcut("toggleSurfaceOverlay");
+assert(~app.ShowSurfaceCheck.Value, "The shortcut did not turn the marks off");
+assert(isempty(surface_marks(app)), "The tick stayed on the tile with its switch off");
+assert(isempty(surface_rules(app)), "The rule stayed on the plot with its switch off");
+
+app.runShortcut("toggleSurfaceOverlay");
+assert(app.ShowSurfaceCheck.Value, "The shortcut did not turn the marks back on");
+assert(~isempty(surface_marks(app)), "The tick did not come back with its switch on");
+assert(~isempty(surface_rules(app)), "The rule did not come back with its switch on");
+
+% The profile the plot draws carries the mark on its own distance axis, which
+% is what the alignment on that plot is done with.
+P = app.readProfile(app.editedRow());
+assert(P.hasData, "The edited section lost its profile");
+assert(isfinite(P.surface), "The profile did not carry the brain surface mark");
+
+expected = P.distance(1) + (app.RoiEditGeom.surface / lineLength) * ...
+    (P.distance(end) - P.distance(1));
+assert(abs(P.surface - expected) < 1e-6, ...
+    "The mark landed at %.3f on the distance axis rather than %.3f", P.surface, expected);
+
+% Aligning on it puts the surface at zero, which is the whole claim.
+N = HistologyImageBrowser.normalizeProfiles( ...
+    struct(distance = P.distance, intensity = P.intensity, surface = P.surface), ...
+    Distance = "surface");
+assert(abs(interp1(P.distance, N.profiles(1).distance, P.surface)) < 1e-6, ...
+    "Aligning on the surface did not put it at zero");
+
+% The plot itself has to survive the alignment, which is the one path that
+% reads a field READ_TRACES has to have put on every trace.
+app.ProfileDistanceDropDown.Value = "surface";
+app.onProfileOptionChanged();
+
+assert(~isempty(findobj(app.ProfileAxes, Type = "line")), ...
+    "Aligning on the brain surface left the profile plot empty");
+
+app.ProfileDistanceDropDown.Value = "none";
+app.onProfileOptionChanged();
+
+% Detection runs off the profile under the line, and either finds an edge or
+% says it did not; both are acceptable against an arbitrary dataset, and
+% neither may throw or leave the mark half set.
+app.onDetectSurface();
+
+if isfinite(app.RoiEditGeom.surface)
+    assert(app.RoiEditGeom.surface >= 0 && app.RoiEditGeom.surface <= lineLength, ...
+        "Detection put the surface off the line at %.1f", app.RoiEditGeom.surface);
+    assert(app.RoiEditGeom.surfaceSource ~= "", ...
+        "A placed mark was recorded with no source");
+end
+
+% Back to the file, mark and all, with nothing written.
+app.onRevertRoiEdits();
+
+assert(~app.RoiEditDirty, "Revert left the edit marked unsaved");
+
+end
+
+function marks = surface_marks(app)
+%SURFACE_MARKS The brain surface ticks now drawn across the tiles.
+
+marks = findobj(app.ImagePanel, Tag = "roiOverlay", UserData = "roiSurfaceMark");
+
+end
+
+function rules = surface_rules(app)
+%SURFACE_RULES The brain surface rules now drawn on the profile plot.
+
+rules = findobj(app.ProfileAxes, Type = "constantline");
 
 end
 
@@ -1671,6 +2020,132 @@ assert(~any(isvalid(images)), "Changing the colormap reused the images already d
 assert(isvalid(app.ImageLayout), "Changing the colormap left the view with no tiles");
 
 check_editor_survives_toggle(app);
+check_roi_edit_keeps_images(app);
+check_active_tile_is_marked(app);
+
+end
+
+function check_roi_edit_keeps_images(app)
+%CHECK_ROI_EDIT_KEEPS_IMAGES An ROI session leaves the pictures where they are.
+% Opening an edit, finishing a drag, reverting it, and closing the session all
+% used to go through RENDERSELECTION, which destroys the tiled layout: with a
+% grid of sections on screen that reread and restretched every one of them to
+% move a line on one of them. Identity is the measure here for the same reason
+% it is for an overlay toggle -- the layout and the drawn images have to be the
+% same handles at the end as at the start.
+
+if exist("images.roi.Line", "class") ~= 8
+    return
+end
+
+editable = find(app.View.RoiPath ~= "" & isfile(app.View.RoiPath), 1);
+
+if isempty(editable)
+    return
+end
+
+% Two tiles wherever the dataset allows it, because the section that is not
+% being edited is the one with something to lose by a full redraw.
+last = min(editable + 1, height(app.View));
+
+app.MaxTilesField.Value = 2;
+app.CatalogTable.Selection = editable:last;
+app.onSelectionChanged();
+
+layout = app.ImageLayout;
+images = findall(app.ImageLayout, Type = "image");
+
+assert(~isempty(images), "No image was drawn for an ROI edit to leave alone");
+
+app.EditRoiButton.Value = true;
+app.onToggleEditRoi();
+leaveEdit = onCleanup(@() app.exitRoiEdit(false)); %#ok<NASGU>
+
+assert(app.RoiEditStem == app.View.Stem(editable), ...
+    "The edit did not open on the first selected section");
+assert(~isempty(app.RoiEditor) && isvalid(app.RoiEditor), "Opening an edit attached no line");
+
+check_tiles_intact(app, layout, images, "Opening an ROI edit");
+
+G = app.RoiEditGeom;
+app.onRoiEditChanged([G.x1 + 1, G.y1; G.x2, G.y2], true);
+
+assert(app.RoiEditDirty, "Moving an endpoint left the edit reading as clean");
+
+check_tiles_intact(app, layout, images, "Finishing a drag");
+
+app.onRevertRoiEdits();
+
+assert(~app.RoiEditDirty, "Reverting left the edit dirty");
+
+check_tiles_intact(app, layout, images, "Reverting an ROI edit");
+
+% Clean by now, so closing the session cannot raise the unsaved-changes prompt
+% and block the run on a dialog nobody is there to answer.
+app.EditRoiButton.Value = false;
+app.onToggleEditRoi();
+
+assert(app.RoiEditStem == "", "Closing the session left the edit open");
+
+check_tiles_intact(app, layout, images, "Leaving an ROI edit");
+
+end
+
+function check_tiles_intact(app, layout, images, what)
+%CHECK_TILES_INTACT Assert one step reused the tiles rather than rebuilding them.
+
+assert(isvalid(layout) && isequal(app.ImageLayout, layout), ...
+    "%s rebuilt the tiled layout", what);
+assert(all(isvalid(images)), "%s reread and redrew the images", what);
+
+end
+
+function check_active_tile_is_marked(app)
+%CHECK_ACTIVE_TILE_IS_MARKED The tile the ROI controls act on says so, and every
+%title is written inside its axes rather than above it.
+% Which section Edit ROI lands on is a choice the browser makes on the user's
+% behalf -- the first of the selected rows -- and a silent choice is one the
+% user only discovers by having to undo it. So exactly one drawn tile carries
+% the mark, and it is the tile ACTIVEROISTEM names.
+
+nWanted = min(3, height(app.View));
+
+if nWanted < 2
+    return
+end
+
+app.MaxTilesField.Value = nWanted;
+app.CatalogTable.Selection = 1:nWanted;
+app.onSelectionChanged();
+
+tiles = findall(app.ImageLayout, Type = "axes");
+
+assert(numel(tiles) == nWanted, "Expected %d tiles, found %d", nWanted, numel(tiles));
+
+active = app.activeRoiStem();
+
+assert(active == app.View.Stem(1), ...
+    "The ROI controls named a section other than the first selected one");
+
+nMarked = 0;
+
+for iTile = 1:numel(tiles)
+    ax = tiles(iTile);
+    label = findobj(ax, Tag = "tileTitle");
+
+    assert(numel(label) == 1, "A tile drew %d labels inside its box", numel(label));
+    assert(isempty(char(ax.Title.String)), ...
+        "A tile left its label above the box as well as inside it");
+
+    isMarked = contains(string(label.String), "ROI target");
+
+    assert(isMarked == (HistologyImageBrowser.tileStem(ax) == active), ...
+        "The ROI target mark is on the wrong tile");
+
+    nMarked = nMarked + isMarked;
+end
+
+assert(nMarked == 1, "Expected exactly one tile marked as the ROI target, found %d", nMarked);
 
 end
 
@@ -2156,5 +2631,66 @@ app.loadPreferences();
 
 assert(isequal(app.CatalogColumns, HistologyImageBrowser.DefaultCatalogColumns), ...
     "A preference that is not a column list was adopted");
+
+end
+
+function check_tracker_download_failure(rootPath, metadataCSV)
+%CHECK_TRACKER_DOWNLOAD_FAILURE A tracker that cannot be reached costs only itself.
+% The images, the profiles, and the catalog built from them are all on local
+% disk. A published sheet that will not download used to unwind the whole load
+% and leave the browser holding a table with no variables at all, which then
+% failed a long way from the cause. What is checked here is that the load goes
+% ahead, that it says what it lost, and that a configured CSV is read in place
+% of the download when there is one.
+
+app = HistologyImageBrowser(rootPath, metadataCSV = metadataCSV);
+closeApp = onCleanup(@() delete(app.Fig));
+
+loaded = height(app.Catalog);
+assert(loaded > 0, "The dataset did not load before the tracker was broken");
+
+% A link to the spreadsheet rather than to a published copy of it is refused
+% before anything is sent, so this is the failure a dead sheet gives without
+% needing a network to produce it.
+app.PublishedUrl = "https://docs.google.com/spreadsheets/d/1abcdef/edit";
+
+% Nothing to fall back to, so the load has to go ahead on the images alone.
+app.MetadataPath = "";
+app.onLoadData();
+
+assert(height(app.Catalog) == loaded, ...
+    "A failed download cost the catalog: %d sections of %d", height(app.Catalog), loaded);
+assert(ismember("RoiPath", string(app.View.Properties.VariableNames)), ...
+    "The view came back without the catalog's variables");
+assert(~any(app.Catalog.InTracker), "Sections were marked tracked with no tracker read");
+assert(all(isnan(app.Catalog.AtlasPlate)), "A plate number arrived with no tracker read");
+
+assert(app.StatusLevel == "warning", ...
+    "A degraded load was reported as %s rather than a warning", app.StatusLevel);
+
+status = string(app.StatusLabel.Text);
+
+assert(contains(status, "without the published tracker"), ...
+    "The status bar does not say the tracker was missed: %s", status);
+assert(~contains(status, newline), ...
+    "The download error reached the status bar with its line breaks: %s", status);
+assert(contains(status, "Plate") && contains(status, "Notes"), ...
+    "The status bar does not name the columns that went blank: %s", status);
+
+if metadataCSV == ""
+    return
+end
+
+% With a CSV configured as well, the load is worth running against it rather
+% than against nothing: it is the same tracker, exported by hand.
+app.MetadataPath = metadataCSV;
+app.onLoadData();
+
+assert(any(app.Catalog.InTracker), ...
+    "The tracker CSV was not read in place of the download");
+assert(app.StatusLevel == "warning", ...
+    "A load that fell back to the CSV was reported as %s", app.StatusLevel);
+assert(contains(string(app.StatusLabel.Text), "tracker CSV"), ...
+    "The status bar does not say which tracker was read: %s", app.StatusLabel.Text);
 
 end

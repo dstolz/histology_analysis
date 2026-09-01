@@ -16,9 +16,10 @@ function attachContextMenu(obj, ax, kind)
 % comes up has to be the same one either way, and because a later release or a
 % later change of that property must not silently take the menu away.
 %
-% The draggable images.roi.Line is deliberately skipped. It carries a context
-% menu of its own with the ROI's own commands on it, and replacing that would
-% cost more than it adds while a line is being placed.
+% The two draggable ROI handles -- the line, and the brain surface mark on it --
+% are deliberately skipped. Each carries a context menu of its own with the
+% ROI's own commands on it, and replacing that would cost more than it adds
+% while a line is being placed.
 %
 % Parameters
 %   ax: Axes whose contents should raise the menu.
@@ -78,9 +79,9 @@ if isempty(target) || ~isvalid(target) || ~isprop(target, "ContextMenu")
     return
 end
 
-% ATTACHROIEDITOR tags the draggable line, which is how it is left holding the
-% ROI commands it comes with instead of these.
-if isprop(target, "Tag") && string(target.Tag) == "roiEditor"
+% ATTACHROIEDITOR and ATTACHSURFACEEDITOR tag their handles, which is how each
+% is left holding the ROI commands it comes with instead of these.
+if isprop(target, "Tag") && ismember(string(target.Tag), ["roiEditor", "surfaceEditor"])
     return
 end
 

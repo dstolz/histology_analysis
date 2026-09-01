@@ -13,6 +13,11 @@ function onExportWorkspace(obj, variableName)
 % hundreds of samples in a profile, and the first thing any analysis does is
 % group those samples back by section anyway.
 %
+% The brain surface mark comes out beside the geometry, as an offset along the
+% line and as the image point that offset lands on. It is what an alignment
+% across sections is done on, and reading it back out of the sidecars at the
+% command line would mean reimplementing here what ROIFORROW already resolves.
+%
 % ROI coordinates are exported in pixels, as they are stored and as the overlay
 % draws them, with the calibration beside them rather than applied to them.
 % Converting here would have discarded the pixel geometry that the .roi files,
@@ -245,6 +250,15 @@ strokeWidth = nan(n, 1);
 lineLength = nan(n, 1);
 pixelSize = nan(n, 1);
 
+% Where the brain surface was marked on each line: how far along it in pixels,
+% the image point that lands on, and whether the mark was detected or placed by
+% hand. This is what an alignment downstream is done on, so it travels with the
+% geometry rather than having to be read back out of the sidecars.
+surfaceOffset = nan(n, 1);
+surfaceX = nan(n, 1);
+surfaceY = nan(n, 1);
+surfaceSource = strings(n, 1);
+
 for iRow = 1:n
     R = obj.roiForRow(rows(iRow, :));
     state(iRow) = R.state;
@@ -262,6 +276,16 @@ for iRow = 1:n
     % Measured off the endpoints rather than read from the file, because an
     % unsaved drag has no file to read it from and the two have to agree.
     lineLength(iRow) = hypot(R.x2 - R.x1, R.y2 - R.y1);
+
+    surfaceOffset(iRow) = R.surface;
+    surfaceSource(iRow) = R.surfaceSource;
+
+    point = HistologyImageBrowser.surfacePoint(R);
+
+    if ~isempty(point)
+        surfaceX(iRow) = point(1);
+        surfaceY(iRow) = point(2);
+    end
 end
 
 % NaN wherever the image carries no calibration, so a distance in pixels can
@@ -269,9 +293,11 @@ end
 calibrated = [C.isCalibrated]';
 pixelSize(calibrated) = [C(calibrated).pixelSize]';
 
-G = table(state, x1, y1, x2, y2, strokeWidth, lineLength, pixelSize, [C.unit]', ...
+G = table(state, x1, y1, x2, y2, strokeWidth, lineLength, ...
+    surfaceOffset, surfaceX, surfaceY, surfaceSource, pixelSize, [C.unit]', ...
     VariableNames = ["RoiState", "RoiX1", "RoiY1", "RoiX2", "RoiY2", ...
-    "RoiWidth", "RoiLength", "PixelSize", "PixelUnit"]);
+    "RoiWidth", "RoiLength", "SurfaceOffset", "SurfaceX", "SurfaceY", ...
+    "SurfaceSource", "PixelSize", "PixelUnit"]);
 
 end
 

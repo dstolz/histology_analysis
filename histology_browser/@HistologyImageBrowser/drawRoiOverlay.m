@@ -15,6 +15,11 @@ function drawRoiOverlay(obj, ax, row, tileColor)
 % to know from it is whether the band is square to the boundary it is being
 % aimed at, and an axis-aligned grid cannot answer that.
 %
+% A section whose brain surface has been marked gets a tick across the band at
+% that point, square to the line. It is drawn on every tile rather than only on
+% the one being edited, because the whole reason to mark a surface is to line
+% sections up against each other, and a grid of tiles is where that is judged.
+%
 % See also ROISTATESTYLE, REFRESHTILEOVERLAY, REFRESHROIOVERLAY,
 % BUILDDISPLAYPANEL, ATTACHCONTEXTMENU.
 
@@ -46,7 +51,13 @@ wantsBand = obj.ShowBandCheck.Value || R.isEditing;
 % the width label below it does, and the checkbox says whether an edit gets one.
 wantsGrid = R.isEditing && obj.ShowBandGridCheck.Value;
 
-if ~(wantsRoi || wantsBand || wantsShading)
+% The mark has a switch of its own rather than following the line's, because a
+% surface is a different question from where the band sits: comparing a run of
+% sections by depth wants the ticks with the pictures behind them clear, and
+% aiming a band wants the band without a tick across it.
+wantsSurface = obj.ShowSurfaceCheck.Value && isfinite(R.surface);
+
+if ~(wantsRoi || wantsBand || wantsShading || wantsSurface)
     return
 end
 
@@ -100,6 +111,14 @@ if wantsRoi && ~R.isEditing
         Tag = "roiOverlay");
 end
 
+% Drawn after the line and the band so the tick sits on top of both. While the
+% line is being edited the draggable handle is the thing to grab, but the tick is
+% still what says where the mark is once the handle has been let go of, and it
+% is the only mark at all on every tile that is not the one being edited.
+if wantsSurface
+    draw_surface_mark(ax, geometry, style, R);
+end
+
 % The badge is the part that survives being glanced at. The stroke says what
 % state the ROI is in to anyone reading the line; the badge says it in words
 % to anyone reading the tile, and it is the only thing on screen that names an
@@ -118,14 +137,20 @@ function label_state(ax, style)
 %LABEL_STATE Name the ROI's save state in the corner of the tile it belongs to.
 % The on-disk state is deliberately unlabelled: it is the ordinary case, on
 % every tile of a grid at once, and a badge on all of them would say nothing.
+%
+% Top right, because DRAWIMAGETILE now writes the tile's own label along the
+% top left inside the same box. Both are pinned to the top edge, where the eye
+% goes first; putting them in opposite corners is what keeps a long section
+% label from being overwritten by "UNSAVED EDITS", which is the one word on the
+% tile that must never be hidden.
 
 if style.Badge == ""
     return
 end
 
-text(ax, 0.02, 0.98, style.Badge, ...
+text(ax, 0.98, 0.98, style.Badge, ...
     Units = "normalized", ...
-    HorizontalAlignment = "left", ...
+    HorizontalAlignment = "right", ...
     VerticalAlignment = "top", ...
     Color = style.BadgeTextColor, ...
     BackgroundColor = style.Color, ...
@@ -177,6 +202,66 @@ text(ax, anchor(1), anchor(2), "band " + widthText, ...
     VerticalAlignment = "middle", ...
     Clipping = "on", ...
     Tag = "roiOverlay");
+
+end
+
+function draw_surface_mark(ax, geometry, style, R)
+%DRAW_SURFACE_MARK Tick the line where the brain surface was marked.
+% Square to the line and the full width of the band, so it reads as a depth
+% along the profile rather than as a point in the image: the surface is where
+% the profile starts being tissue, and the profile is the whole band.
+%
+% A band of no width still gets a tick, sized off the line instead, because a
+% mark that vanished whenever the band was thin would be missing exactly when
+% the line is hardest to read.
+
+point = HistologyImageBrowser.surfacePoint(R);
+
+if isempty(point)
+    return
+end
+
+halfWidth = geometry.halfWidth;
+
+if halfWidth <= 0
+    halfWidth = max(geometry.length * 0.02, 2);
+end
+
+offset = geometry.normal * halfWidth;
+
+plot(ax, ...
+    [point(1) - offset(1), point(1) + offset(1)], ...
+    [point(2) - offset(2), point(2) + offset(2)], ...
+    LineStyle = "-", ...
+    LineWidth = style.LineWidth + 1, ...
+    Color = style.Color, ...
+    Tag = "roiOverlay", ...
+    UserData = "roiSurfaceMark");
+
+% A detected mark is labelled differently from one that was placed by hand, so
+% a grid of sections says at a glance which of them have been checked over and
+% which are still showing the detector's first answer.
+if R.surfaceSource == "auto"
+    caption = "surface (auto)";
+else
+    caption = "surface";
+end
+
+% Written on the opposite edge of the band from the width label, which sits on
+% the band's midpoint, so a mark near the middle of a short line does not land
+% under it.
+anchor = point - offset;
+
+text(ax, anchor(1), anchor(2), caption, ...
+    Color = style.BadgeTextColor, ...
+    BackgroundColor = style.Color, ...
+    FontSize = 7, ...
+    Margin = 2, ...
+    HorizontalAlignment = "center", ...
+    VerticalAlignment = "top", ...
+    Clipping = "on", ...
+    Tag = "roiOverlay", ...
+    UserData = "roiSurfaceLabel");
 
 end
 
