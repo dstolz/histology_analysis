@@ -3,7 +3,8 @@
 MATLAB tools for browsing histology sections and the cortical line profiles measured from
 them in Fiji. The centerpiece is `HistologyImageBrowser`, a GUI that catalogs every image
 rendition under a histology root folder, filters them by subject / hemisphere / stain /
-plate, and overlays the Fiji line ROI and its intensity profile on each image.
+plate, and overlays every Fiji line ROI on a section, named for the region it measures,
+along with its intensity profile.
 
 Extracted from [`helper_fnc`](https://github.com/dstolz/helper_fnc) so the browser and its ingest helpers can
 be used without pulling in that repository's general-purpose utilities.
@@ -35,8 +36,8 @@ The browser reads the output of the Fiji batch line-measure workflow. Under the 
 it discovers, per acquisition:
 
 - image renditions — raw `.czi` plus the `_proj`, `_mid`, and `_composite` exports;
-- a `.roi` sidecar holding the measured line, in ImageJ's binary ROI format;
-- one or more `*values.csv` profile files.
+- one `.roi` sidecar per measured line, in ImageJ's binary ROI format;
+- one `*values.csv` profile file per measured line.
 
 Filenames are expected to follow
 
@@ -51,6 +52,34 @@ unparsed names in its status bar.
 `fiji/MACRO_Batch_LineMeasure.ijm` is the macro that produces the `.roi` and `*values.csv`
 sidecars. It runs inside Fiji/ImageJ, not MATLAB, and is included here so the two halves of
 the workflow stay together.
+
+### Several ROIs on one section
+
+A section can carry more than one line, one per region measured across it. The two sidecars
+of a line are tied together by the label in their filenames:
+
+```
+<stem>_proj_roi.roi        <stem>_proj_values.csv        the section's first line
+<stem>_proj_B_roi.roi      <stem>_proj_B_values.csv      the second, and so on
+```
+
+Each line is filed under a **key** — `A`, `B`, `C` … — taken from that label. The macro
+writes the first line's sidecars without a label at all, so an unlabelled pair is key `A`
+and a dataset measured before any of this existed reads back unchanged, as sections with one
+ROI each.
+
+The macro also names its values file after the region it was run for while always writing
+the ROI as `<base>_roi.roi`, which leaves the two halves of one line disagreeing —
+`_proj_roi.roi` beside `_proj_ACxvalues.csv`. They are paired anyway: an unlabelled `.roi`
+with no profile of its own is given to a profile that has no `.roi` of its own, since only
+one line could have produced both. That section reads as one ROI keyed `ACx`, not as two
+half-empty ones.
+
+Keys are only ever letters, so `Name ROIs…` in the display panel says what they measure —
+`A` is `ACx`, `B` is `S1`. Those names are what the overlay caption, the profile legend, the
+ROI dropdown, and the catalog's ROIs column show, on every section at once. They are stored
+as a MATLAB preference, so they carry over between sessions, and nothing on disk is renamed:
+the keys in the filenames stay as they are.
 
 An optional section tracker is joined onto the catalog by image filename stem, supplying
 annotations the filenames do not carry. It can come from a CSV export (`metadataCSV`) or
@@ -112,8 +141,9 @@ creating a Cloud project under a `umd.edu` account is blocked by organization po
 | `@HistologyImageBrowser/` | The GUI class — catalog, filters, image tiles, profile plot, ROI editor. |
 | `fetch_published_tracker.m` | Download the section tracker from a published Google Sheet as a CSV. |
 | `combine_values_csv.m` | Ingests every `*values.csv` under a root into one structured dataset, with per-file diagnostics. |
-| `build_histology_image_catalog.m` | One row per section: all renditions, the ROI sidecar, the profiles, and joined tracker metadata. |
+| `build_histology_image_catalog.m` | One row per section: all renditions, every ROI paired with its profile, and joined tracker metadata. |
 | `parse_histology_filename.m` | Non-raising filename parser used by the catalog. |
+| `histology_roi_key.m` | Reduce a sidecar's filename label to the ROI key its section files it under. |
 | `read_imagej_roi.m` / `write_imagej_roi.m` | Decode and encode ImageJ's binary `.roi` format. |
 | `measure_line_profile.m` | Measure a banded line profile from an image, matching the Fiji macro. |
 | `write_values_csv.m` | Write a measured profile back out in the macro's `*values.csv` format. |
@@ -151,10 +181,11 @@ test_histology_browser()                       % synthetic checks only
 test_histology_browser("D:/GM6001_HISTOLOGY/") % also exercises the catalog and live GUI
 ```
 
-With no argument it checks the filename parser, the ROI encode/decode round trip, profile
-measurement, and the values-CSV round trip against synthetic inputs, so it runs anywhere.
-Given a real root folder it additionally builds a catalog and drives a live browser through
-filtering, selection, and the ROI edit / save / revert cycle.
+With no argument it checks the filename parser, ROI keying, how a section's ROI sidecars are
+paired into ROIs, the ROI encode/decode round trip, profile measurement, and the values-CSV
+round trip against synthetic inputs, so it runs anywhere. Given a real root folder it
+additionally builds a catalog and drives a live browser through filtering, selection, ROI
+naming, and the ROI add / edit / save / revert cycle.
 
 ## Menus
 
@@ -187,7 +218,9 @@ rendered from it, so a shortcut cannot be advertised in one place and bound in a
 | `Ctrl+F` | Jump to the search box |
 | `Ctrl+Shift+R` | Clear every filter |
 | `Ctrl+L` | Load the dataset |
-| `Ctrl+E` | Start or finish editing the line ROI |
+| `Ctrl+N` | Add another ROI to this section |
+| `Ctrl+Shift+E` | Move to this section's next ROI |
+| `Ctrl+E` | Start or finish editing the chosen ROI |
 | `Ctrl+D` | Draw a new line over the image |
 | `Ctrl+S` | Save the ROI and remeasure its profile |
 | `Ctrl+Z` | Discard unsaved ROI changes |

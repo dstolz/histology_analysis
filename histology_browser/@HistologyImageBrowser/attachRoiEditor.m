@@ -17,8 +17,11 @@ if ~isempty(obj.RoiEditor) && isvalid(obj.RoiEditor)
 end
 
 geometry = obj.RoiEditGeom;
-style = HistologyImageBrowser.roiStateStyle(obj.roiForRow(row).state);
+style = HistologyImageBrowser.roiStateStyle(obj.roiForRow(row, obj.RoiEditKey).state);
 
+% The label is left off the handle and drawn by the overlay instead, so the
+% ROI being edited is captioned the same way as the ones beside it rather than
+% in whatever style the ROI object happens to use.
 editor = images.roi.Line(ax, ...
     Position = [geometry.x1, geometry.y1; geometry.x2, geometry.y2], ...
     Color = style.Color, ...

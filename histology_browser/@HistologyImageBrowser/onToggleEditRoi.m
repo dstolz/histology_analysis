@@ -1,7 +1,18 @@
-function onToggleEditRoi(obj)
+function onToggleEditRoi(obj, key)
 %ONTOGGLEEDITROI Enter or leave line ROI editing for the selected section.
-% Editing is deliberately limited to a single section: the ROI is dragged on
-% the tile itself, and a drag has to belong to exactly one image.
+% Editing is deliberately limited to one ROI of one section: the line is
+% dragged on the tile itself, so a drag has to belong to exactly one image, and
+% a section holding several lines has to say which of them the handles are on.
+%
+% Parameters
+%   key: Which ROI to open. Defaults to the one the ROI dropdown is on, which
+%       is what a click on the button or its shortcut means. ONADDROI names a
+%       key the section does not have yet.
+
+arguments
+    obj
+    key (1,1) string = ""
+end
 
 if ~obj.EditRoiButton.Value
     if obj.exitRoiEdit(true)
@@ -31,7 +42,12 @@ if height(rows) ~= 1
 end
 
 row = rows(1, :);
-geometry = obj.initialRoiGeometry(row);
+
+if key == ""
+    key = obj.activeRoiKey(row);
+end
+
+geometry = obj.initialRoiGeometry(row, key);
 
 if isempty(geometry)
     refuse(obj);
@@ -41,6 +57,8 @@ if isempty(geometry)
 end
 
 obj.RoiEditStem = string(row.Stem);
+obj.RoiEditKey = key;
+obj.ActiveRoiKey = key;
 obj.RoiEditGeom = geometry;
 
 % A line that was just invented has nothing on disk to match, so it counts as
@@ -48,11 +66,13 @@ obj.RoiEditGeom = geometry;
 obj.RoiEditDirty = geometry.isNew;
 obj.RoiEditDragging = false;
 
-% A confirmation left over from another section would read as though this one
-% had just been written, so it is dropped when a new session opens.
-if obj.RoiSavedStem ~= obj.RoiEditStem
+% A confirmation left over from another ROI would read as though this one had
+% just been written, so it is dropped when a new session opens.
+if obj.RoiSavedStem ~= obj.RoiEditStem || obj.RoiSavedKey ~= key
     obj.RoiSavedStem = "";
+    obj.RoiSavedKey = "";
 end
+
 obj.RoiPreview = struct();
 obj.RoiWidthField.Value = geometry.strokeWidth;
 
@@ -66,12 +86,14 @@ end
 obj.updateRoiEditControls();
 obj.renderSelection();
 
+name = obj.roiName(key);
+
 if geometry.isNew
-    obj.setStatus("Placed a new ROI on %s. Drag its ends, then Save ROI.", row.Stem);
+    obj.setStatus("Placed ROI %s on %s. Drag its ends, then Save ROI.", name, row.Stem);
     return
 end
 
-obj.setStatus("Editing the ROI for %s. Drag its ends, then Save ROI.", row.Stem);
+obj.setStatus("Editing ROI %s of %s. Drag its ends, then Save ROI.", name, row.Stem);
 
 end
 

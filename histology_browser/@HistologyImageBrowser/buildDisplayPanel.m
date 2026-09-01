@@ -8,8 +8,8 @@ panel.Layout.Row = 1;
 % the default, because the three rows of controls together are just wide enough
 % to reach the right edge of the window at its opening size. Anything added
 % here has to be paid for out of the widths below.
-grid = uigridlayout(panel, [3 14]);
-grid.RowHeight = {"fit", "fit", "fit"};
+grid = uigridlayout(panel, [4 14]);
+grid.RowHeight = {"fit", "fit", "fit", "fit"};
 grid.ColumnWidth = {"fit", 92, "fit", 92, "fit", 92, "fit", 60, 60, "fit", 50, "fit", 100, 90};
 grid.Padding = [8 8 8 8];
 grid.RowSpacing = 4;
@@ -152,19 +152,53 @@ build_roi_edit_row(obj, grid);
 end
 
 function build_roi_edit_row(obj, grid)
-%BUILD_ROI_EDIT_ROW Build the controls that move a line ROI and save it back.
+%BUILD_ROI_EDIT_ROW Build the controls that pick, move, and save a line ROI.
 % Editing writes over the .roi file and the values.csv beside it, so the
-% controls that do it sit together on their own row rather than among the
+% controls that do it sit together on their own rows rather than among the
 % display options, and the hint says what Save will touch.
+%
+% A section may carry several ROIs, and every one of these controls acts on
+% exactly one of them, so which one comes first: the row that picks it sits
+% above the row that edits it.
+
+place(uilabel(grid, Text = "ROI"), 3, 1);
+
+% Keyed by letter, shown by name. SYNCROISELECTOR owns Items, ItemsData, and
+% Value, because the list changes with every selection.
+obj.RoiSelectDropDown = uidropdown(grid, ...
+    Items = "A", ...
+    ItemsData = {"A"}, ...
+    Value = "A", ...
+    ValueChangedFcn = @(~,~) obj.onRoiSelectionChanged());
+place(obj.RoiSelectDropDown, 3, 2);
+obj.RoiSelectDropDown.Tooltip = "Which of this section's line ROIs the controls below act on.";
+
+obj.AddRoiButton = uibutton(grid, "push", ...
+    Text = "Add ROI", ...
+    ButtonPushedFcn = @(~,~) obj.onAddRoi());
+place(obj.AddRoiButton, 3, [3 4]);
+obj.AddRoiButton.Tooltip = "Start another line ROI on this section, under the next free letter." ...
+    + obj.shortcutHint("addRoi");
+
+obj.RoiNamesButton = uibutton(grid, "push", ...
+    Text = "Name ROIs...", ...
+    ButtonPushedFcn = @(~,~) obj.onEditRoiNames());
+place(obj.RoiNamesButton, 3, [5 6]);
+obj.RoiNamesButton.Tooltip = "Call the ROI keys after the regions they measure, " + ...
+    "for example A is ACx and B is S1. The names are kept between sessions.";
+
+obj.RoiListLabel = uilabel(grid, Text = "");
+place(obj.RoiListLabel, 3, [7 14]);
+obj.RoiListLabel.FontColor = [0.35 0.35 0.35];
 
 obj.EditRoiButton = uibutton(grid, "state", ...
     Text = "Edit ROI", ...
     ValueChangedFcn = @(~,~) obj.onToggleEditRoi());
-place(obj.EditRoiButton, 3, [1 2]);
-obj.EditRoiButton.Tooltip = "Drag the line ROI of the one selected section." ...
+place(obj.EditRoiButton, 4, [1 2]);
+obj.EditRoiButton.Tooltip = "Drag the chosen line ROI of the one selected section." ...
     + obj.shortcutHint("toggleEditRoi");
 
-place(uilabel(grid, Text = "Width px"), 3, 3);
+place(uilabel(grid, Text = "Width px"), 4, 3);
 
 % The width applies to whatever line is drawn next, so it stays editable even
 % when nothing is being edited, and it is remembered between sessions.
@@ -173,35 +207,35 @@ obj.RoiWidthField = uieditfield(grid, "numeric", ...
     Limits = [1 20000], ...
     RoundFractionalValues = "on", ...
     ValueChangedFcn = @(~,~) obj.onRoiWidthChanged());
-place(obj.RoiWidthField, 3, 4);
+place(obj.RoiWidthField, 4, 4);
 obj.RoiWidthField.Tooltip = "Width of the band the profile averages over, in pixels. " + ...
     "The Fiji macro's band is 994 um, which is about 600 px on these projections.";
 
 obj.DrawRoiButton = uibutton(grid, "push", ...
     Text = "Draw Line", ...
     ButtonPushedFcn = @(~,~) obj.onDrawRoi());
-place(obj.DrawRoiButton, 3, [5 6]);
-obj.DrawRoiButton.Tooltip = "Drag on the image to place a new line at the width above." ...
+place(obj.DrawRoiButton, 4, [5 6]);
+obj.DrawRoiButton.Tooltip = "Drag on the image to replace the chosen ROI at the width above." ...
     + obj.shortcutHint("drawRoi");
 
 obj.SaveRoiButton = uibutton(grid, "push", ...
     Text = "Save ROI", ...
     Enable = "off", ...
     ButtonPushedFcn = @(~,~) obj.onSaveRoiEdits());
-place(obj.SaveRoiButton, 3, [7 8]);
-obj.SaveRoiButton.Tooltip = "Overwrite the .roi file and remeasure its values.csv." ...
+place(obj.SaveRoiButton, 4, [7 8]);
+obj.SaveRoiButton.Tooltip = "Overwrite this ROI's .roi file and remeasure its values.csv." ...
     + obj.shortcutHint("saveRoi");
 
 obj.RevertRoiButton = uibutton(grid, "push", ...
     Text = "Revert", ...
     Enable = "off", ...
     ButtonPushedFcn = @(~,~) obj.onRevertRoiEdits());
-place(obj.RevertRoiButton, 3, [9 10]);
-obj.RevertRoiButton.Tooltip = "Discard unsaved changes and reload the ROI from disk." ...
+place(obj.RevertRoiButton, 4, [9 10]);
+obj.RevertRoiButton.Tooltip = "Discard unsaved changes and reload this ROI from disk." ...
     + obj.shortcutHint("revertRoi");
 
 obj.RoiEditLabel = uilabel(grid, Text = "");
-place(obj.RoiEditLabel, 3, [11 14]);
+place(obj.RoiEditLabel, 4, [11 14]);
 obj.RoiEditLabel.FontColor = [0.35 0.35 0.35];
 
 end

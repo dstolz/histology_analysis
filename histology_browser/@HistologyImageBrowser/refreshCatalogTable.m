@@ -21,17 +21,32 @@ display.Section = obj.View.SectionID;
 display.Hemi = obj.View.Hemisphere;
 display.Stain = obj.View.Stain;
 display.Plate = obj.View.AtlasPlate;
-display.Prof = obj.View.NProfiles;
+
+% Which regions a section was measured across, by name. This replaced a plain
+% count of its profiles: the names say how many there are as well, and Status
+% already distinguishes a section that has none.
+display.ROIs = roi_names(obj);
 display.Images = obj.View.Variants;
 display.Status = obj.View.Status;
 
 obj.CatalogTable.Data = display;
-obj.CatalogTable.ColumnWidth = {70, 60, 45, 70, 45, 40, "auto", "auto"};
+obj.CatalogTable.ColumnWidth = {70, 60, 45, 70, 45, 70, "auto", "auto"};
 
 % Selecting the first match keeps a filtered lookup one click from a picture.
 obj.CatalogTable.Selection = 1;
 obj.CountLabel.Text = describe_counts(obj);
 obj.onSelectionChanged();
+
+end
+
+function names = roi_names(obj)
+%ROI_NAMES List each row's ROIs by name, for the table column.
+
+names = strings(height(obj.View), 1);
+
+for iRow = 1:height(obj.View)
+    names(iRow) = obj.describeRoiList(obj.View(iRow, :));
+end
 
 end
 

@@ -31,6 +31,14 @@ setpref(group, "RoiWidth", obj.RoiWidthField.Value);
 setpref(group, "ColormapStains", obj.ColormapStains);
 setpref(group, "ColormapChoices", obj.ColormapChoices);
 
+% What each ROI key is called is a property of the study rather than of one
+% sitting, and of the whole dataset rather than of one section, so naming A
+% after auditory cortex once should hold for every section measured after it
+% and for every session that follows. Written as two string arrays, for the
+% same reason the colormaps are.
+setpref(group, "RoiNameKeys", obj.RoiNameKeys);
+setpref(group, "RoiNameLabels", obj.RoiNameLabels);
+
 save_figure_geometry(obj, group);
 
 end

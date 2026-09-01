@@ -11,17 +11,21 @@ function info = parse_histology_filename(filename)
 %   SUBJ-ID-<n><SampleID>_<Section>_<Hemi>_<Stain>_<Z>_<Date>_<ImageNumber>
 %
 % Recognized trailing variant markers: _proj, _mid, _composite, and the
-% _values / _proj_<ROI>values suffixes written by the Fiji line-measure macro.
+% _values / _proj_<ROI>values / _roi / _proj_<ROI>_roi suffixes written by the
+% Fiji line-measure macro and by the browser's own ROI editor.
 %
 % Parameters
-%   filename: Image or values filename, with or without a path and extension.
+%   filename: Image, ROI, or values filename, with or without a path and
+%       extension.
 %
 % Returns
 %   info: Struct with fields
 %      - isValid: True when the stem matched the expected pattern.
 %      - stem: Base name with extension and variant markers removed.
 %      - variant: One of raw, proj, mid, or composite.
-%      - roi: ROI label recovered from a values filename, when present.
+%      - roi: ROI label recovered from a values or .roi filename, when
+%        present. A section's first ROI carries no label, so this is "" for
+%        it; HISTOLOGY_ROI_KEY turns that into the key it is filed under.
 %      - SubjectID, SampleID, SectionID, Hemisphere, Stain, ZPlane,
 %        DateCode, ImageNumber, Protocol, Series: Parsed name components.
 
@@ -106,21 +110,30 @@ function [stem, variant, roi] = strip_markers(stem)
 %STRIP_MARKERS Remove values/variant markers and report what was found.
 % Tolerates every naming convention emitted by the Fiji macros:
 %   <base>_proj.tif / <base>_mid.tif / <base>_composite.png
-%   <base>_proj_roi.roi
+%   <base>_proj_roi.roi / <base>_proj_<ROI>_roi.roi
 %   <base>_values / <base>_proj_values
 %   <base>_proj_<ROI>_values / <base>_proj_<ROI>values   (macro omits the "_")
 
 roi = "";
 variant = "raw";
 
-% Values files carry the ROI label between the projection marker and "values",
-% so match the whole tail at once rather than peeling it off in stages.
-valuesToken = regexp(stem, "^(?<base>.*?)_proj_(?<roi>\w*?)_?values$", "names", "once");
+% A section may hold several line ROIs, and each one's .roi file and values
+% file carry the same label between the projection marker and the suffix. Both
+% tails are matched whole rather than peeled off in stages, so the label
+% cannot be mistaken for part of the stem. The label part is allowed to be
+% empty because a section's first ROI is written without one.
+for suffix = ["values", "roi"]
+    token = regexp(stem, "^(?<base>.*?)_proj_(?<roi>\w*?)_?" + suffix + "$", ...
+        "names", "once");
 
-if ~isempty(valuesToken)
-    stem = string(valuesToken.base);
-    roi = string(valuesToken.roi);
+    if isempty(token)
+        continue
+    end
+
+    stem = string(token.base);
+    roi = string(token.roi);
     variant = "proj";
+
     return
 end
 

@@ -5,8 +5,14 @@ function C = build_histology_image_catalog(rootPath, options)
 %
 % Build a one-row-per-section catalog of histology images found under a root
 % folder. Each row collects every rendition of one acquisition (raw .czi,
-% _proj, _mid, _composite), its Fiji line ROI sidecar, and any associated
+% _proj, _mid, _composite), every Fiji line ROI sidecar, and any associated
 % *values.csv profiles, then joins the section tracker metadata.
+%
+% A section may hold more than one line ROI. The .roi and values.csv files of
+% one ROI share the label in their filenames, so they are paired on it and
+% reported as three parallel columns: RoiKeys, RoiPaths, and RoiValues, one
+% entry each per ROI. The section's first ROI is written without a label by
+% MACRO_Batch_LineMeasure, and is filed under "A".
 %
 % Renditions are commonly written both beside the section folder and inside
 % it. Both are discovered, and the copy stored in the section folder itself is
@@ -171,14 +177,24 @@ for iStem = 1:numel(stems)
     rows(iStem).Variants = join_or_empty(variants(present));
     rows(iStem).NVariants = sum(present);
 
-    rows(iStem).RoiPath = pick_preferred(Fs(Fs.Kind == "roi", :), thisStem);
-
+    roiFiles = Fs(Fs.Kind == "roi", :);
     values = Fs(Fs.Kind == "values", :);
+
+    % Kept as the section's primary ROI file, which is what settles the folder
+    % a section belongs to. The full list is in RoiPaths.
+    rows(iStem).RoiPath = pick_preferred(roiFiles, thisStem);
+
+    R = collect_rois(roiFiles, values, thisStem);
+    rows(iStem).RoiKeys = {R.keys};
+    rows(iStem).RoiPaths = {R.roiPaths};
+    rows(iStem).RoiValues = {R.valuesPaths};
+    rows(iStem).NRois = numel(R.keys);
+
     valuePaths = fullfile(values.Folder, values.Name);
     rows(iStem).ValuesPaths = {string(valuePaths(:))};
-    rows(iStem).ROILabels = {string(values.RoiLabel(:))};
+    rows(iStem).ROILabels = {roi_keys_of(values.RoiLabel)};
     rows(iStem).NProfiles = height(values);
-    rows(iStem).ROI = join_or_empty(unique(values.RoiLabel(values.RoiLabel ~= "")));
+    rows(iStem).ROI = join_or_empty(R.keys);
 
     rows(iStem).Folder = resolve_folder(rows(iStem), Fs);
     rows(iStem).Status = resolve_status(rows(iStem));
@@ -195,11 +211,108 @@ row = struct( ...
     "ImageNumber", "", "Protocol", "", "Series", "", "NameParsed", false, ...
     "ProjPath", "", "MidPath", "", "CompositePath", "", "RawPath", "", ...
     "Variants", "", "NVariants", 0, "RoiPath", "", ...
+    "RoiKeys", {strings(0, 1)}, "RoiPaths", {strings(0, 1)}, ...
+    "RoiValues", {strings(0, 1)}, "NRois", 0, ...
     "ValuesPaths", {strings(0, 1)}, "ROILabels", {strings(0, 1)}, ...
     "NProfiles", 0, "ROI", "", "Folder", "", "Status", "no image", ...
     "InTracker", false, "AtlasPlate", NaN, "Content", "", "Slide", "", ...
     "SliceID", "", "ImageDate", "", "LaserPower", "", "Notes", "", ...
     "ProcessingID", "");
+
+end
+
+function R = collect_rois(roiFiles, values, stem)
+%COLLECT_ROIS Pair every .roi file of a section with its values file.
+% A section may carry several line ROIs, and the two sidecars belonging to one
+% of them are tied together only by the label in their filenames. Both lists
+% are keyed on that label so an ROI is one entry however many of its two files
+% happen to exist: a line drawn but never measured, and a profile whose .roi
+% was lost, are both still ROIs the browser can name and show.
+%
+% Returns
+%   R: Struct with parallel fields keys, roiPaths, and valuesPaths. A path is
+%      "" when that half of the pair is absent.
+
+roiKeys = roi_keys_of(roiFiles.RoiLabel);
+valuesKeys = roi_keys_of(values.RoiLabel);
+
+roiKeys = adopt_unlabelled_roi(roiKeys, string(roiFiles.RoiLabel(:)), valuesKeys);
+
+R = struct( ...
+    "keys", strings(0, 1), ...
+    "roiPaths", strings(0, 1), ...
+    "valuesPaths", strings(0, 1));
+
+keys = order_roi_keys(unique([roiKeys; valuesKeys]));
+
+if isempty(keys)
+    return
+end
+
+R.keys = keys;
+R.roiPaths = strings(numel(keys), 1);
+R.valuesPaths = strings(numel(keys), 1);
+
+for iKey = 1:numel(keys)
+    R.roiPaths(iKey) = pick_preferred(roiFiles(roiKeys == keys(iKey), :), stem);
+    R.valuesPaths(iKey) = pick_preferred(values(valuesKeys == keys(iKey), :), stem);
+end
+
+end
+
+function roiKeys = adopt_unlabelled_roi(roiKeys, rawLabels, valuesKeys)
+%ADOPT_UNLABELLED_ROI Give an unlabelled .roi file to the profile it measured.
+%
+% MACRO_Batch_LineMeasure writes both sidecars of a line in one pass, but only
+% the values file gets the region suffix the macro was run with: the .roi is
+% always "<base>_roi.roi". A section measured that way therefore has an
+% unlabelled .roi and a values file called something like "_ACxvalues.csv",
+% and taking the two labels at face value would split one line into two ROIs,
+% one with no profile and one with no geometry.
+%
+% So an unlabelled .roi that has no profile under its own key is handed to a
+% profile that has no .roi under its own -- they can only have come from the
+% same line. A .roi that was labelled is never reassigned, because its label
+% says which ROI it belongs to.
+
+unlabelled = rawLabels == "";
+
+if ~any(unlabelled) || ismember("A", valuesKeys)
+    return
+end
+
+orphans = order_roi_keys(unique(valuesKeys(~ismember(valuesKeys, roiKeys))));
+
+if isempty(orphans)
+    return
+end
+
+roiKeys(unlabelled) = orphans(1);
+
+end
+
+function keys = order_roi_keys(keys)
+%ORDER_ROI_KEYS Put the lettered keys first, in order, then any named ones.
+% The letters are what a section's ROIs are called when nobody has renamed
+% them, so they lead; a label the macro was given by hand sorts after them
+% rather than in among them.
+
+keys = string(keys(:));
+
+isLetter = strlength(keys) == 1;
+keys = [sort(keys(isLetter)); sort(keys(~isLetter))];
+
+end
+
+function keys = roi_keys_of(labels)
+%ROI_KEYS_OF Reduce a column of filename ROI labels to the keys they file under.
+
+labels = string(labels(:));
+keys = strings(numel(labels), 1);
+
+for iLabel = 1:numel(labels)
+    keys(iLabel) = histology_roi_key(labels(iLabel));
+end
 
 end
 

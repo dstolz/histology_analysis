@@ -15,7 +15,7 @@ if height(row) ~= 1
     return
 end
 
-style = HistologyImageBrowser.roiStateStyle(obj.roiForRow(row).state);
+style = HistologyImageBrowser.roiStateStyle(obj.roiForRow(row, obj.RoiEditKey).state);
 
 obj.RoiEditor.Color = style.Color;
 obj.RoiEditor.LineWidth = style.LineWidth;

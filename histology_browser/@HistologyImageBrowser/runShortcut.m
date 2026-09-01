@@ -35,6 +35,15 @@ switch action
     case "loadDataset"
         obj.onLoadData();
 
+    case "addRoi"
+        obj.onAddRoi();
+
+    case "nextRoi"
+        step_roi(obj);
+
+    case "editRoiNames"
+        obj.onEditRoiNames();
+
     case "toggleEditRoi"
         % The state button carries the mode, so it is flipped first and the
         % callback then reads it exactly as it would after a click.
@@ -142,6 +151,33 @@ if isempty(button) || ~isvalid(button) || ~strcmp(string(button.Enable), "on")
 end
 
 callback();
+
+end
+
+function step_roi(obj)
+%STEP_ROI Move to the section's next ROI, wrapping at the end.
+% The dropdown is what holds the choice, so it is written and then asked to
+% run its own callback: a key and a click then take the same path, including
+% the offer to save whatever the ROI being left has outstanding.
+
+rows = obj.selectedRows();
+
+if height(rows) ~= 1
+    obj.setWarning("Select exactly one section before moving between its ROIs.");
+    return
+end
+
+keys = obj.roiKeysForRow(rows(1, :));
+
+if numel(keys) < 2
+    obj.setStatus("This section has only one ROI.");
+    return
+end
+
+next = mod(find(keys == obj.activeRoiKey(rows(1, :)), 1), numel(keys)) + 1;
+
+obj.RoiSelectDropDown.Value = keys(next);
+obj.onRoiSelectionChanged();
 
 end
 

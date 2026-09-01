@@ -24,6 +24,9 @@ addpath(fileparts(fileparts(mfilename("fullpath"))));
 nFailed = 0;
 
 nFailed = nFailed + run_case("filename parser", @check_filename_parser);
+nFailed = nFailed + run_case("ROI keys", @check_roi_keys);
+nFailed = nFailed + run_case("multi-ROI catalog", @check_multi_roi_catalog);
+nFailed = nFailed + run_case("macro ROI pairing", @check_macro_roi_pairing);
 nFailed = nFailed + run_case("ImageJ ROI decoder", @check_roi_decoder);
 nFailed = nFailed + run_case("ImageJ ROI encoder", @check_roi_encoder);
 nFailed = nFailed + run_case("line profile measurement", @check_profile_measurement);
@@ -295,6 +298,145 @@ assert(info.Stain == "WFA-PV", "Wrong Stain");
 % A name that does not follow the convention must report failure, not raise.
 bad = parse_histology_filename("not_a_histology_name.tif");
 assert(~bad.isValid, "Malformed name was accepted");
+
+end
+
+function check_roi_keys()
+%CHECK_ROI_KEYS An ROI must be keyed by the label in its filenames.
+% This is what ties a .roi file to the values.csv beside it once a section can
+% hold more than one of each, and what lets a dataset measured before that was
+% possible keep working: the macro's unlabelled pair is the section's ROI A.
+
+assert(histology_roi_key("") == "A", "An unlabelled sidecar was not filed under A");
+assert(histology_roi_key("   ") == "A", "A blank label was not filed under A");
+assert(histology_roi_key(missing) == "A", "A missing label was not filed under A");
+assert(histology_roi_key("B") == "B", "A lettered label was renamed");
+assert(histology_roi_key("  ACx  ") == "ACx", "A label written by hand was not kept");
+
+base = "SUBJ-ID-1174IHC_ECM26A260608S1_1A_L_WFA-PV_Z3_260616_1";
+
+cases = [ ...
+    base + "_proj_roi.roi",      ""; ...
+    base + "_proj_B_roi.roi",    "B"; ...
+    base + "_proj_ACx_roi.roi",  "ACx"];
+
+for iCase = 1:size(cases, 1)
+    info = parse_histology_filename(cases(iCase, 1));
+
+    assert(info.isValid, "Failed to parse %s", cases(iCase, 1));
+    assert(info.stem == base, "Wrong stem for %s: %s", cases(iCase, 1), info.stem);
+    assert(info.variant == "proj", "Wrong variant for %s", cases(iCase, 1));
+    assert(info.roi == cases(iCase, 2), "Wrong ROI label for %s: %s", ...
+        cases(iCase, 1), info.roi);
+end
+
+% A new ROI takes the first letter its section is not already using, so the
+% keys stay short and a gap left by a deleted ROI is filled rather than
+% skipped.
+assert(HistologyImageBrowser.nextRoiKey(strings(0, 1)) == "A", ...
+    "The first ROI of a section was not A");
+assert(HistologyImageBrowser.nextRoiKey(["A"; "B"]) == "C", ...
+    "The third ROI of a section was not C");
+assert(HistologyImageBrowser.nextRoiKey(["A"; "C"]) == "B", ...
+    "A gap in the letters was not filled");
+
+end
+
+function check_multi_roi_catalog()
+%CHECK_MULTI_ROI_CATALOG A section's ROI sidecars must pair up by their label.
+% Every file is synthetic, so this runs without a dataset: what it checks is
+% that .roi and values.csv files land on the same ROI when they share a label
+% and on different ROIs when they do not.
+
+root = string(fullfile(tempdir, "histology_multi_roi_test"));
+
+if isfolder(root)
+    rmdir(root, "s");
+end
+
+base = "SUBJ-ID-1174IHC_ECM26A260608S1_1A_L_WFA-PV_Z3_260616_1";
+folder = fullfile(root, base);
+mkdir(folder);
+
+cleanup = onCleanup(@() rmdir(root, "s"));
+
+geometry = struct("x1", 40, "y1", 90, "x2", 210, "y2", 100, "width", 40);
+
+% ROI A is written the way MACRO_Batch_LineMeasure writes it, with no label at
+% all. ROI B carries its key in both filenames. ROI C has a line but was never
+% measured, which is still an ROI.
+write_line_roi(fullfile(folder, base + "_proj_roi.roi"), geometry);
+write_values_csv(fullfile(folder, base + "_proj_values.csv"), (0:9)', ones(10, 1));
+
+write_line_roi(fullfile(folder, base + "_proj_B_roi.roi"), geometry);
+write_values_csv(fullfile(folder, base + "_proj_B_values.csv"), (0:9)', 2 * ones(10, 1));
+
+write_line_roi(fullfile(folder, base + "_proj_C_roi.roi"), geometry);
+
+C = build_histology_image_catalog(root);
+
+assert(height(C) == 1, "Expected one section, got %d", height(C));
+assert(isequal(C.RoiKeys{1}, ["A"; "B"; "C"]), ...
+    "The section's ROIs were not keyed A, B, C: %s", join(C.RoiKeys{1}', ", "));
+assert(C.NRois == 3, "Wrong ROI count: %g", C.NRois);
+assert(C.ROI == "A, B, C", "The ROI column did not name every ROI: %s", C.ROI);
+
+assert(all(C.RoiPaths{1} ~= ""), "An ROI lost its .roi file");
+assert(endsWith(C.RoiValues{1}(1), "_proj_values.csv"), ...
+    "A took the wrong values file: %s", C.RoiValues{1}(1));
+assert(endsWith(C.RoiPaths{1}(2), "_proj_B_roi.roi"), ...
+    "B took the wrong .roi file: %s", C.RoiPaths{1}(2));
+assert(endsWith(C.RoiValues{1}(2), "_proj_B_values.csv"), ...
+    "B took the wrong values file: %s", C.RoiValues{1}(2));
+
+% An ROI with no profile must be reported as having none rather than
+% borrowing one from the ROI beside it.
+assert(C.RoiValues{1}(3) == "", "C was given a values file it does not have");
+assert(C.NProfiles == 2, "Wrong profile count: %g", C.NProfiles);
+
+end
+
+function check_macro_roi_pairing()
+%CHECK_MACRO_ROI_PAIRING One line measured by the Fiji macro must stay one ROI.
+% MACRO_Batch_LineMeasure names the values file after the region it was run
+% for but always writes the .roi as "<base>_roi.roi", so the two sidecars of a
+% single line disagree about their label. Reading them literally would split
+% that line into an ROI with no profile and an ROI with no geometry, which is
+% what every section measured so far would look like.
+
+root = string(fullfile(tempdir, "histology_macro_pairing_test"));
+
+if isfolder(root)
+    rmdir(root, "s");
+end
+
+base = "SUBJ-ID-1174IHC_ECM26A260608S1_1A_L_WFA-PV_Z3_260616_1";
+folder = fullfile(root, base);
+mkdir(folder);
+
+cleanup = onCleanup(@() rmdir(root, "s"));
+
+write_line_roi(fullfile(folder, base + "_proj_roi.roi"), ...
+    struct("x1", 40, "y1", 90, "x2", 210, "y2", 100, "width", 40));
+write_values_csv(fullfile(folder, base + "_proj_ACxvalues.csv"), (0:9)', ones(10, 1));
+
+C = build_histology_image_catalog(root);
+
+assert(height(C) == 1, "Expected one section, got %d", height(C));
+assert(C.NRois == 1, "One measured line was read as %g ROIs", C.NRois);
+assert(C.RoiKeys{1} == "ACx", "The line was not keyed by its profile: %s", C.RoiKeys{1});
+assert(C.RoiPaths{1} ~= "" && C.RoiValues{1} ~= "", ...
+    "The line lost one of its two sidecars");
+
+% A .roi that carries a label of its own is never reassigned, because the
+% label already says which ROI it belongs to.
+write_line_roi(fullfile(folder, base + "_proj_B_roi.roi"), ...
+    struct("x1", 40, "y1", 170, "x2", 210, "y2", 180, "width", 40));
+
+C = build_histology_image_catalog(root);
+
+assert(isequal(C.RoiKeys{1}, ["B"; "ACx"]), ...
+    "A labelled .roi was not kept apart: %s", join(C.RoiKeys{1}', ", "));
 
 end
 
@@ -571,7 +713,101 @@ assert(P.hasData, "No profile data for a section that reports one");
 check_unannotated_section_renders(app);
 check_profile_layouts(app);
 check_stain_colormap(app);
+check_roi_names(app);
 check_roi_editing(app);
+
+end
+
+function check_roi_names(app)
+%CHECK_ROI_NAMES Naming an ROI key must rename it everywhere and outlive the
+% session. The names are what makes a second line across a section readable as
+% a region rather than as a letter, so they have to reach the overlay and the
+% legend, and they have to be there again next time the browser opens.
+
+savedPrefs = snapshot_roi_name_prefs();
+savedNames = struct(keys = app.RoiNameKeys, labels = app.RoiNameLabels);
+restore = onCleanup(@() restore_roi_names(app, savedNames, savedPrefs));
+
+% Started from no names at all, so what this checks does not depend on which
+% regions the person running it happens to have named already.
+app.RoiNameKeys = strings(0, 1);
+app.RoiNameLabels = strings(0, 1);
+
+app.setRoiName("A", "ACx");
+
+assert(app.roiName("A") == "ACx", "A was not renamed");
+assert(app.roiName("B") == "B", "An unnamed key stopped standing for itself");
+
+% Written and read back, because a name belongs to the study rather than to
+% one sitting with the browser.
+app.savePreferences();
+app.RoiNameKeys = strings(0, 1);
+app.RoiNameLabels = strings(0, 1);
+app.loadPreferences();
+
+assert(app.roiName("A") == "ACx", "The ROI name did not survive preferences");
+
+% The dropdown names the ROI and still carries the key, which is what says
+% which files an edit would write.
+app.updateRoiEditControls();
+assert(any(contains(string(app.RoiSelectDropDown.Items), "ACx")), ...
+    "The renamed ROI was not offered by name: %s", ...
+    join(string(app.RoiSelectDropDown.Items), " | "));
+
+% The tile has to carry it too, on the section that is actually on screen.
+select_row(app, 1);
+captions = string({findobj(app.ImagePanel, Type = "text", Tag = "roiOverlay").String});
+
+if ~isempty(captions) && any(app.roiKeysForRow(app.View(1, :)) == "A")
+    assert(ismember("ACx", captions), ...
+        "The renamed ROI was not captioned on the tile: %s", join(captions, ", "));
+end
+
+% Clearing a name puts the key back to standing for itself, and stores
+% nothing rather than storing a blank.
+app.setRoiName("A", "");
+
+assert(app.roiName("A") == "A", "Clearing a name did not restore the key");
+assert(~ismember("A", app.RoiNameKeys), "A cleared name was stored as a blank");
+
+end
+
+function saved = snapshot_roi_name_prefs()
+%SNAPSHOT_ROI_NAME_PREFS Record the saved ROI names as they stand.
+% This check writes preferences to prove they survive a round trip, so it has
+% to put the real ones back afterwards.
+
+group = char(HistologyImageBrowser.PrefGroup);
+names = ["RoiNameKeys", "RoiNameLabels"];
+
+saved = struct(group = group, names = names, existed = false(size(names)), ...
+    values = {cell(size(names))});
+
+for iName = 1:numel(names)
+    saved.existed(iName) = ispref(group, char(names(iName)));
+
+    if saved.existed(iName)
+        saved.values{iName} = getpref(group, char(names(iName)));
+    end
+end
+
+end
+
+function restore_roi_names(app, savedNames, savedPrefs)
+%RESTORE_ROI_NAMES Put both the browser and the preferences back as they were.
+
+app.RoiNameKeys = savedNames.keys;
+app.RoiNameLabels = savedNames.labels;
+
+for iName = 1:numel(savedPrefs.names)
+    name = char(savedPrefs.names(iName));
+
+    if savedPrefs.existed(iName)
+        setpref(savedPrefs.group, name, savedPrefs.values{iName});
+    elseif ispref(savedPrefs.group, name)
+        rmpref(savedPrefs.group, name);
+    end
+end
 
 end
 
@@ -708,6 +944,68 @@ app.onRevertRoiEdits();
 
 assert(app.RoiEditGeom.y1 == before.y1, "Revert did not restore the ROI on disk");
 assert(~app.RoiEditDirty, "Revert left the edit marked unsaved");
+
+check_roi_scope(app);
+
+end
+
+function check_roi_scope(app)
+%CHECK_ROI_SCOPE An edit must reach the chosen ROI and no other.
+% Nothing is saved here either: what is checked is that the browser knows
+% which of a section's ROIs the handles are on, so that the one being dragged
+% is the only one whose profile stops being the file on disk.
+
+row = app.editedRow();
+
+if height(row) ~= 1
+    return
+end
+
+keys = app.roiKeysForRow(row);
+
+% Adding an ROI is the one part of this that works on a section with only one
+% to begin with, so it is checked whatever the dataset holds. Nothing is
+% written, so the section is left exactly as it was found.
+expected = HistologyImageBrowser.nextRoiKey(keys);
+
+app.onAddRoi();
+
+assert(app.RoiEditKey == expected, ...
+    "Add ROI opened %s rather than %s", app.RoiEditKey, expected);
+assert(app.RoiEditDirty, "A brand new ROI was not marked unsaved");
+assert(ismember(expected, app.roiKeysForRow(app.editedRow())), ...
+    "The added ROI was not listed on its section");
+
+app.exitRoiEdit(false);
+
+if numel(keys) < 2
+    return
+end
+
+% With two ROIs on the section, moving one must leave the other reading from
+% its own file.
+app.RoiSelectDropDown.Value = keys(2);
+app.onRoiSelectionChanged();
+
+app.EditRoiButton.Value = true;
+app.onToggleEditRoi();
+leaveEdit = onCleanup(@() app.exitRoiEdit(false));
+
+assert(app.RoiEditKey == keys(2), ...
+    "Editing opened %s rather than %s", app.RoiEditKey, keys(2));
+
+edited = app.RoiEditGeom;
+app.onRoiEditChanged([edited.x1, edited.y1 + 15; edited.x2, edited.y2], true);
+
+moved = app.readProfile(app.editedRow(), keys(2));
+untouched = app.readProfile(app.editedRow(), keys(1));
+
+assert(contains(moved.source, "unsaved"), ...
+    "The edit did not reach the chosen ROI: %s", moved.source);
+assert(~contains(untouched.source, "unsaved"), ...
+    "Editing one ROI disturbed another: %s", untouched.source);
+
+app.onRevertRoiEdits();
 
 end
 

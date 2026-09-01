@@ -1,43 +1,49 @@
-function P = readProfile(obj, row)
-%READPROFILE Return the line profile associated with one catalog row.
+function P = readProfile(obj, row, key)
+%READPROFILE Return the line profile of one of a section's ROIs.
 %
 % The already-loaded COMBINE_VALUES_CSV output is preferred, so the browser
 % shows exactly the data the analysis pipeline sees. Reading the CSV directly
 % is only a fallback for rows that combiner skipped, for example when the
 % filename did not match the tracker.
 %
+% Parameters
+%   row: One catalog row.
+%   key: Which of the section's ROIs to read. Defaults to the one the edit
+%       controls are pointed at.
+%
 % Returns
-%   P: Struct with fields hasData, distance, intensity, roiLabel, source,
-%      and message.
+%   P: Struct with fields hasData, distance, intensity, roiKey, roiLabel,
+%      source, and message. The label is what the ROI is called on screen,
+%      which is the key until somebody names it.
+
+arguments
+    obj
+    row table
+    key (1,1) string = obj.activeRoiKey(row)
+end
 
 P = struct( ...
     "hasData", false, ...
     "distance", zeros(0, 1), ...
     "intensity", zeros(0, 1), ...
-    "roiLabel", "", ...
+    "roiKey", key, ...
+    "roiLabel", obj.roiName(key), ...
     "source", "", ...
     "message", "");
 
 % An unsaved edit is what the user is looking at, so the profile measured
 % under the moved line takes precedence over whatever is still on disk.
-P = read_from_preview(P, obj, row);
+P = read_from_preview(P, obj, row, key);
 
 if P.hasData
     return
 end
 
-valuesPaths = row.ValuesPaths{1};
+valuesPath = obj.roiEntry(row, key).valuesPath;
 
-if isempty(valuesPaths)
-    P.message = "No values file for this section.";
+if valuesPath == ""
+    P.message = "No values file for ROI " + P.roiLabel + " of this section.";
     return
-end
-
-valuesPath = valuesPaths(1);
-roiLabels = row.ROILabels{1};
-
-if ~isempty(roiLabels)
-    P.roiLabel = roiLabels(1);
 end
 
 P = read_from_combined(P, obj.Data, valuesPath);
@@ -50,10 +56,10 @@ P = read_from_csv(P, valuesPath);
 
 end
 
-function P = read_from_preview(P, obj, row)
+function P = read_from_preview(P, obj, row, key)
 %READ_FROM_PREVIEW Return the profile measured under an unsaved ROI edit.
 
-if ~obj.isEditingRow(row)
+if ~obj.isEditingRoi(row, key)
     return
 end
 
@@ -61,12 +67,6 @@ preview = obj.RoiPreview;
 
 if ~isfield(preview, "hasData") || ~preview.hasData
     return
-end
-
-roiLabels = row.ROILabels{1};
-
-if ~isempty(roiLabels)
-    P.roiLabel = roiLabels(1);
 end
 
 P.distance = preview.distance;

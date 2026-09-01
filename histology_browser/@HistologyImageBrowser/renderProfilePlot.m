@@ -1,6 +1,9 @@
 function renderProfilePlot(obj)
 %RENDERPROFILEPLOT Plot the profiles of the selected sections on shared axes.
-% Tile colors are reused so a trace is easy to match to its image.
+% Tile colors are reused so a trace is easy to match to its image. A section
+% carrying several ROIs contributes one trace each, all in the tile's color
+% and told apart by stroke, so which section a trace came from and which
+% region of it are two separate things to read rather than one guess.
 
 ax = obj.ProfileAxes;
 
@@ -32,25 +35,40 @@ else
     colors = turbo(nDrawn);
 end
 
+% One stroke per ROI of a section, in the order the section lists them, so the
+% same region draws the same way on every section that has it.
+strokes = ["-", "--", ":", "-."];
+
 hold(ax, "on");
 
 nPlotted = 0;
 missingLabels = strings(0, 1);
 
 for iRow = 1:nDrawn
-    P = obj.readProfile(rows(iRow, :));
+    row = rows(iRow, :);
+    keys = obj.roiKeysForRow(row);
 
-    if ~P.hasData
-        missingLabels(end + 1) = section_label(rows(iRow, :)); %#ok<AGROW>
+    if isempty(keys)
+        missingLabels(end + 1) = section_label(row); %#ok<AGROW>
         continue
     end
 
-    plot(ax, P.distance, P.intensity, ...
-        LineWidth = 1.25, ...
-        Color = colors(iRow, :), ...
-        DisplayName = trace_label(rows(iRow, :), P));
+    for iKey = 1:numel(keys)
+        P = obj.readProfile(row, keys(iKey));
 
-    nPlotted = nPlotted + 1;
+        if ~P.hasData
+            missingLabels(end + 1) = trace_label(obj, row, keys, keys(iKey)); %#ok<AGROW>
+            continue
+        end
+
+        plot(ax, P.distance, P.intensity, ...
+            LineWidth = 1.25, ...
+            LineStyle = strokes(mod(iKey - 1, numel(strokes)) + 1), ...
+            Color = colors(iRow, :), ...
+            DisplayName = trace_label(obj, row, keys, keys(iKey)));
+
+        nPlotted = nPlotted + 1;
+    end
 end
 
 hold(ax, "off");
@@ -85,7 +103,7 @@ end
 end
 
 function note = missing_note(missingLabels)
-%MISSING_NOTE Name the omitted sections, abbreviating a long list.
+%MISSING_NOTE Name the omitted profiles, abbreviating a long list.
 
 if numel(missingLabels) > 3
     note = sprintf("No profile: %s and %d more", ...
@@ -128,13 +146,22 @@ label = subject + " " + row.SectionID + " " + row.Hemisphere;
 
 end
 
-function label = trace_label(row, P)
-%TRACE_LABEL Build a concise legend entry for one profile.
+function label = trace_label(obj, row, keys, key)
+%TRACE_LABEL Build a concise legend entry for one ROI of one section.
+% The ROI is named only when naming it says something. A section with a single
+% ROI still called by the letter it was filed under would otherwise add "(A)"
+% to every entry in the legend while distinguishing nothing; a key that is a
+% region's own name always earns its place, and so does any ROI on a section
+% that has more than one.
 
 label = section_label(row);
 
-if P.roiLabel ~= ""
-    label = label + " (" + P.roiLabel + ")";
+name = obj.roiName(key);
+
+if isscalar(keys) && name == key && strlength(key) == 1
+    return
 end
+
+label = label + " (" + name + ")";
 
 end

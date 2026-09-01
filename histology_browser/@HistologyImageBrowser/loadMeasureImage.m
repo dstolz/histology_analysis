@@ -107,17 +107,35 @@ end
 
 function pixelSize = spacing_from_values(row)
 %SPACING_FROM_VALUES Recover the pixel size from an existing values file.
+% Every ROI of a section was measured off the same image, so any of their
+% profiles answers this. They are tried in turn rather than only the first,
+% because the first may be the one that could not be read.
 
 pixelSize = NaN;
 
 valuesPaths = row.ValuesPaths{1};
 
-if isempty(valuesPaths) || ~isfile(valuesPaths(1))
+for iPath = 1:numel(valuesPaths)
+    pixelSize = spacing_of(valuesPaths(iPath));
+
+    if isfinite(pixelSize)
+        return
+    end
+end
+
+end
+
+function pixelSize = spacing_of(valuesPath)
+%SPACING_OF Read the sample spacing out of one values file.
+
+pixelSize = NaN;
+
+if valuesPath == "" || ~isfile(valuesPath)
     return
 end
 
 try
-    T = readtable(valuesPaths(1));
+    T = readtable(valuesPath);
 catch
     return
 end

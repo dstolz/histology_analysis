@@ -1,18 +1,54 @@
 function drawRoiOverlay(obj, ax, row, tileColor)
-%DRAWROIOVERLAY Draw the Fiji line ROI and, optionally, the measured profile.
+%DRAWROIOVERLAY Draw every line ROI of one section and, optionally, its profile.
+%
+% A section may carry several ROIs, one per region measured across it. All of
+% them are drawn, and each is captioned with what it is called, because a tile
+% showing two lines and no names says only that two things were measured.
 %
 % The profile in a *values.csv file is the mean intensity across the full line
 % width at each step along the line, so the shaded overlay is drawn as a strip
 % of quads spanning that width rather than as a thin line. That keeps the
 % picture honest about which pixels each sample actually came from.
 %
-% The line and the band outline are stroked by ROISTATESTYLE, so how the ROI
+% The line and the band outline are stroked by ROISTATESTYLE, so how an ROI
 % stands against the .roi file beside it -- read from disk, being edited,
 % edited and not yet written, or just written -- is readable off the tile.
 
 % Every overlay object is tagged so a drag can replace just these graphics
 % without redrawing, and so rereading, the image underneath them.
-R = obj.roiForRow(row);
+keys = obj.roiKeysForRow(row);
+
+if isempty(keys)
+    return
+end
+
+badges = strings(0, 1);
+badgeStyles = {};
+
+for iKey = 1:numel(keys)
+    style = draw_one_roi(obj, ax, row, tileColor, keys(iKey));
+
+    if isempty(style) || style.Badge == ""
+        continue
+    end
+
+    badges(end + 1, 1) = style.Badge; %#ok<AGROW>
+    badgeStyles{end + 1} = style; %#ok<AGROW>
+end
+
+label_states(ax, badges, badgeStyles);
+
+end
+
+function style = draw_one_roi(obj, ax, row, tileColor, key)
+%DRAW_ONE_ROI Draw one ROI's band, shading, line, and caption.
+% Returns the style it was drawn in, or [] when nothing was drawn, so the
+% caller can collect the badges and stack them rather than let two ROIs in
+% different states write over each other in the same corner of the tile.
+
+style = [];
+
+R = obj.roiForRow(row, key);
 
 if ~R.isValid || ~R.isLine
     return
@@ -39,7 +75,7 @@ geometry = line_geometry(R);
 style = HistologyImageBrowser.roiStateStyle(R.state, tileColor);
 
 if wantsShading
-    P = obj.readProfile(row);
+    P = obj.readProfile(row, key);
 
     if P.hasData
         draw_intensity_strip(ax, geometry, P);
@@ -79,33 +115,61 @@ if wantsRoi && ~R.isEditing
         Tag = "roiOverlay");
 end
 
-% The badge is the part that survives being glanced at. The stroke says what
-% state the ROI is in to anyone reading the line; the badge says it in words
-% to anyone reading the tile, and it is the only thing on screen that names an
-% unsaved edit without the control panel being in view.
-label_state(ax, style);
+label_roi(ax, geometry, style, obj.roiName(key));
 
 end
 
-function label_state(ax, style)
-%LABEL_STATE Name the ROI's save state in the corner of the tile it belongs to.
-% The on-disk state is deliberately unlabelled: it is the ordinary case, on
-% every tile of a grid at once, and a badge on all of them would say nothing.
+function label_roi(ax, geometry, style, name)
+%LABEL_ROI Write what an ROI is called at the end its profile starts from.
+% Two lines across one section are only ever told apart by name, and the name
+% belongs where the profile begins, so it says which way along the line the
+% trace in the plot runs as well as which line it came from.
+%
+% The caption sits just short of the first endpoint rather than on it, so it
+% clears both the start marker and the sampling band; clipping keeps it inside
+% the tile when a line starts at the very edge of the image.
 
-if style.Badge == ""
+if name == ""
     return
 end
 
-text(ax, 0.02, 0.98, style.Badge, ...
-    Units = "normalized", ...
-    HorizontalAlignment = "left", ...
-    VerticalAlignment = "top", ...
+anchor = [geometry.x1, geometry.y1] - geometry.unit * (0.05 * geometry.length);
+
+text(ax, anchor(1), anchor(2), name, ...
     Color = style.BadgeTextColor, ...
     BackgroundColor = style.Color, ...
     FontSize = 8, ...
     FontWeight = "bold", ...
-    Margin = 3, ...
+    Margin = 2, ...
+    Interpreter = "none", ...
+    HorizontalAlignment = "center", ...
+    VerticalAlignment = "middle", ...
+    Clipping = "on", ...
     Tag = "roiOverlay");
+
+end
+
+function label_states(ax, badges, styles)
+%LABEL_STATES Name the ROI save states in the corner of the tile they belong to.
+% The on-disk state is deliberately unlabelled: it is the ordinary case, on
+% every tile of a grid at once, and a badge on all of them would say nothing.
+% What is left is at most one ROI being edited and at most one just written,
+% and those two are stacked rather than drawn over each other.
+
+for iBadge = 1:numel(badges)
+    style = styles{iBadge};
+
+    text(ax, 0.02, 0.98 - 0.07 * (iBadge - 1), badges(iBadge), ...
+        Units = "normalized", ...
+        HorizontalAlignment = "left", ...
+        VerticalAlignment = "top", ...
+        Color = style.BadgeTextColor, ...
+        BackgroundColor = style.Color, ...
+        FontSize = 8, ...
+        FontWeight = "bold", ...
+        Margin = 3, ...
+        Tag = "roiOverlay");
+end
 
 end
 

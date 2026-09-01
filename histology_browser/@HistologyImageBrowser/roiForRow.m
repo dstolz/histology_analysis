@@ -1,29 +1,47 @@
-function R = roiForRow(obj, row)
-%ROIFORROW Return the line ROI to draw and measure for one catalog row.
-% While a section is being edited the unsaved geometry wins over the file on
+function R = roiForRow(obj, row, key)
+%ROIFORROW Return one of a section's line ROIs, to draw and to measure.
+% While an ROI is being edited the unsaved geometry wins over the file on
 % disk, so the overlay, the profile preview, and the save all read the same
 % numbers instead of each going back to their own source.
 %
+% Parameters
+%   row: One catalog row.
+%   key: Which of the section's ROIs to return. Defaults to the one the edit
+%       controls are pointed at, which is what a caller wanting "the" ROI of a
+%       section means.
+%
 % Returns
-%   R: Struct with fields isValid, isLine, isEditing, state, x1, y1, x2, y2,
-%      strokeWidth, name, and roiPath. The state is what the overlay draws
-%      itself from: "none" when there is no line, "file" for one read off
-%      disk, "clean" while editing a line that still matches its file,
-%      "dirty" or "new" while it does not, and "saved" just after a write.
+%   R: Struct with fields isValid, isLine, isEditing, state, key, x1, y1, x2,
+%      y2, strokeWidth, name, and roiPath. The name is the one stored inside
+%      the .roi file, which Fiji shows; what the browser calls the ROI comes
+%      from ROINAME and the key. The state is what the overlay draws itself
+%      from: "none" when there is no line, "file" for one read off disk,
+%      "clean" while editing a line that still matches its file, "dirty" or
+%      "new" while it does not, and "saved" just after a write.
+
+arguments
+    obj
+    row table
+    key (1,1) string = obj.activeRoiKey(row)
+end
+
+entry = obj.roiEntry(row, key);
 
 R = struct( ...
     "isValid", false, ...
     "isLine", false, ...
     "isEditing", false, ...
     "state", "none", ...
+    "key", key, ...
     "x1", NaN, "y1", NaN, "x2", NaN, "y2", NaN, ...
     "strokeWidth", 0, ...
     "name", "", ...
-    "roiPath", string(row.RoiPath));
+    "roiPath", entry.roiPath);
 
-justSaved = obj.RoiSavedStem ~= "" && string(row.Stem) == obj.RoiSavedStem;
+justSaved = obj.RoiSavedStem ~= "" && height(row) == 1 ...
+    && string(row.Stem) == obj.RoiSavedStem && key == obj.RoiSavedKey;
 
-if obj.isEditingRow(row)
+if obj.isEditingRoi(row, key)
     geometry = obj.RoiEditGeom;
 
     R.isValid = true;
@@ -59,8 +77,8 @@ R.y2 = F.y2;
 R.strokeWidth = F.strokeWidth;
 R.name = F.name;
 
-% A section written a moment ago keeps its confirmation after the edit session
-% ends, so the save stays visible on the tile it was made on.
+% An ROI written a moment ago keeps its confirmation after the edit session
+% ends, so the save stays visible on the line it was made on.
 if justSaved
     R.state = "saved";
 else
