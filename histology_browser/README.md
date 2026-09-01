@@ -19,6 +19,10 @@ launch_histology_browser()
 % Or load a dataset immediately:
 launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
     metadataCSV = "D:/GM6001_HISTOLOGY/Trackers - Sections.csv")
+
+% Or read the tracker straight from the published Google Sheet:
+launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
+    publishedUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-.../pub?gid=1084786865&single=true&output=csv")
 ```
 
 Every `.m` file lives at the repository root, so a plain `addpath` of the root also works.
@@ -48,8 +52,57 @@ unparsed names in its status bar.
 sidecars. It runs inside Fiji/ImageJ, not MATLAB, and is included here so the two halves of
 the workflow stay together.
 
-An optional section tracker CSV (`metadataCSV`) is joined onto the catalog by image filename
-stem, supplying annotations the filenames do not carry.
+An optional section tracker is joined onto the catalog by image filename stem, supplying
+annotations the filenames do not carry. It can come from a CSV export (`metadataCSV`) or
+from the published copy of the Google Sheet it is maintained in (`publishedUrl`) — see
+below.
+
+## Reading the tracker from a published Google Sheet
+
+The tracker is a tab in a Google Sheet. Pointing the browser at it directly means no
+exporting a CSV by hand every time somebody edits it.
+
+### Publishing the tab
+
+In the sheet, **File → Share → Publish to web**. Choose the **Sections** tab (not "Entire
+document") and the **Comma-separated values (.csv)** format, then Publish. Paste the link
+it gives you into **Dataset → Published Sheet** in the browser.
+
+That link is checked as soon as it is set — it is downloaded there and then rather than at
+the next load, so a link that will not work says so while you are still looking at the
+dialog that set it.
+
+### What publishing does and does not do
+
+Publishing exposes **that one tab** to anyone who has the link. The rest of the workbook
+stays private, and the link is not indexed or guessable, but it is not access-controlled
+either. Do not take the shortcut of setting the whole file to "anyone with the link can
+view" to achieve the same thing — that would expose every other tab, including the
+subject records.
+
+Leave **"Automatically republish when changes are made"** checked, which is the default.
+Edits then reach the published copy on their own. Google caches it, so an edit made in the
+last few minutes may not be in what the browser downloads; for the usual rhythm of editing
+the tracker and reloading later, that is invisible.
+
+### Read-only
+
+This route is one-way. A published sheet serves its contents and accepts nothing back, so
+the browser reads the tracker and never writes to it. Writing would need the Google Sheets
+API and a service account, which needs a Google Cloud project — see
+`worktree-sheets-sync` in this repository for an implementation of that, parked because
+creating a Cloud project under a `umd.edu` account is blocked by organization policy.
+
+### Notes
+
+- The published CSV keeps the blank and title rows above the header, exactly as the
+  exported CSV did, so the header is searched for rather than assumed to be row 1.
+- The download is written to a temporary file as UTF-8 and deleted after the load, so
+  micrometre and degree signs in the Notes column survive the round trip.
+- A link that serves the tab as a web page is accepted and asked for as CSV instead. An
+  ordinary `/edit` link is refused, with a message saying what to paste instead — it is
+  the most likely thing to be pasted and would never work.
+- Naming a published sheet takes precedence over naming a tracker CSV.
 
 ## Contents
 
@@ -57,6 +110,7 @@ stem, supplying annotations the filenames do not carry.
 |---|---|
 | `launch_histology_browser.m` | Entry point; constructs the browser. |
 | `@HistologyImageBrowser/` | The GUI class — catalog, filters, image tiles, profile plot, ROI editor. |
+| `fetch_published_tracker.m` | Download the section tracker from a published Google Sheet as a CSV. |
 | `combine_values_csv.m` | Ingests every `*values.csv` under a root into one structured dataset, with per-file diagnostics. |
 | `build_histology_image_catalog.m` | One row per section: all renditions, the ROI sidecar, the profiles, and joined tracker metadata. |
 | `parse_histology_filename.m` | Non-raising filename parser used by the catalog. |
@@ -115,8 +169,9 @@ unfinished sections. It is deterministic and about 220 KB.
 
 ## Menus
 
-`Dataset` picks the root folder and tracker CSV and loads them. `View` collapses the data
-column and the display row, separately or together, to give the image tiles the window.
+`Dataset` picks the root folder and the tracker — a CSV export, or the published Google
+Sheet — and loads them. `View` collapses the data column and the display row, separately
+or together, to give the image tiles the window.
 
 `Display` mirrors every control in the Display panel, so collapsing the display row costs
 reach rather than capability. The panel keeps the state; each menu item writes to the control
@@ -203,7 +258,9 @@ the Save and Revert buttons show.
 
 Window and display settings persist under the MATLAB preference group
 `HistologyImageBrowser`. That is a name rather than a path, so settings saved before this
-code moved out of `helper_fnc` carry over unchanged.
+code moved out of `helper_fnc` carry over unchanged. The published sheet URL is saved
+there too, and restored without being fetched — opening the browser should not wait on the
+network to find out something the next load will report anyway.
 
 The window reopens at the size and position it was closed at, and reopens maximized if it
 was closed maximized. A saved position that no longer lands on an attached monitor is

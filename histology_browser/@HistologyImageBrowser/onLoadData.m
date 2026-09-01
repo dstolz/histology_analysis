@@ -3,6 +3,7 @@ function onLoadData(obj)
 
 rootPath = strtrim(obj.RootPath);
 metadataPath = strtrim(obj.MetadataPath);
+usePublished = obj.PublishedUrl ~= "";
 
 if rootPath == "" || ~isfolder(rootPath)
     obj.setError("Root folder does not exist: %s", rootPath);
@@ -10,7 +11,10 @@ if rootPath == "" || ~isfolder(rootPath)
     return
 end
 
-if metadataPath ~= "" && ~isfile(metadataPath)
+% The CSV is only checked when it is the one that will be used. A stale path
+% left over from before the published sheet was set is not worth refusing a
+% load over, since nothing is going to read it.
+if ~usePublished && metadataPath ~= "" && ~isfile(metadataPath)
     obj.setError("Tracker CSV does not exist: %s", metadataPath);
     uialert(obj.Fig, "The tracker CSV does not exist: " + metadataPath, "Invalid Tracker CSV");
     return
@@ -33,6 +37,18 @@ try
         "continueOnError", true, ...
         "progressFcn", @(i, n, f) update_progress(dlg, i, n, f), ...
         "cancelRequestedFcn", @() dlg.CancelRequested};
+
+    % Downloaded before the values files are walked, so a tracker that cannot
+    % be reached is reported before the slow part of the load rather than
+    % after it. The temporary CSV is removed when this function returns,
+    % however it returns.
+    if usePublished
+        dlg.Message = "Downloading the published tracker...";
+        drawnow;
+
+        metadataPath = fetch_published_tracker(obj.PublishedUrl);
+        removeDownload = onCleanup(@() delete(metadataPath));
+    end
 
     if metadataPath ~= ""
         combineArgs = [{"metadataCSV", metadataPath}, combineArgs];
@@ -66,6 +82,11 @@ try
     obj.savePreferences();
 
     [summary, level] = summarize_load(S, C);
+
+    if usePublished
+        summary = summary + " Tracker downloaded from the published sheet.";
+    end
+
     obj.pushStatus(level, "%s", summary);
 
 catch ME
