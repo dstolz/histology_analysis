@@ -37,6 +37,7 @@ nFailed = nFailed + run_case("filename parser", @check_filename_parser);
 nFailed = nFailed + run_case("ImageJ ROI decoder", @check_roi_decoder);
 nFailed = nFailed + run_case("ImageJ ROI encoder", @check_roi_encoder);
 nFailed = nFailed + run_case("line profile measurement", @check_profile_measurement);
+nFailed = nFailed + run_case("profile normalization", @check_profile_normalization);
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
 nFailed = nFailed + run_case("published sheet URLs", @check_published_url);
 nFailed = nFailed + run_case("published sheet settings", @check_published_settings);
@@ -518,6 +519,121 @@ check_values_csv_round_trip(P);
 
 end
 
+function check_profile_normalization()
+%CHECK_PROFILE_NORMALIZATION The rescalings NORMALIZEPROFILES offers.
+% Static, so the arithmetic is checked on any machine whether or not the GUI
+% checks run, and against numbers whose right answer can be written down.
+
+profiles = struct( ...
+    distance = {(10:10:50)'; (100:100:300)'}, ...
+    intensity = {(1:5)'; [4; 6; 8]});
+
+% Nothing chosen must return the samples unchanged, and label the axes the way
+% the plot has always labelled them.
+N = HistologyImageBrowser.normalizeProfiles(profiles);
+assert(isequal(N.profiles(1).intensity, (1:5)'), "Raw intensities were rescaled");
+assert(isequal(N.profiles(1).distance, (10:10:50)'), "Raw distances were rescaled");
+assert(contains(N.yLabel, "intensity"), "The intensity axis lost its label: %s", N.yLabel);
+
+% Per trace, each is scaled by its own range; pooled, both are scaled by the
+% range of the two together, which is the difference the scope exists for.
+N = HistologyImageBrowser.normalizeProfiles(profiles, Normalization = "range");
+assert(isequal(N.profiles(1).intensity, [0; 0.25; 0.5; 0.75; 1]), ...
+    "Per-trace min-max did not map the first trace onto 0-1");
+assert(isequal(N.profiles(2).intensity, [0; 0.5; 1]), ...
+    "Per-trace min-max did not map the second trace onto 0-1");
+
+N = HistologyImageBrowser.normalizeProfiles(profiles, ...
+    Normalization = "range", Scope = "all");
+assert(isequal(N.profiles(1).intensity, (0:4)' / 7), ...
+    "Pooled min-max did not scale the first trace by the pooled range");
+assert(abs(max(N.profiles(2).intensity) - 1) < 1e-12, ...
+    "Pooled min-max did not put the brightest sample of the plot at one");
+assert(min(N.profiles(1).intensity) < min(N.profiles(2).intensity), ...
+    "Pooled min-max lost the offset between the two traces");
+
+% The rest of the intensity mappings, each against its own definition.
+N = HistologyImageBrowser.normalizeProfiles(profiles, Normalization = "baseline");
+assert(isequal(N.profiles(2).intensity, [0; 2; 4]), "Baseline was not subtracted");
+
+N = HistologyImageBrowser.normalizeProfiles(profiles, Normalization = "max");
+assert(isequal(N.profiles(2).intensity, 100 * [4; 6; 8] / 8), ...
+    "Percent of max did not put the peak at 100");
+
+N = HistologyImageBrowser.normalizeProfiles(profiles, Normalization = "mean");
+assert(abs(mean(N.profiles(1).intensity) - 1) < 1e-12, ...
+    "Fold of mean did not put the mean at one");
+
+N = HistologyImageBrowser.normalizeProfiles(profiles, Normalization = "zscore");
+assert(abs(mean(N.profiles(1).intensity)) < 1e-12, "Z-score did not center the trace");
+assert(abs(std(N.profiles(1).intensity) - 1) < 1e-12, "Z-score did not scale to unit SD");
+
+% Distance is normalized per trace whatever the scope says, so two lines of
+% very different length both run 0 to 100.
+N = HistologyImageBrowser.normalizeProfiles(profiles, Distance = "percent", Scope = "all");
+assert(isequal(N.profiles(1).distance, (0:25:100)'), ...
+    "Percent of line did not map the first line onto 0-100");
+assert(isequal(N.profiles(2).distance, [0; 50; 100]), ...
+    "Percent of line did not map the second line onto 0-100");
+assert(contains(N.xLabel, "%"), "The distance axis was not relabelled: %s", N.xLabel);
+
+N = HistologyImageBrowser.normalizeProfiles(profiles, Distance = "start");
+assert(isequal(N.profiles(1).distance, (0:10:40)'), "Distances did not start at zero");
+
+% The two axes are independent.
+N = HistologyImageBrowser.normalizeProfiles(profiles, ...
+    Normalization = "zscore", Distance = "percent");
+assert(abs(mean(N.profiles(2).intensity)) < 1e-12, ...
+    "Normalizing the distance axis disturbed the intensity axis");
+assert(isequal(N.profiles(2).distance, [0; 50; 100]), ...
+    "Normalizing the intensity axis disturbed the distance axis");
+
+check_degenerate_normalization();
+check_stale_normalization_code();
+
+end
+
+function check_degenerate_normalization()
+%CHECK_DEGENERATE_NORMALIZATION A trace with no range must survive being scaled.
+% Dividing by its zero range would return a column of NaN, which draws as
+% nothing and reads on screen exactly like a section whose values file is
+% missing -- the one outcome a normalization must not produce.
+
+flat = struct(distance = (1:4)', intensity = [7; 7; 7; 7]);
+
+N = HistologyImageBrowser.normalizeProfiles(flat, Normalization = "range");
+assert(all(isfinite(N.profiles(1).intensity)), "A flat trace was scaled into non-finite values");
+assert(all(N.profiles(1).intensity == 0), "A flat trace did not land on its own baseline");
+
+N = HistologyImageBrowser.normalizeProfiles(flat, Normalization = "zscore");
+assert(all(isfinite(N.profiles(1).intensity)), "A flat trace z-scored into non-finite values");
+
+point = struct(distance = 5, intensity = 3);
+
+N = HistologyImageBrowser.normalizeProfiles(point, Distance = "percent");
+assert(all(isfinite(N.profiles(1).distance)), ...
+    "A single-sample trace has no length, and dividing by it was not guarded");
+
+end
+
+function check_stale_normalization_code()
+%CHECK_STALE_NORMALIZATION_CODE A code this release does not offer is dropped.
+% Preferences carry these, and a preference file can be hand-edited or written
+% by a release that offered a normalization since withdrawn.
+
+profiles = struct(distance = (1:3)', intensity = [2; 4; 6]);
+
+N = HistologyImageBrowser.normalizeProfiles(profiles, ...
+    Normalization = "logarithmic", Distance = "furlongs", Scope = "sometimes");
+
+assert(N.normalization == "none", "An unknown normalization was not dropped");
+assert(N.distance == "none", "An unknown distance mapping was not dropped");
+assert(N.scope == "each", "An unknown scope was not dropped");
+assert(isequal(N.profiles(1).intensity, [2; 4; 6]), ...
+    "An unknown normalization rescaled the trace anyway");
+
+end
+
 function check_values_csv_round_trip(P)
 %CHECK_VALUES_CSV_ROUND_TRIP The written CSV must read back as a values file.
 
@@ -651,6 +767,7 @@ assert(P.hasData, "No profile data for a section that reports one");
 
 check_unannotated_section_renders(app);
 check_profile_layouts(app);
+check_profile_normalization_plot(app);
 check_stain_colormap(app);
 check_roi_editing(app);
 
@@ -855,6 +972,131 @@ function set_layout(app, code)
 
 app.ProfileLayoutDropDown.Value = code;
 app.onLayoutOptionChanged();
+
+end
+
+function check_profile_normalization_plot(app)
+%CHECK_PROFILE_NORMALIZATION_PLOT The normalization dropdowns rescale the plot.
+% The arithmetic is checked against written-down answers in
+% CHECK_PROFILE_NORMALIZATION; what is checked here is that the panel reaches
+% it, that the axes are relabelled with it, and that it stops there -- the
+% tiles must come through a normalization untouched, because it rescales
+% numbers on the way to the profile axes and has nothing to say about a pixel.
+
+app.onResetFilters();
+app.ProfileOnlyCheck.Value = true;
+app.applyFilters();
+
+if height(app.View) == 0
+    return
+end
+
+% The saved layout this app opened with may not show the profile plot at all,
+% so the check puts it back on screen rather than depending on a preference.
+originalLayout = app.ProfileLayoutDropDown.Value;
+restoreLayout = onCleanup(@() set_layout(app, originalLayout));
+set_layout(app, "bottom");
+
+restoreNormalization = onCleanup(@() set_normalization(app, "none", "none", "each"));
+set_normalization(app, "none", "none", "each");
+
+app.MaxTilesField.Value = min(2, height(app.View));
+app.CatalogTable.Selection = 1:app.MaxTilesField.Value;
+app.onSelectionChanged();
+
+if isempty(profile_traces(app))
+    return
+end
+
+layoutBefore = app.ImageLayout;
+
+set_normalization(app, "range", "none", "each");
+
+assert(isequal(app.ImageLayout, layoutBefore) && isvalid(app.ImageLayout), ...
+    "Normalizing the profile plot redrew the image tiles");
+
+traces = profile_traces(app);
+assert(~isempty(traces), "Normalizing emptied the profile plot");
+
+for iTrace = 1:numel(traces)
+    y = traces(iTrace).YData;
+
+    assert(min(y) >= -1e-9 && max(y) <= 1 + 1e-9, ...
+        "A min-max normalized trace left the 0-1 range");
+    assert(abs(max(y) - 1) < 1e-9, ...
+        "A trace scaled by its own range did not reach one");
+end
+
+assert(contains(string(app.ProfileAxes.YLabel.String), "normalized"), ...
+    "The intensity axis was not relabelled: %s", string(app.ProfileAxes.YLabel.String));
+
+% Scope qualifies the normalization beside it, so it is offered only while one
+% is in force -- and the menu has to say the same thing the panel does.
+assert(app.ProfileScopeDropDown.Enable == "on", ...
+    "The scope was greyed out while a normalization was in force");
+
+set_normalization(app, "none", "none", "each");
+
+assert(app.ProfileScopeDropDown.Enable == "off", ...
+    "The scope stayed available with the intensity axis left raw");
+assert(display_menu_item(app, "Normalize Over").Enable == "off", ...
+    "The Display menu still offered a scope the panel had greyed out");
+
+% The distance axis is independent of the intensity one, and every line runs
+% the whole 0 to 100 whatever its own length was.
+set_normalization(app, "none", "percent", "each");
+
+traces = profile_traces(app);
+
+for iTrace = 1:numel(traces)
+    x = traces(iTrace).XData;
+
+    assert(abs(min(x)) < 1e-9 && abs(max(x) - 100) < 1e-9, ...
+        "A trace was not mapped onto 0-100 percent of its own line");
+end
+
+assert(contains(string(app.ProfileAxes.XLabel.String), "%"), ...
+    "The distance axis was not relabelled: %s", string(app.ProfileAxes.XLabel.String));
+
+% Pooled scaling has to keep the traces apart, which per-trace scaling is what
+% throws away. With one section on screen there is nothing to compare, so the
+% claim is only made when the selection actually holds two.
+if numel(traces) > 1
+    set_normalization(app, "none", "none", "each");
+    rawPeaks = arrayfun(@(h) max(h.YData), profile_traces(app));
+
+    set_normalization(app, "range", "none", "all");
+    peaks = arrayfun(@(h) max(h.YData), profile_traces(app));
+
+    assert(abs(max(peaks) - 1) < 1e-9, ...
+        "Pooled min-max did not put the brightest sample of the plot at one");
+
+    % Pooled scaling is one affine map applied to every trace, so two sections
+    % measured to different peaks must still land on different peaks. Two that
+    % happened to reach the same one are scaled alike by either scope and have
+    % nothing to say about the difference between them.
+    if max(rawPeaks) - min(rawPeaks) > 1e-9
+        assert(any(peaks < 1 - 1e-9), ...
+            "Pooled min-max scaled every trace to its own peak, as per-trace would");
+    end
+end
+
+end
+
+function set_normalization(app, norm, distance, scope)
+%SET_NORMALIZATION Choose the three profile options the way the dropdowns do.
+
+app.ProfileNormDropDown.Value = norm;
+app.ProfileDistanceDropDown.Value = distance;
+app.ProfileScopeDropDown.Value = scope;
+app.onProfileOptionChanged();
+
+end
+
+function traces = profile_traces(app)
+%PROFILE_TRACES The lines now drawn on the profile axes.
+
+traces = findobj(app.ProfileAxes, "Type", "line");
 
 end
 

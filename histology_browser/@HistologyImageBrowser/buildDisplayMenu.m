@@ -49,6 +49,10 @@ choice(obj, obj.DisplayMenu, obj.ProfileLayoutDropDown, "Profiles", Separator = 
 number(obj, obj.DisplayMenu, {obj.ProfileSizeField}, ...
     "Profile Size", "%g %%", Prompts = "Share of the split, in percent");
 
+choice(obj, obj.DisplayMenu, obj.ProfileNormDropDown, "Normalize");
+choice(obj, obj.DisplayMenu, obj.ProfileScopeDropDown, "Normalize Over");
+choice(obj, obj.DisplayMenu, obj.ProfileDistanceDropDown, "Distance Axis");
+
 build_roi_submenu(obj);
 
 % -- Output ---------------------------------------------------------------

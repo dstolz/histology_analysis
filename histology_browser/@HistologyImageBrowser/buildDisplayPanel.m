@@ -5,11 +5,12 @@ panel = uipanel(parent, Title = "Display");
 panel.Layout.Row = 1;
 
 % Every column is sized rather than stretchy, and the spacing is tighter than
-% the default, because the three rows of controls together are just wide enough
-% to reach the right edge of the window at its opening size. Anything added
-% here has to be paid for out of the widths below.
-grid = uigridlayout(panel, [3 14]);
-grid.RowHeight = {"fit", "fit", "fit"};
+% the default, because the rows of controls together are just wide enough to
+% reach the right edge of the window at its opening size. Anything added here
+% has to be paid for out of the widths below, which is why a new group of
+% settings takes a row of its own rather than a column.
+grid = uigridlayout(panel, [4 14]);
+grid.RowHeight = {"fit", "fit", "fit", "fit"};
 grid.ColumnWidth = {"fit", 92, "fit", 92, "fit", 92, "fit", 60, 60, "fit", 50, "fit", 100, 90};
 grid.Padding = [8 8 8 8];
 grid.RowSpacing = 4;
@@ -148,6 +149,58 @@ obj.ExportButton.Tooltip = "Save the current view to an image file." ...
     + obj.shortcutHint("exportView");
 
 build_roi_edit_row(obj, grid);
+build_profile_row(obj, grid);
+
+end
+
+function build_profile_row(obj, grid)
+%BUILD_PROFILE_ROW Build the controls that rescale the profile plot.
+% A row of their own rather than a place beside the layout dropdown above,
+% because these are the only display settings that change the numbers on an
+% axis rather than the pixels in a tile, and because there are three of them:
+% what the intensity axis is put through, what that is measured over, and what
+% the distance axis is put through. They cost the panel a row and no width,
+% which is the resource the three rows above have already spent.
+%
+% The row reads left to right as the sentence it is: normalize <this> over
+% <that>, distance <this>.
+
+place(uilabel(grid, Text = "Normalize"), 4, 1);
+
+obj.ProfileNormDropDown = uidropdown(grid, ...
+    Items = obj.ProfileNormNames, ...
+    ItemsData = num2cell(obj.ProfileNormCodes), ...
+    Value = "none", ...
+    ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
+place(obj.ProfileNormDropDown, 4, [2 3]);
+obj.ProfileNormDropDown.Tooltip = "Rescale the intensity axis of the profile plot. " + ...
+    "The plot only; the values files and everything exported from the app " + ...
+    "stay in the units they were measured in.";
+
+scopeLabel = uilabel(grid, Text = "over");
+scopeLabel.HorizontalAlignment = "right";
+place(scopeLabel, 4, 4);
+
+obj.ProfileScopeDropDown = uidropdown(grid, ...
+    Items = obj.ProfileScopeNames, ...
+    ItemsData = num2cell(obj.ProfileScopeCodes), ...
+    Value = "each", ...
+    ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
+place(obj.ProfileScopeDropDown, 4, [5 6]);
+obj.ProfileScopeDropDown.Tooltip = "Whether each trace is scaled by its own numbers, " + ...
+    "which hides how bright one section was against another, or every trace " + ...
+    "by one set taken over the whole plot, which keeps that difference.";
+
+place(uilabel(grid, Text = "Distance"), 4, 7);
+
+obj.ProfileDistanceDropDown = uidropdown(grid, ...
+    Items = obj.ProfileDistanceNames, ...
+    ItemsData = num2cell(obj.ProfileDistanceCodes), ...
+    Value = "none", ...
+    ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
+place(obj.ProfileDistanceDropDown, 4, [8 9]);
+obj.ProfileDistanceDropDown.Tooltip = "Rescale the distance axis, to line the traces up " + ...
+    "at their starts or to read them as a percentage of each line's own length.";
 
 end
 

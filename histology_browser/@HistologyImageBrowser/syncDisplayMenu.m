@@ -49,6 +49,11 @@ function sync_choice(obj, M)
 control = M.Controls{1};
 items = string(control.Items);
 
+% A dropdown the panel has greyed out is one whose choices do not apply, and a
+% menu that still offered them would be the one place in the window where a
+% disabled setting could be changed.
+M.Menu.Enable = control.Enable;
+
 if ~isequal(M.Menu.UserData, items)
     rebuild_choice(obj, M.Menu, control, items);
 end

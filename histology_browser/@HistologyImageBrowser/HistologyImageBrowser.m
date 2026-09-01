@@ -81,6 +81,9 @@ classdef HistologyImageBrowser < handle
         ColorByIntensityCheck matlab.ui.control.CheckBox
         ProfileLayoutDropDown matlab.ui.control.DropDown
         ProfileSizeField matlab.ui.control.NumericEditField
+        ProfileNormDropDown matlab.ui.control.DropDown
+        ProfileScopeDropDown matlab.ui.control.DropDown
+        ProfileDistanceDropDown matlab.ui.control.DropDown
 
         EditRoiButton matlab.ui.control.StateButton
         RoiWidthField matlab.ui.control.NumericEditField
@@ -246,6 +249,40 @@ classdef HistologyImageBrowser < handle
         % Placement choices for the profile plot, and their stored codes.
         ProfileLayoutNames = ["Below images", "Above images", "Left of images", "Right of images", "Hidden", "Profiles only"]
         ProfileLayoutCodes = ["bottom", "top", "left", "right", "hidden", "only"]
+
+        % Normalizations the profile plot can put the intensity axis through,
+        % their stored codes, and what the axis is called under each. Three
+        % parallel arrays rather than a struct array, matching how the
+        % background and layout choices beside them are already written.
+        %
+        % These change the picture and never the data: NORMALIZEPROFILES works
+        % on the copy RENDERPROFILEPLOT is about to draw, so the values files,
+        % a remeasured ROI, and everything ONEXPORTWORKSPACE hands out stay in
+        % the units they were measured in whatever is chosen here.
+        ProfileNormNames = ["Raw intensity", "Baseline subtracted", "Min-max (0-1)", ...
+            "Percent of max", "Fold of mean", "Z-score"]
+        ProfileNormCodes = ["none", "baseline", "range", "max", "mean", "zscore"]
+        ProfileNormLabels = ["intensity", "intensity above baseline", ...
+            "normalized intensity (0-1)", "intensity (% of max)", ...
+            "intensity (fold of mean)", "intensity (z-score)"]
+
+        % Whether the numbers a normalization subtracts and divides by are
+        % taken from the one trace being scaled or from every trace on the
+        % plot. Scaling each trace by itself puts sections of very different
+        % brightness on one scale and throws away how they differed; scaling
+        % them all by one set of numbers keeps that difference, which is what
+        % is wanted whenever the sections are meant to be compared to each
+        % other rather than each read for its own shape.
+        ProfileScopeNames = ["Each trace", "All traces"]
+        ProfileScopeCodes = ["each", "all"]
+
+        % The same for the distance axis, which is normalized per trace
+        % whatever the scope says: a line's own start and its own length are
+        % the only things "from line start" and "percent of line" can mean.
+        ProfileDistanceNames = ["As measured", "From line start", "Percent of line"]
+        ProfileDistanceCodes = ["none", "start", "percent"]
+        ProfileDistanceLabels = ["distance along line (\mum)", ...
+            "distance from line start (\mum)", "distance along line (% of length)"]
 
         % Background presets for the image panel, and their stored codes.
         % Light gray is the shade a uipanel uses by default, so an untouched
@@ -422,6 +459,8 @@ classdef HistologyImageBrowser < handle
         attachContextMenu(obj, ax, kind)  % Give an axes and its contents a right-click menu.
 
         renderProfilePlot(obj)          % Draw profiles for the current selection.
+
+        updateProfileControls(obj)      % Enable the profile options that apply now.
 
         [img, imageSize, reason] = loadDisplayImage(obj, imagePath, page)  % Load and cache one image.
 
@@ -1218,6 +1257,56 @@ classdef HistologyImageBrowser < handle
             tf = obj.profileLayout() ~= "only";
         end
 
+        function onProfileOptionChanged(obj)
+            % Redraw the profile plot after a normalization choice.
+            %
+            % Only the profile plot. Normalization rescales the numbers on the
+            % way to the axes and touches no pixel of a tile, so this does not
+            % go through ONDISPLAYOPTIONCHANGED, whose work is to decide
+            % whether the images have to be read and stretched again: there is
+            % no setting here it could answer that question "yes" for.
+
+            obj.savePreferences();
+            obj.updateProfileControls();
+            obj.syncDisplayMenu();
+
+            if ~obj.showProfile()
+                return
+            end
+
+            obj.renderProfilePlot();
+        end
+
+        function code = profileNorm(obj)
+            % Active intensity normalization code.
+            code = obj.profileOption(obj.ProfileNormDropDown, "none");
+        end
+
+        function code = profileScope(obj)
+            % Active code for what a normalization is measured over.
+            code = obj.profileOption(obj.ProfileScopeDropDown, "each");
+        end
+
+        function code = profileDistance(obj)
+            % Active distance normalization code.
+            code = obj.profileOption(obj.ProfileDistanceDropDown, "none");
+        end
+
+        function code = profileOption(~, control, fallback)
+            % Read one profile dropdown's stored code, falling back to the
+            % setting that changes nothing when the control is not there yet.
+            % PROFILELAYOUT guards itself the same way and for the same
+            % reason: the view is laid out while the window is still being
+            % built, and a plot drawn then must not depend on the order the
+            % panels happen to be created in.
+
+            code = fallback;
+
+            if ~isempty(control) && isvalid(control)
+                code = string(control.Value);
+            end
+        end
+
         function tf = isEditingRow(obj, row)
             % True when this catalog row is the one being edited.
             tf = obj.RoiEditStem ~= "" && height(row) == 1 ...
@@ -1474,6 +1563,8 @@ classdef HistologyImageBrowser < handle
         [display, widths] = catalogDisplayTable(rows, columns)  % Table the Sections widget shows.
 
         idx = catalogSortOrder(display, heading, direction)     % Order one column sort gives.
+
+        N = normalizeProfiles(profiles, options)  % Rescale profiles for plotting.
 
         function stem = tileStem(ax)
             % Section a tile was drawn for, or "" for an axes that is not one.
