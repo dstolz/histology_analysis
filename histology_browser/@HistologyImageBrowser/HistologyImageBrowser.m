@@ -49,6 +49,7 @@ classdef HistologyImageBrowser < handle
         ReportBugMenu matlab.ui.container.Menu
         RequestFeatureMenu matlab.ui.container.Menu
 
+        TrackerLinkLabel matlab.ui.control.Hyperlink
         SearchField matlab.ui.control.EditField
         SubjectList matlab.ui.control.ListBox
         HemisphereList matlab.ui.control.ListBox
@@ -623,10 +624,68 @@ classdef HistologyImageBrowser < handle
             obj.ClearPublishedSheetMenu.Enable = ...
                 matlab.lang.OnOffSwitchState(obj.PublishedUrl ~= "");
 
+            obj.refreshTrackerLink();
+
             if obj.RootPath == ""
                 obj.Fig.Name = "Histology Image Browser";
             else
                 obj.Fig.Name = "Histology Image Browser  -  " + obj.RootPath;
+            end
+        end
+
+        function refreshTrackerLink(obj)
+            % Show, above the search field, a link to whichever tracker source
+            % is in play: the published sheet takes priority over a local CSV,
+            % matching the choice ONLOADDATA makes. Hidden when neither is set,
+            % since there is nothing to link to.
+
+            if isempty(obj.TrackerLinkLabel) || ~isvalid(obj.TrackerLinkLabel)
+                return
+            end
+
+            if obj.PublishedUrl ~= ""
+                obj.TrackerLinkLabel.Text = "Tracker: published sheet " ...
+                    + HistologyImageBrowser.publishedSheetLabel(obj.PublishedUrl);
+                obj.TrackerLinkLabel.Tooltip = "Open the published sheet in your browser.";
+                obj.TrackerLinkLabel.Visible = "on";
+            elseif obj.MetadataPath ~= ""
+                obj.TrackerLinkLabel.Text = "Tracker: " ...
+                    + HistologyImageBrowser.menuPathLabel(obj.MetadataPath, "none");
+                obj.TrackerLinkLabel.Tooltip = "Open the tracker CSV: " + obj.MetadataPath;
+                obj.TrackerLinkLabel.Visible = "on";
+            else
+                obj.TrackerLinkLabel.Text = "";
+                obj.TrackerLinkLabel.Visible = "off";
+            end
+        end
+
+        function onOpenTrackerLink(obj)
+            % Open whichever tracker source the link above the search field is
+            % currently showing: the published sheet in a browser, or the local
+            % tracker CSV in whatever application handles CSVs.
+
+            if obj.PublishedUrl ~= ""
+                obj.openExternalLink(obj.PublishedUrl, "the published sheet");
+                return
+            end
+
+            if obj.MetadataPath == ""
+                return
+            end
+
+            if ~isfile(obj.MetadataPath)
+                obj.setError("Tracker CSV does not exist: %s", obj.MetadataPath);
+                uialert(obj.Fig, "The tracker CSV does not exist: " + obj.MetadataPath, ...
+                    "Invalid Tracker CSV");
+                return
+            end
+
+            if ispc
+                winopen(obj.MetadataPath);
+            elseif ismac
+                system("open """ + obj.MetadataPath + """ &");
+            else
+                system("xdg-open """ + obj.MetadataPath + """ &");
             end
         end
 
