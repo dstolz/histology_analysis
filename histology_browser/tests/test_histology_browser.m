@@ -5,11 +5,19 @@ function test_histology_browser(rootPath, options)
 %
 % Smoke test for the histology browser and its helper functions. The filename
 % parser and ROI decoder are checked against synthetic inputs, so they run
-% anywhere. The catalog and GUI checks only run when a dataset folder is
-% supplied and exists.
+% anywhere. The catalog and GUI checks run against the dataset folder supplied
+% or, when none is, against one MAKE_TEST_DATASET writes to a temp folder and
+% this deletes on the way out, so they run anywhere too.
+%
+% Driving the browser reads and writes its saved preferences, so the run
+% snapshots the whole preference group and puts it back on the way out. That
+% cannot protect a run from another MATLAB writing the same preference file at
+% the same time, and PREFDIR is fixed at startup: give concurrent runs a
+% preference directory of their own by launching them with MATLAB_PREFDIR set.
 %
 % Parameters
 %   rootPath: Optional histology root folder to exercise the GUI against.
+%       A synthetic dataset is generated for the run when it is omitted.
 %   options.metadataCSV: Optional section tracker CSV.
 
 arguments
@@ -18,8 +26,10 @@ arguments
 end
 
 % Add the repo root (this file lives in tests/, one level down) so the
-% browser and its helpers resolve regardless of where it is checked out.
+% browser and its helpers resolve regardless of where it is checked out, and
+% this folder so the dataset generator beside this file resolves with them.
 addpath(fileparts(fileparts(mfilename("fullpath"))));
+addpath(fileparts(mfilename("fullpath")));
 
 nFailed = 0;
 
@@ -29,11 +39,38 @@ nFailed = nFailed + run_case("ImageJ ROI encoder", @check_roi_encoder);
 nFailed = nFailed + run_case("line profile measurement", @check_profile_measurement);
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
 
-if rootPath == "" || ~isfolder(rootPath)
-    fprintf("- Skipping catalog and GUI checks (no dataset folder supplied).\n");
+% With nothing to point at, the catalog and GUI checks run against a dataset
+% generated for this run rather than being skipped, so the browser is covered
+% on any machine instead of only on the one holding the real data.
+if rootPath == ""
+    [rootPath, options.metadataCSV] = make_test_dataset(string(tempname));
+    dropDataset = onCleanup(@() rmdir(rootPath, "s"));
+
+    fprintf("- Generated a synthetic dataset in %s\n", rootPath);
+end
+
+if ~isfolder(rootPath)
+    fprintf("- Skipping catalog and GUI checks (%s is not a folder).\n", rootPath);
 else
+    % The browser saves its preferences whenever it loads, redraws, or closes,
+    % so without this a test run would leave the user's own root folder,
+    % colormaps, and ROI band width set to whatever these checks needed.
+    restorePreferences = preserve_preferences(); %#ok<NASGU>  Restores on the way out.
+
     nFailed = nFailed + run_case("image catalog", @() check_catalog(rootPath, options.metadataCSV));
     nFailed = nFailed + run_case("browser GUI", @() check_gui(rootPath, options.metadataCSV));
+    nFailed = nFailed + run_case("export to workspace", ...
+        @() check_workspace_export(rootPath, options.metadataCSV));
+    nFailed = nFailed + run_case("ROI edit grid", ...
+        @() check_roi_edit_grid(rootPath, options.metadataCSV));
+    nFailed = nFailed + run_case("custom filename pattern", ...
+        @() check_filename_pattern(rootPath));
+    nFailed = nFailed + run_case("incremental overlay redraw", ...
+        @() check_incremental_redraw(rootPath, options.metadataCSV));
+    nFailed = nFailed + run_case("plot context menus", ...
+        @() check_plot_context_menus(rootPath, options.metadataCSV));
+    nFailed = nFailed + run_case("sections table sorting and columns", ...
+        @() check_catalog_table(rootPath, options.metadataCSV));
 end
 
 if nFailed == 0
@@ -55,6 +92,50 @@ try
 catch ME
     nFailed = 1;
     fprintf(2, "FAIL  %s: %s\n", name, ME.message);
+end
+
+end
+
+function restorer = preserve_preferences()
+%PRESERVE_PREFERENCES Put the browser's saved preferences back after the run.
+% Returns the cleanup object that does it, so the group is restored however the
+% checks end, including when one of them throws.
+
+group = char(HistologyImageBrowser.PrefGroup);
+saved = struct();
+
+if ispref(group)
+    saved = getpref(group);
+end
+
+restorer = onCleanup(@() restore_preferences(group, saved));
+
+end
+
+function restore_preferences(group, saved)
+%RESTORE_PREFERENCES Put the snapshot back and drop anything the run invented.
+% The saved values are written before anything is removed, so a failure partway
+% through leaves the group holding too much rather than holding nothing: the
+% user's settings are worth more than a tidy group.
+
+names = fieldnames(saved);
+
+if isempty(names)
+    % Nothing was there to begin with, so there is nothing to lose by
+    % removing the group the run created.
+    if ispref(group)
+        rmpref(group);
+    end
+
+    return
+end
+
+setpref(group, names, struct2cell(saved));
+
+invented = setdiff(fieldnames(getpref(group)), names);
+
+if ~isempty(invented)
+    rmpref(group, invented);
 end
 
 end
@@ -604,5 +685,1030 @@ assert(contains(noteText, "no atlas plate") || contains(noteText, "no profile"),
     "The missing metadata was not labelled on the tile");
 assert(contains(string(app.StatusLabel.Text), "issing"), ...
     "The status line did not mention the missing metadata: %s", app.StatusLabel.Text);
+
+end
+
+function check_workspace_export(rootPath, metadataCSV)
+%CHECK_WORKSPACE_EXPORT The selected sections must land in the base workspace.
+% The variable name is handed in rather than typed, because the prompt the menu
+% raises would wait forever in a batch run. Everything after the name is the
+% same code path the menu item and the shortcut take.
+
+app = HistologyImageBrowser(rootPath, metadataCSV = metadataCSV);
+closeApp = onCleanup(@() close(app.Fig));
+
+% The export has to be reachable, not merely callable, so the menu item and the
+% key it advertises are checked alongside the table it produces.
+assert(isvalid(app.ExportWorkspaceMenu), "The Dataset menu offers no workspace export");
+
+hint = HistologyImageBrowser.shortcutHint("exportWorkspace");
+assert(hint ~= "", "The workspace export has no keyboard shortcut");
+assert(contains(string(app.ExportWorkspaceMenu.Text), hint), ...
+    "The menu item does not name its shortcut: %s", app.ExportWorkspaceMenu.Text);
+
+app.onResetFilters();
+
+% A measured section and an unmeasured one together, because the empty profile
+% is the case that has to come back as an empty table rather than as an error.
+measured = find(app.View.NProfiles > 0, 1);
+bare = find(app.View.NProfiles == 0, 1);
+
+assert(~isempty(measured), "The dataset holds no measured section to export");
+
+app.CatalogTable.Selection = unique([measured, bare]);
+app.onSelectionChanged();
+
+varName = "test_histology_export";
+dropVariable = onCleanup(@() evalin("base", "clear " + varName));
+
+app.onExportWorkspace(varName);
+
+assert(ismember(varName, string(evalin("base", "who"))), ...
+    "Nothing was assigned into the base workspace");
+
+T = evalin("base", varName);
+rows = app.selectedRows();
+
+assert(istable(T), "The export was not a table");
+assert(height(T) == height(rows), ...
+    "Exported %d rows for %d selected sections", height(T), height(rows));
+assert(isequal(string(T.Stem), string(rows.Stem)), ...
+    "The exported rows are not the sections that were selected");
+
+wanted = ["SubjectID", "SampleID", "SectionID", "Hemisphere", "Stain", "ZPlane", ...
+    "DateCode", "ImageNumber", "Protocol", "Series", "NameParsed", ...
+    "Folder", "ImagePath", "RoiPath", "ValuesPaths", "AtlasPlate", "Status", "Notes", ...
+    "RoiState", "RoiX1", "RoiY1", "RoiX2", "RoiY2", "RoiWidth", "RoiLength", ...
+    "PixelSize", "PixelUnit", "ROILabel", "Profile"];
+
+absent = wanted(~ismember(wanted, string(T.Properties.VariableNames)));
+assert(isempty(absent), "The export is missing columns: %s", strjoin(absent, ", "));
+
+for iRow = 1:height(T)
+    check_exported_row(app, T, rows, iRow);
+end
+
+% Calibration is what makes a pixel coordinate mean something, so at least the
+% measured section has to carry the pixel size its image was written with.
+calibrated = isfinite(T.PixelSize);
+assert(any(calibrated), "No section reported the pixel size its image carries");
+assert(all(T.PixelUnit(calibrated) ~= "pixel"), ...
+    "A calibrated section reported its pixel size in pixels");
+
+% A second export over the same name has to say it replaced something rather
+% than fail or quietly double up.
+app.onExportWorkspace(varName);
+
+assert(app.StatusLevel == "warning", ...
+    "Overwriting an existing variable was not flagged: %s", app.StatusLevel);
+assert(contains(string(app.StatusLabel.Text), "replacing"), ...
+    "The status bar did not report the replacement: %s", app.StatusLabel.Text);
+
+check_export_without_selection(app);
+
+end
+
+function check_exported_row(app, T, rows, iRow)
+%CHECK_EXPORTED_ROW One exported row must agree with what the browser shows.
+% ROIFORROW and READPROFILE are asked again rather than the files being read,
+% because they are what the tiles and the profile plot are drawn from and the
+% export is supposed to hand over exactly that.
+
+R = app.roiForRow(rows(iRow, :));
+P = app.readProfile(rows(iRow, :));
+S = T.Profile{iRow};
+
+assert(istable(S), "Row %d packed its profile as something other than a table", iRow);
+assert(isequal(string(S.Properties.VariableNames), ["Distance", "Intensity"]), ...
+    "Row %d packed its profile under the wrong column names", iRow);
+
+units = string(S.Properties.VariableUnits);
+assert(units(1) == T.PixelUnit(iRow), ...
+    "Row %d measured its distance in %s but reported %s", iRow, units(1), T.PixelUnit(iRow));
+
+assert(T.RoiState(iRow) == R.state, ...
+    "Row %d exported ROI state %s rather than %s", iRow, T.RoiState(iRow), R.state);
+
+if R.isValid && R.isLine
+    assert(T.RoiX1(iRow) == R.x1 && T.RoiY1(iRow) == R.y1 ...
+        && T.RoiX2(iRow) == R.x2 && T.RoiY2(iRow) == R.y2, ...
+        "Row %d did not export the pixel coordinates the browser draws", iRow);
+    assert(T.RoiWidth(iRow) == R.strokeWidth, "Row %d exported the wrong band width", iRow);
+    assert(abs(T.RoiLength(iRow) - hypot(R.x2 - R.x1, R.y2 - R.y1)) < 1e-9, ...
+        "Row %d exported the wrong line length", iRow);
+else
+    assert(isnan(T.RoiX1(iRow)) && isnan(T.RoiLength(iRow)), ...
+        "Row %d invented geometry for a section with no line", iRow);
+end
+
+if P.hasData
+    assert(height(S) == numel(P.intensity), ...
+        "Row %d packed %d samples for a profile of %d", iRow, height(S), numel(P.intensity));
+    assert(isequal(S.Intensity, P.intensity(:)), "Row %d exported the wrong intensities", iRow);
+    assert(isequal(S.Distance, P.distance(:)), "Row %d exported the wrong distances", iRow);
+    assert(T.NSamples(iRow) == height(S), "Row %d miscounted its samples", iRow);
+    return
+end
+
+assert(height(S) == 0, "Row %d invented samples for a section that has no profile", iRow);
+
+end
+
+function check_export_without_selection(app)
+%CHECK_EXPORT_WITHOUT_SELECTION An empty selection must be refused, not exported.
+% Through the status bar rather than through an error, so the refusal reads the
+% same way as every other thing this window declines to do.
+
+app.CatalogTable.Selection = [];
+app.onSelectionChanged();
+
+varName = "test_histology_export_nothing";
+app.onExportWorkspace(varName);
+
+assert(app.StatusLevel == "warning", ...
+    "Exporting nothing was not reported as a warning: %s", app.StatusLevel);
+assert(~ismember(varName, string(evalin("base", "who"))), ...
+    "An empty selection still assigned a variable");
+
+end
+
+function check_roi_edit_grid(rootPath, metadataCSV)
+%CHECK_ROI_EDIT_GRID The optional grid rules the band, and turns with the line.
+% The option exists to judge alignment, so the check that matters is the one on
+% direction: on a line that points at neither axis, every rule has to run along
+% the line or square across it, and none of them along x or y. A grid that had
+% been drawn in the axes' frame would look right on a level line and would fail
+% here, which is the whole point of measuring the diagonal case.
+
+app = HistologyImageBrowser(rootPath, metadataCSV = metadataCSV);
+closeApp = onCleanup(@() close(app.Fig));
+
+editable = find(app.View.RoiPath ~= "" & isfile(app.View.RoiPath), 1);
+
+if isempty(editable)
+    return
+end
+
+app.MaxTilesField.Value = 1;
+app.CatalogTable.Selection = editable;
+app.onSelectionChanged();
+
+app.EditRoiButton.Value = true;
+app.onToggleEditRoi();
+leaveEdit = onCleanup(@() app.exitRoiEdit(false));
+
+assert(app.RoiEditStem == app.View.Stem(editable), "Editing did not start on the selected section");
+
+% Swing the line onto a diagonal about its own midpoint, so it stays over the
+% section it was drawn on whatever dataset this runs against.
+G = app.RoiEditGeom;
+midpoint = [(G.x1 + G.x2) / 2, (G.y1 + G.y2) / 2];
+arm = 0.35 * hypot(G.x2 - G.x1, G.y2 - G.y1) * [cosd(30), sind(30)];
+
+app.onRoiEditChanged([midpoint - arm; midpoint + arm], true);
+
+app.ShowBandGridCheck.Value = false;
+app.onDisplayOptionChanged();
+
+assert(isempty(band_grid_rules(app)), "The grid was drawn with its option switched off");
+
+app.ShowBandGridCheck.Value = true;
+app.onDisplayOptionChanged();
+
+rules = band_grid_rules(app);
+assert(~isempty(rules), "The grid was not drawn with its option switched on");
+
+% Read the frame back off the geometry the overlay was drawn from, because
+% ONROIEDITCHANGED snaps the endpoints to whole pixels.
+G = app.RoiEditGeom;
+unit = [G.x2 - G.x1, G.y2 - G.y1] / hypot(G.x2 - G.x1, G.y2 - G.y1);
+normal = [-unit(2), unit(1)];
+
+assert(min(abs(unit)) > 0.05, "The line under test came out axis aligned: %s", mat2str(unit, 3));
+
+nAlong = 0;
+nAcross = 0;
+
+for iRule = 1:size(rules, 1)
+    direction = rules(iRule, 3:4) - rules(iRule, 1:2);
+    direction = direction / hypot(direction(1), direction(2));
+
+    assert(min(abs(direction)) > 0.05, ...
+        "A grid rule was drawn axis aligned: %s", mat2str(direction, 3));
+
+    if abs(dot(direction, unit)) > 0.999
+        nAlong = nAlong + 1;
+    elseif abs(dot(direction, normal)) > 0.999
+        nAcross = nAcross + 1;
+    else
+        error("A grid rule ran neither along the line nor across it: %s", mat2str(direction, 3));
+    end
+end
+
+assert(nAlong > 0 && nAcross > 0, ...
+    "Expected rules both along the line and across it, found %d and %d", nAlong, nAcross);
+
+% Bounded by the band it rules, so it cannot wash over the rest of the tile.
+lineLength = hypot(G.x2 - G.x1, G.y2 - G.y1);
+ends = [rules(:, 1:2); rules(:, 3:4)] - [G.x1, G.y1];
+
+assert(all(ends * unit' >= -1e-6 & ends * unit' <= lineLength + 1e-6), ...
+    "The grid ran past the ends of the band");
+assert(all(abs(ends * normal') <= G.strokeWidth / 2 + 1e-6), ...
+    "The grid ran outside the width of the band");
+
+% The menu mirrors the checkbox, and this is the one mirrored toggle with no
+% shortcut behind it, so it has to reach the checkbox on its own.
+item = display_menu_item(app, "Band Grid");
+assert(item.Checked == "on", "The Display menu did not follow the checkbox");
+
+item.MenuSelectedFcn(item, struct());
+
+assert(~app.ShowBandGridCheck.Value, "The Display menu item did not turn the grid off");
+assert(item.Checked == "off", "The Display menu item did not clear its own check mark");
+assert(isempty(band_grid_rules(app)), "The grid stayed on the tile after the menu turned it off");
+
+item.MenuSelectedFcn(item, struct());
+
+assert(app.ShowBandGridCheck.Value, "The Display menu item did not turn the grid back on");
+
+end
+
+function item = display_menu_item(app, label)
+%DISPLAY_MENU_ITEM Find the Display menu item that mirrors one panel control.
+
+labels = string({app.DisplayMirrors.Label});
+index = find(labels == label, 1);
+
+assert(~isempty(index), "The Display menu has no ""%s"" item", label);
+
+item = app.DisplayMirrors(index).Menu;
+
+end
+
+function rules = band_grid_rules(app)
+%BAND_GRID_RULES Collect every drawn grid segment as an [x1 y1 x2 y2] row.
+% The grid shares the overlay tag with the line and the band, because that tag
+% is what a drag deletes and redraws, so it is picked out by its UserData.
+
+rules = zeros(0, 4);
+
+grids = findobj(app.ImagePanel, Tag = "roiOverlay");
+
+for iGrid = 1:numel(grids)
+    if ~isequal(grids(iGrid).UserData, "roiBandGrid")
+        continue
+    end
+
+    faces = grids(iGrid).Faces;
+    vertices = grids(iGrid).Vertices;
+
+    rules = [rules; vertices(faces(:, 1), :), vertices(faces(:, 2), :)]; %#ok<AGROW>
+end
+
+end
+
+function check_filename_pattern(rootPath)
+%CHECK_FILENAME_PATTERN A custom naming scheme reaches the catalog and persists.
+% Covers the whole path a lab with different filenames takes: the parser
+% option, the two ways a scheme can be written, the table the dialog previews,
+% the catalog build, and the preference round trip. The dialog itself is left
+% out on purpose. It waits on a modal window, which in a batch run is a hang
+% rather than a failure, and that is why the pattern is adopted through a
+% method that takes it as an argument.
+
+builtin = "SUBJ-ID-1174IHC_ECM26A260608S1_1A_L_WFA-PV_Z3_260616_1_proj.tif";
+
+% An unset pattern must leave the parser doing literally what it did before.
+assert(isequal(parse_histology_filename(builtin), ...
+    parse_histology_filename(builtin, pattern = "")), ...
+    "An empty pattern changed the built-in parse");
+
+% A name in another convention: unparsable by default, parsable with a pattern,
+% and still stripped of the marker the Fiji macro wrote.
+foreign = "M12_slide3_CTX_DAPI_proj.tif";
+
+assert(~parse_histology_filename(foreign).isValid, ...
+    "A foreign name matched the built-in convention");
+
+pattern = "^(?<SubjectID>[^_]+)_(?<SectionID>[^_]+)_(?:[^_]+)_(?<Stain>[^_]+)$";
+info = parse_histology_filename(foreign, pattern = pattern);
+
+assert(info.isValid, "The custom pattern did not match");
+assert(info.SubjectID == "M12", "Wrong SubjectID: %s", info.SubjectID);
+assert(info.SectionID == "slide3", "Wrong SectionID: %s", info.SectionID);
+assert(info.Stain == "DAPI", "Wrong Stain: %s", info.Stain);
+assert(info.variant == "proj", "The variant marker was not stripped before the pattern");
+assert(info.SampleID == "", "A component the pattern does not name was filled anyway");
+
+% The token list is a second way to write the same thing, so it has to parse
+% the same name the same way.
+tokens = HistologyImageBrowser.tokenListPattern("_", ["SubjectID", "SectionID", "-", "Stain"]);
+fromTokens = parse_histology_filename(foreign, pattern = tokens);
+
+assert(fromTokens.isValid, "The token list pattern did not match: %s", tokens);
+assert(fromTokens.SubjectID == info.SubjectID && fromTokens.Stain == info.Stain, ...
+    "The token list and the regular expression disagreed");
+
+% A token outside the known components is extracted rather than dropped.
+extra = parse_histology_filename("M12_slide3_CTX_DAPI", ...
+    pattern = "^(?<SubjectID>[^_]+)_[^_]+_(?<Region>[^_]+)_[^_]+$");
+
+assert(extra.isValid, "A pattern naming an unknown token did not match");
+assert(extra.Region == "CTX", "A token outside the known components was lost");
+
+check_filename_pattern_validation();
+check_filename_pattern_preview(pattern);
+check_filename_pattern_catalog(rootPath);
+check_filename_pattern_settings(rootPath);
+
+end
+
+function check_filename_pattern_validation()
+%CHECK_FILENAME_PATTERN_VALIDATION Only a usable pattern gets past the gate.
+
+assert(HistologyImageBrowser.checkFilenamePattern(""), ...
+    "The built-in convention was rejected");
+assert(HistologyImageBrowser.checkFilenamePattern("^(?<SubjectID>.+)$"), ...
+    "A valid pattern was rejected");
+
+% REGEXP does not raise on an unclosed group, it silently stops reading the
+% pattern there, so a malformed one has to be caught by asking which tokens
+% MATLAB actually took out of it.
+[usable, why] = HistologyImageBrowser.checkFilenamePattern("^(?<SubjectID>.+$");
+assert(~usable, "A malformed pattern was accepted");
+assert(why ~= "", "A rejected pattern came back without a reason");
+
+assert(~HistologyImageBrowser.checkFilenamePattern("^.+$"), ...
+    "A pattern that names no tokens was accepted");
+
+% A lookbehind assertion opens with the same three characters a named token
+% does, and naming nothing is exactly what it does.
+assert(~HistologyImageBrowser.checkFilenamePattern("^(?<=x).+$"), ...
+    "A lookbehind was mistaken for a named token");
+
+end
+
+function check_filename_pattern_preview(pattern)
+%CHECK_FILENAME_PATTERN_PREVIEW The dialog table says which names matched.
+
+names = ["M12_slide3_CTX_DAPI_proj.tif"; "nothing_like_it.tif"];
+T = HistologyImageBrowser.filenamePatternPreview(names, pattern);
+
+assert(height(T) == numel(names), "The preview lost a name");
+assert(all(ismember(["Name", "Match", "Stem"], string(T.Properties.VariableNames))), ...
+    "The preview is missing one of its fixed columns");
+assert(T.Match(1) == "yes" && T.Match(2) == "no", ...
+    "The preview did not report which names matched");
+assert(ismember("Stain", string(T.Properties.VariableNames)), ...
+    "The preview has no column for a token the pattern names");
+assert(T.Stem(1) == "M12_slide3_CTX_DAPI", ...
+    "The preview did not show the stem the pattern is matched against");
+
+% Clearing the table between keystrokes must keep its shape rather than leave
+% something a uitable cannot render.
+empty = HistologyImageBrowser.filenamePatternPreview(strings(0, 1));
+assert(height(empty) == 0 && width(empty) == 3, ...
+    "An empty preview lost its fixed columns");
+
+end
+
+function check_filename_pattern_catalog(rootPath)
+%CHECK_FILENAME_PATTERN_CATALOG The pattern reaches the catalog build itself.
+% The convention written out as a pattern has to catalog the dataset the way
+% the convention does. That is the check that the pattern is carried all the
+% way down rather than accepted at the top and quietly dropped.
+
+C = build_histology_image_catalog(rootPath);
+P = build_histology_image_catalog(rootPath, ...
+    filenamePattern = HistologyImageBrowser.DefaultFilenamePattern);
+
+assert(height(P) == height(C), "The pattern changed how many sections were found");
+assert(all(P.NameParsed), "The pattern failed on a name the convention parses");
+assert(isequal(P.SubjectID, C.SubjectID), "The pattern lost the subject");
+assert(isequal(P.SectionID, C.SectionID), "The pattern lost the section");
+assert(isequal(P.Hemisphere, C.Hemisphere), "The pattern lost the hemisphere");
+assert(isequal(P.Stain, C.Stain), "The pattern lost the stain");
+
+% A pattern that matches nothing has to leave a browsable catalog of stems,
+% which is what an unparsed name has always degraded to.
+none = build_histology_image_catalog(rootPath, filenamePattern = "^(?<Nope>zzz)$");
+
+assert(height(none) == height(C), "A pattern that matches nothing lost the images");
+assert(~any(none.NameParsed), "A pattern that matches nothing reported a parse");
+assert(all(none.Stem ~= ""), "A pattern that matches nothing blanked the stems");
+
+end
+
+function check_filename_pattern_settings(rootPath)
+%CHECK_FILENAME_PATTERN_SETTINGS The browser adopts, refuses, and remembers one.
+% Built without a root folder so the dataset is not loaded a second time; the
+% catalog is handed over afterwards to check the preview reads real filenames
+% when there are some.
+
+app = HistologyImageBrowser();
+closeApp = onCleanup(@() close(app.Fig));
+
+assert(isvalid(app.FilenamePatternMenu), "The Dataset menu has no filename pattern item");
+
+% A pattern is a saved preference, so a browser built here inherits whatever
+% the preference file holds. The check starts by putting it back to the
+% built-in convention rather than by assuming it is already there.
+assert(app.applyFilenamePattern(""), "The built-in convention was refused");
+assert(app.FilenamePattern == "", "Clearing the pattern left one in place");
+assert(contains(app.FilenamePatternMenu.Text, "built-in"), ...
+    "The Dataset menu does not name the built-in convention: %s", app.FilenamePatternMenu.Text);
+
+% Nothing is loaded, so the preview has to fall back to examples rather than to
+% an empty table that would read as a pattern matching nothing.
+[names, source] = app.filenamePatternSamples();
+assert(source == "examples", "An unloaded browser claimed to preview a dataset");
+assert(~isempty(names), "The fallback preview had nothing in it");
+
+pattern = "^(?<SubjectID>[^_]+)_(?<SectionID>[^_]+)_(?:[^_]+)_(?<Stain>[^_]+)$";
+
+assert(app.applyFilenamePattern(pattern), "A valid pattern was refused");
+assert(app.FilenamePattern == pattern, "The pattern was not kept");
+assert(contains(app.FilenamePatternMenu.Text, "custom"), ...
+    "The Dataset menu still claims the built-in convention: %s", app.FilenamePatternMenu.Text);
+
+% A pattern that cannot be used must be refused without disturbing the one in
+% force: losing a working pattern to a typo is worse than the typo.
+assert(~app.applyFilenamePattern("^(?<Broken>.+$"), "An unusable pattern was accepted");
+assert(app.FilenamePattern == pattern, "A refused pattern replaced the working one");
+
+saved = getpref(char(HistologyImageBrowser.PrefGroup), "FilenamePattern");
+assert(string(saved) == pattern, "The pattern was not written to preferences");
+
+app.FilenamePattern = "";
+app.loadPreferences();
+assert(app.FilenamePattern == pattern, "The saved pattern did not come back");
+
+% Restoring the default is a choice like any other and has to be persisted as
+% one, rather than leaving the last custom pattern in the preference file.
+assert(app.applyFilenamePattern(""), "Restoring the built-in convention was refused");
+assert(app.FilenamePattern == "", "Restoring the default left the custom pattern in place");
+assert(contains(app.FilenamePatternMenu.Text, "built-in"), ...
+    "The Dataset menu did not go back to the built-in convention");
+
+% With a catalog in hand the preview must run on the names that are in it, and
+% on filenames rather than on the stems they were reduced to.
+app.Catalog = build_histology_image_catalog(rootPath);
+[names, source] = app.filenamePatternSamples();
+
+assert(source == "dataset", "A loaded catalog was not previewed");
+assert(numel(names) == min(height(app.Catalog), HistologyImageBrowser.MaxPatternPreviewNames), ...
+    "The preview did not offer one name per section");
+assert(all(contains(names, ".")), "The preview offered stems rather than filenames");
+assert(any(endsWith(names, "_proj.tif")), ...
+    "The preview offered no name carrying the marker it has to explain");
+
+end
+
+function check_incremental_redraw(rootPath, metadataCSV)
+%CHECK_INCREMENTAL_REDRAW An overlay toggle reuses the tiles; a pixel change
+%rebuilds them.
+% The whole point of the split is that switching the sampling band on does not
+% reread and restretch every image, so the check is on identity rather than on
+% appearance: the tiled layout and the drawn image objects have to be the same
+% handles afterwards. A colormap change is measured the same way in the other
+% direction, because a test that only proved the cheap path was taken would
+% pass just as well if every change had quietly become cheap and wrong.
+
+app = HistologyImageBrowser(rootPath, metadataCSV = metadataCSV);
+closeApp = onCleanup(@() close(app.Fig));
+
+nWanted = min(3, height(app.View));
+app.MaxTilesField.Value = nWanted;
+app.CatalogTable.Selection = 1:nWanted;
+app.onSelectionChanged();
+
+assert(isvalid(app.ImageLayout), "No tiled layout was drawn to reuse");
+
+layout = app.ImageLayout;
+images = findall(app.ImageLayout, Type = "image");
+
+assert(~isempty(images), "No image was drawn to reuse");
+
+app.ShowBandCheck.Value = true;
+app.ColorByIntensityCheck.Value = true;
+app.onDisplayOptionChanged();
+
+nBefore = numel(overlay_objects(app));
+
+assert(nBefore > 0, "Nothing was drawn on the tiles for a toggle to remove");
+
+app.ShowBandCheck.Value = false;
+app.onDisplayOptionChanged();
+
+assert(isvalid(layout) && isequal(app.ImageLayout, layout), ...
+    "Toggling the sampling band rebuilt the tiled layout");
+assert(all(isvalid(images)), "Toggling the sampling band redrew the images");
+assert(numel(overlay_objects(app)) < nBefore, ...
+    "Turning the sampling band off changed nothing on the tiles");
+
+app.ShowBandCheck.Value = true;
+app.onDisplayOptionChanged();
+
+assert(all(isvalid(images)), "Restoring the sampling band redrew the images");
+assert(numel(overlay_objects(app)) == nBefore, ...
+    "The sampling band did not come back the way it went");
+
+% A colormap change alters the pixels, so it has to take the expensive path.
+choices = string(app.ColormapDropDown.Items);
+wanted = choices(find(choices ~= string(app.ColormapDropDown.Value), 1));
+
+app.ColormapDropDown.Value = wanted;
+app.onColormapChanged();
+
+assert(~any(isvalid(images)), "Changing the colormap reused the images already drawn");
+assert(isvalid(app.ImageLayout), "Changing the colormap left the view with no tiles");
+
+check_editor_survives_toggle(app);
+
+end
+
+function check_editor_survives_toggle(app)
+%CHECK_EDITOR_SURVIVES_TOGGLE An open ROI edit outlives an overlay toggle.
+% The draggable line is the one thing on a tile the mouse may be holding, so
+% the cheap path must not delete and rebuild it, and it has to come back on top
+% of the shading rather than underneath it.
+
+if exist("images.roi.Line", "class") ~= 8
+    return
+end
+
+editable = find(app.View.RoiPath ~= "" & isfile(app.View.RoiPath), 1);
+
+if isempty(editable)
+    return
+end
+
+app.MaxTilesField.Value = 1;
+app.CatalogTable.Selection = editable;
+app.onSelectionChanged();
+
+app.EditRoiButton.Value = true;
+app.onToggleEditRoi();
+leaveEdit = onCleanup(@() app.exitRoiEdit(false));
+
+assert(~isempty(app.RoiEditor) && isvalid(app.RoiEditor), "No draggable line was attached");
+
+editor = app.RoiEditor;
+ax = editor.Parent;
+
+app.ShowBandCheck.Value = ~app.ShowBandCheck.Value;
+app.onDisplayOptionChanged();
+
+assert(isvalid(editor), "An overlay toggle deleted the line being dragged");
+assert(isequal(app.RoiEditor, editor), "An overlay toggle rebuilt the line being dragged");
+assert(isequal(editor.Parent, ax), "An overlay toggle moved the line off its tile");
+
+% Restacking is best effort, so the order is only checked where the release
+% actually parks the ROI among the axes children.
+siblings = ax.Children;
+position = find(arrayfun(@(h) isequal(h, editor), siblings), 1);
+
+if ~isempty(position)
+    assert(position == 1, ...
+        "The line being dragged was left underneath the overlay drawn after it");
+end
+
+end
+
+function check_plot_context_menus(rootPath, metadataCSV)
+%CHECK_PLOT_CONTEXT_MENUS Every object of a plot raises the menu, and the
+%per-tile items act on the tile that was clicked.
+% Reaching the menu from the bare axes proves nothing on its own: the pointer
+% lands on whichever object is topmost, so the image, the title, and every
+% overlay graphic are checked as well. The overlay is then switched off and on,
+% because those objects are deleted and recreated by the incremental redraw and
+% the menu has to be handed to the new ones.
+
+app = HistologyImageBrowser(rootPath, metadataCSV = metadataCSV);
+closeApp = onCleanup(@() close(app.Fig));
+
+editable = find(app.View.RoiPath ~= "" & isfile(app.View.RoiPath));
+
+if numel(editable) < 2
+    editable = (1:min(2, height(app.View)))';
+end
+
+app.MaxTilesField.Value = 2;
+app.CatalogTable.Selection = editable(1:2)';
+app.onSelectionChanged();
+
+menu = app.TileContextMenu;
+
+assert(~isempty(menu) && isvalid(menu), "No tile context menu was built");
+assert(isequal(menu.Parent, app.Fig), ...
+    "The context menu is not parented to the figure that uses it");
+
+check_tiles_carry_menu(app, menu);
+check_profile_carries_menu(app);
+
+% The overlay objects that come back from a toggle are new ones.
+app.ShowBandCheck.Value = ~app.ShowBandCheck.Value;
+app.onDisplayOptionChanged();
+app.ShowBandCheck.Value = ~app.ShowBandCheck.Value;
+app.onDisplayOptionChanged();
+
+check_tiles_carry_menu(app, menu);
+
+check_context_targets_clicked_tile(app, menu);
+check_context_item_writes_panel(app, menu);
+
+end
+
+function check_tiles_carry_menu(app, menu)
+%CHECK_TILES_CARRY_MENU Every graphic on every tile has to raise the menu.
+
+tiles = findall(app.ImageLayout, Type = "axes");
+
+assert(~isempty(tiles), "No tiles were drawn to right-click");
+
+for iTile = 1:numel(tiles)
+    ax = tiles(iTile);
+
+    assert(isequal(ax.ContextMenu, menu), "A tile axes raised no context menu");
+    assert(isequal(ax.Title.ContextMenu, menu), "A tile title raised no context menu");
+
+    % The image never receives the click itself, because DRAWIMAGETILE switches
+    % its PickableParts off and the axes behind it answers instead; it still
+    % has to carry the same menu, so the two cannot come apart.
+    targets = [findobj(ax, Type = "image"); findobj(ax, Tag = "roiOverlay")];
+
+    assert(~isempty(targets), "A tile drew neither an image nor an overlay");
+
+    for iTarget = 1:numel(targets)
+        assert(isequal(targets(iTarget).ContextMenu, menu), ...
+            "A %s on a tile raised no context menu", targets(iTarget).Type);
+    end
+end
+
+end
+
+function check_profile_carries_menu(app)
+%CHECK_PROFILE_CARRIES_MENU The profile axes and its traces raise their own menu.
+
+menu = app.ProfileContextMenu;
+
+assert(~isempty(menu) && isvalid(menu), "No profile context menu was built");
+assert(isequal(app.ProfileAxes.ContextMenu, menu), "The profile axes raised no context menu");
+
+traces = findobj(app.ProfileAxes, Type = "line");
+
+for iTrace = 1:numel(traces)
+    assert(isequal(traces(iTrace).ContextMenu, menu), ...
+        "A profile trace raised no context menu");
+end
+
+end
+
+function check_context_targets_clicked_tile(app, menu)
+%CHECK_CONTEXT_TARGETS_CLICKED_TILE Edit ROI edits the tile under the pointer.
+% With several sections on screen the panel's own Edit ROI takes the first
+% selected row, so the check that matters is on the second tile: right-clicking
+% it has to reach its section rather than the one the panel would have chosen.
+
+if exist("images.roi.Line", "class") ~= 8
+    return
+end
+
+rows = app.selectedRows();
+
+if height(rows) < 2
+    return
+end
+
+wanted = string(rows.Stem(2));
+ax = tile_for_stem(app, wanted);
+
+% Clicked on an overlay graphic rather than on the axes, so the walk from the
+% object the pointer landed on up to its tile is exercised too.
+clicked = findobj(ax, Tag = "roiOverlay");
+
+if isempty(clicked)
+    clicked = findobj(ax, Type = "image");
+end
+
+menu.ContextMenuOpeningFcn(menu, struct(ContextObject = clicked(1)));
+
+assert(isequal(app.ContextAxes, ax), ...
+    "The right-click did not resolve to the tile the pointer was over");
+
+heading = findobj(menu, Tag = "contextTileLabel");
+
+assert(contains(string(heading.Text), wanted), ...
+    "The menu did not name the section it came up on: %s", heading.Text);
+
+item = context_menu_item(menu, "Edit ROI");
+item.MenuSelectedFcn(item, struct());
+leaveEdit = onCleanup(@() app.exitRoiEdit(false));
+
+assert(app.RoiEditStem == wanted, ...
+    "Edit ROI from the context menu started on %s rather than on the clicked %s", ...
+    app.RoiEditStem, wanted);
+
+end
+
+function check_context_item_writes_panel(app, menu)
+%CHECK_CONTEXT_ITEM_WRITES_PANEL A context item goes through the panel control.
+% Nothing about what an option means may be written twice, so the proof is that
+% the panel moves: a right-click and a click on the checkbox are one path.
+
+before = app.ShowBandCheck.Value;
+
+item = context_menu_item(menu, "Sampling Band");
+item.MenuSelectedFcn(item, struct());
+
+assert(app.ShowBandCheck.Value ~= before, ...
+    "The context menu did not move the checkbox it mirrors");
+
+item.MenuSelectedFcn(item, struct());
+
+assert(app.ShowBandCheck.Value == before, "The context menu could not put the band back");
+
+% A dropdown is mirrored as a submenu SYNCDISPLAYMENU fills in, so the items
+% have to exist and picking one has to reach the dropdown.
+colormapMenu = context_menu_item(menu, "Colormap");
+choices = string(app.ColormapDropDown.Items);
+
+assert(numel(colormapMenu.Children) == numel(choices), ...
+    "The Colormap submenu offered %d of %d colormaps", ...
+    numel(colormapMenu.Children), numel(choices));
+
+wanted = choices(find(choices ~= string(app.ColormapDropDown.Value), 1));
+child = findobj(colormapMenu.Children, Text = wanted);
+child.MenuSelectedFcn(child, struct());
+
+assert(string(app.ColormapDropDown.Value) == wanted, ...
+    "The context menu did not move the colormap dropdown");
+assert(child.Checked == "on", "The context menu did not follow the choice it made");
+
+end
+
+function ax = tile_for_stem(app, stem)
+%TILE_FOR_STEM Find the drawn tile belonging to one section.
+
+tiles = findall(app.ImageLayout, Type = "axes");
+
+for iTile = 1:numel(tiles)
+    if HistologyImageBrowser.tileStem(tiles(iTile)) == stem
+        ax = tiles(iTile);
+        return
+    end
+end
+
+error("No tile on screen was stamped with the section %s", stem);
+
+end
+
+function item = context_menu_item(menu, label)
+%CONTEXT_MENU_ITEM Find one item of a context menu by the text it starts with.
+% Matched on the start rather than the whole label, because SHORTCUTHINT adds
+% the key an item advertises to the end of its text.
+
+items = menu.Children;
+
+for iItem = 1:numel(items)
+    if startsWith(string(items(iItem).Text), label)
+        item = items(iItem);
+        return
+    end
+end
+
+error("The context menu has no ""%s"" item", label);
+
+end
+
+function objects = overlay_objects(app)
+%OVERLAY_OBJECTS Every graphic the ROI overlay drew on the tiles now on screen.
+
+objects = findobj(app.ImagePanel, Tag = "roiOverlay");
+
+end
+
+function check_catalog_table(rootPath, metadataCSV)
+%CHECK_CATALOG_TABLE A header sort still leaves the selection on its section.
+% The one thing column sorting could break, and the reason it was switched off
+% for so long: obj.Selection holds indices into obj.View, so a table showing
+% the rows in an order of its own would make every one of those indices name
+% the wrong section. Sorting cannot be driven through the widget without a
+% mouse, so it is simulated by putting the widget in the state a sort leaves it
+% in -- DisplayRowOrder set, DisplayDataChangedFcn fired -- which is enough to
+% exercise everything downstream of the click.
+
+app = HistologyImageBrowser(rootPath, metadataCSV = metadataCSV);
+closeApp = onCleanup(@() close(app.Fig)); %#ok<NASGU>
+
+app.onResetFilters();
+
+assert(height(app.View) > 2, "The dataset is too small to sort");
+assert(all(app.CatalogTable.ColumnSortable), "Column sorting was left switched off");
+assert(~isempty(app.CatalogTable.DisplayDataChangedFcn), "Nothing follows a header sort");
+
+check_catalog_key_column(app);
+check_catalog_sort(app);
+check_catalog_columns(app);
+check_catalog_table_prefs(app);
+check_stale_catalog_prefs(app);
+
+end
+
+function check_catalog_key_column(app)
+%CHECK_CATALOG_KEY_COLUMN Every drawn row carries its stem, out of sight.
+
+key = HistologyImageBrowser.CatalogKeyColumn;
+names = string(app.CatalogTable.Data.Properties.VariableNames);
+
+assert(names(end) == key, "The table carries no key column");
+assert(isequal(string(app.CatalogTable.Data.(key)), string(app.View.Stem)), ...
+    "The key column does not hold the stems of the view");
+
+widths = app.CatalogTable.ColumnWidth;
+
+assert(numel(widths) == numel(names), "The widths do not describe the columns");
+assert(isequal(widths{end}, 0), "The key column is drawn wide enough to see");
+
+end
+
+function check_catalog_sort(app)
+%CHECK_CATALOG_SORT Sorting reorders the view, not just the picture of it.
+
+key = HistologyImageBrowser.CatalogKeyColumn;
+
+% Row 3 rather than row 1, so a selection that silently stayed where it was
+% would show up here as a failure.
+app.CatalogTable.Selection = 3;
+app.onSelectionChanged();
+
+selected = string(app.selectedRows().Stem);
+
+before = app.CatalogTable.Data;
+
+% Section is never blank in this fixture, and its heading is not its catalog
+% name, so recovering it proves the heading was mapped back to a column name
+% the preferences can be written in.
+assert(~any(ismissing(before.Section) | before.Section == ""), ...
+    "The Section column has blanks, which this check cannot sort around");
+
+[~, order] = sortrows(before, "Section", "descend");
+
+app.CatalogTable.DisplayRowOrder = order(:).';
+feval(app.CatalogTable.DisplayDataChangedFcn, app.CatalogTable, struct());
+
+expected = string(before.(key));
+expected = expected(order);
+
+assert(isequal(string(app.View.Stem), expected), ...
+    "The view was not put in the order the table showed");
+assert(isequal(string(app.CatalogTable.Data.(key)), string(app.View.Stem)), ...
+    "The table data and the view came apart after a sort");
+assert(isequal(string(app.CatalogTable.DisplayData.(key)), string(app.View.Stem)), ...
+    "What the table displays is not the order the view holds");
+
+% The point of all of it: an index into the table still names its section.
+rows = app.selectedRows();
+
+assert(height(rows) == 1 && string(rows.Stem) == selected, ...
+    "The selection moved off %s onto another section", selected);
+assert(string(app.CatalogTable.Data.(key)(app.CatalogTable.Selection)) == selected, ...
+    "The highlighted row is not the section the browser thinks is selected");
+
+assert(app.CatalogSortColumn == "SectionID", ...
+    "The sort was recorded as one on %s rather than on SectionID", app.CatalogSortColumn);
+assert(app.CatalogSortDirection == "descend", ...
+    "The sort was recorded as %s", app.CatalogSortDirection);
+
+% A sort the user made outlives the next filter change, which is the whole
+% reason for reproducing it rather than only noting that it happened.
+app.ProfileOnlyCheck.Value = true;
+app.applyFilters();
+
+assert(height(app.View) > 1, "Filtering to profiles left too little to sort");
+assert(issorted(string(app.CatalogTable.Data.Section), "descend"), ...
+    "The column sort did not survive a refilter");
+
+% Reaching for the Sort by preset is asking for a different order, so the
+% column sort gives way to it rather than quietly outranking it.
+app.SortDropDown.Value = "plate";
+app.applyFilters();
+
+assert(app.CatalogSortColumn == "", "Choosing a Sort by preset left the column sort in force");
+
+app.onResetFilters();
+
+end
+
+function check_catalog_columns(app)
+%CHECK_CATALOG_COLUMNS An arrangement decides the columns and their order.
+
+key = HistologyImageBrowser.CatalogKeyColumn;
+
+app.CatalogTable.Selection = 2;
+app.onSelectionChanged();
+
+selected = string(app.selectedRows().Stem);
+
+wanted = ["SectionID", "Notes", "Stain"];
+app.applyCatalogColumns(wanted);
+
+assert(isequal(app.CatalogColumns, wanted), "The arrangement was not adopted");
+assert(isequal(string(app.CatalogTable.Data.Properties.VariableNames), ...
+    ["Section", "Notes", "Stain", key]), ...
+    "The table shows %s", strjoin(string(app.CatalogTable.Data.Properties.VariableNames), ", "));
+
+% Only the columns changed, so the selection has nothing to follow.
+assert(string(app.selectedRows().Stem) == selected, ...
+    "Rearranging the columns moved the selection");
+assert(string(app.CatalogTable.Data.(key)(app.CatalogTable.Selection)) == selected, ...
+    "Rearranging the columns lost the highlighted row");
+
+% An arrangement naming columns that do not exist has to leave a usable table
+% rather than an empty one.
+app.applyCatalogColumns(["GoneAway", "AlsoGone"]);
+
+assert(isequal(app.CatalogColumns, HistologyImageBrowser.DefaultCatalogColumns), ...
+    "An unusable arrangement was adopted rather than refused");
+assert(height(app.CatalogTable.Data) == height(app.View), "The table went empty");
+
+% Hiding the column the rows are ordered by leaves nothing on screen to explain
+% the order, so the sort goes with it.
+app.CatalogSortColumn = "Stain";
+app.CatalogSortDirection = "ascend";
+app.applyCatalogColumns(["SectionID", "Hemisphere"]);
+
+assert(app.CatalogSortColumn == "", "A sort on a hidden column was left in force");
+
+end
+
+function check_catalog_table_prefs(app)
+%CHECK_CATALOG_TABLE_PREFS The arrangement and the sort come back next session.
+
+group = char(HistologyImageBrowser.PrefGroup);
+
+wanted = ["Stain", "SectionID", "Notes"];
+
+app.applyCatalogColumns(wanted);
+app.CatalogSortColumn = "Stain";
+app.CatalogSortDirection = "descend";
+app.savePreferences();
+
+assert(isequal(string(getpref(group, "CatalogColumns")), wanted), ...
+    "The arrangement was not written to preferences");
+
+% Put back without persisting, so only the saved values can restore them.
+app.applyCatalogColumns(HistologyImageBrowser.DefaultCatalogColumns, persist = false);
+app.CatalogSortColumn = "";
+
+app.loadPreferences();
+
+assert(isequal(app.CatalogColumns, wanted), "The saved arrangement did not come back");
+assert(app.CatalogSortColumn == "Stain" && app.CatalogSortDirection == "descend", ...
+    "The saved sort came back as %s %s", app.CatalogSortColumn, app.CatalogSortDirection);
+
+end
+
+function check_stale_catalog_prefs(app)
+%CHECK_STALE_CATALOG_PREFS A preference that no longer makes sense is dropped.
+% Both halves have to be judged together: an arrangement can name a column this
+% release stopped offering, and a sort can name a column the arrangement does
+% not show. Either left standing gives a table ordered by something invisible,
+% or no table at all.
+
+group = char(HistologyImageBrowser.PrefGroup);
+
+setpref(group, "CatalogColumns", ["GoneAway", "AlsoGone"]);
+setpref(group, "CatalogSortColumn", "GoneAway");
+app.loadPreferences();
+
+assert(isequal(app.CatalogColumns, HistologyImageBrowser.DefaultCatalogColumns), ...
+    "A stale arrangement was restored rather than replaced by the default");
+assert(app.CatalogSortColumn == "", "A sort on a column that no longer exists was restored");
+assert(height(app.CatalogTable.Data) == height(app.View), "The stale arrangement emptied the table");
+
+setpref(group, "CatalogColumns", ["SectionID", "Stain"]);
+setpref(group, "CatalogSortColumn", "Notes");
+app.loadPreferences();
+
+assert(isequal(app.CatalogColumns, ["SectionID", "Stain"]), "The saved arrangement was refused");
+assert(app.CatalogSortColumn == "", "A sort on a column the arrangement hides was restored");
+
+% A direction nothing can be sorted in falls back rather than reaching SORTROWS.
+setpref(group, "CatalogSortColumn", "Stain");
+setpref(group, "CatalogSortDirection", "sideways");
+app.loadPreferences();
+
+assert(app.CatalogSortColumn == "Stain", "A usable sort column was dropped with its direction");
+assert(app.CatalogSortDirection == "ascend", ...
+    "An unusable direction was restored as %s", app.CatalogSortDirection);
+
+% Anything that is not text at all has to be refused before it is converted.
+setpref(group, "CatalogColumns", 42);
+app.loadPreferences();
+
+assert(isequal(app.CatalogColumns, HistologyImageBrowser.DefaultCatalogColumns), ...
+    "A preference that is not a column list was adopted");
 
 end

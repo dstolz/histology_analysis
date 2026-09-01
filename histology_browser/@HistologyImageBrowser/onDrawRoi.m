@@ -3,6 +3,10 @@ function onDrawRoi(obj)
 % The line is created at the width in the Width field rather than at whatever
 % the previous ROI happened to use, so a section drawn today samples the same
 % band as one drawn last week. Nothing is written until Save ROI.
+%
+% Several sections can be selected while this runs. An edit already open owns
+% the line whichever tile it sits on; otherwise the first drawn tile takes it,
+% which is the same tile ONTOGGLEEDITROI would have chosen.
 
 if exist("drawline", "file") == 0
     obj.setError("Drawing a line ROI needs the Image Processing Toolbox.");
@@ -15,9 +19,19 @@ end
 
 rows = obj.selectedRows();
 
-if height(rows) ~= 1
-    obj.setWarning("Select exactly one section before drawing a line.");
+if height(rows) == 0
+    obj.setWarning("Select a section before drawing a line.");
     return
+end
+
+% An edit already under way owns the line, whichever tile it is on; otherwise
+% the first drawn tile takes it, exactly as ONTOGGLEEDITROI decides.
+if obj.RoiEditStem ~= ""
+    activeRow = obj.editedRow();
+
+    if height(activeRow) == 1
+        rows = activeRow;
+    end
 end
 
 % Drawing is an edit like any other, so it goes through the same session:
@@ -98,7 +112,11 @@ obj.setStatus("Drew a %d px line over %.0f px. Save ROI writes it to disk.", ...
 end
 
 function ax = drawing_axes(obj)
-%DRAWING_AXES Find the tile to draw on, which is the only one on screen.
+%DRAWING_AXES Find the tile the new line is drawn on.
+% The editor's own parent settles it whenever there is an editor. Otherwise the
+% stem DRAWIMAGETILE stamps on each tile is what picks the right one out of
+% several: FINDOBJ returns tiles newest first, so taking the first would draw
+% on the last section of the selection rather than on the one being edited.
 
 ax = [];
 
@@ -109,10 +127,11 @@ end
 
 candidates = findobj(obj.ImagePanel, Type = "axes");
 
-if isempty(candidates)
-    return
+for iAxes = 1:numel(candidates)
+    if HistologyImageBrowser.tileStem(candidates(iAxes)) == obj.RoiEditStem
+        ax = candidates(iAxes);
+        return
+    end
 end
-
-ax = candidates(1);
 
 end

@@ -1,6 +1,14 @@
 function onOpenInFigure(obj)
 %ONOPENINFIGURE Redraw the current selection in a standard resizable figure.
 % Useful for zooming, panning, and further editing before publication.
+%
+% The tiles drawn here deliberately carry no right-click menu. A context menu
+% belongs to one figure and cannot be shared with another, and this window
+% already has the toolbar and menu bar that the browser's own menu stands in
+% for; ATTACHCONTEXTMENU declines any axes outside the app figure for exactly
+% that reason.
+%
+% See also DRAWIMAGETILE, ATTACHCONTEXTMENU, ONEXPORTVIEW.
 
 rows = obj.selectedRows();
 

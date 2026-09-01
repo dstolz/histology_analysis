@@ -17,9 +17,12 @@ if metadataPath ~= "" && isfile(metadataPath)
     obj.MetadataPath = metadataPath;
 end
 
+apply_filename_pattern(obj, read_pref(group, "FilenamePattern", ""));
+
 apply_dropdown(obj.VariantDropDown, read_pref(group, "Variant", ""));
 apply_dropdown(obj.ColormapDropDown, read_pref(group, "Colormap", ""));
 apply_stain_colormaps(obj, group);
+apply_catalog_columns(obj, group);
 
 apply_numeric(obj.LowPercentileField, read_pref(group, "LowPercentile", []));
 apply_numeric(obj.HighPercentileField, read_pref(group, "HighPercentile", []));
@@ -27,6 +30,7 @@ apply_numeric(obj.MaxTilesField, read_pref(group, "MaxTiles", []));
 
 apply_checkbox(obj.ShowRoiCheck, read_pref(group, "ShowRoi", []));
 apply_checkbox(obj.ShowBandCheck, read_pref(group, "ShowBand", []));
+apply_checkbox(obj.ShowBandGridCheck, read_pref(group, "ShowBandGrid", []));
 apply_checkbox(obj.ColorByIntensityCheck, read_pref(group, "ColorByIntensity", []));
 apply_dropdown(obj.ProfileLayoutDropDown, profile_layout_pref(group));
 apply_numeric(obj.ProfileSizeField, read_pref(group, "ProfileSize", []));
@@ -42,6 +46,29 @@ obj.applyViewLayout();
 % Every control above was written without firing its callback, so the Display
 % menu is told once, here, rather than a dozen times on the way down.
 obj.syncDisplayMenu();
+
+end
+
+function apply_filename_pattern(obj, pattern)
+%APPLY_FILENAME_PATTERN Restore a saved filename pattern that still compiles.
+% This one preference is text a user wrote rather than a value the app chose,
+% so it is the one most able to come back unusable: a preference file can be
+% hand-edited or half-written, and a regular expression that compiled when it
+% was saved is not guaranteed to compile under the release that reads it. It is
+% therefore compiled here before it is adopted, and one that fails is dropped
+% for the built-in convention rather than left to throw on the next load.
+
+if isempty(pattern) || ~isstring(pattern) || ~isscalar(pattern) || pattern == ""
+    return
+end
+
+if ~HistologyImageBrowser.checkFilenamePattern(pattern)
+    return
+end
+
+% Restoring a choice is not making one, so nothing is written back and nothing
+% is announced on a status bar the user has not looked at yet.
+obj.applyFilenamePattern(pattern, persist = false);
 
 end
 
@@ -167,6 +194,70 @@ keep = stains ~= "" & ismember(choices, string(obj.ColormapDropDown.Items));
 
 obj.ColormapStains = stains(keep);
 obj.ColormapChoices = choices(keep);
+
+end
+
+function apply_catalog_columns(obj, group)
+%APPLY_CATALOG_COLUMNS Restore the Sections arrangement and the column sort.
+% Two preferences that have to be judged together. A saved arrangement can name
+% a column a later release stopped offering, and a saved sort can name a column
+% the saved arrangement does not show -- either on its own would leave the
+% table ordered by something invisible, or empty. APPLYCATALOGCOLUMNS settles
+% the arrangement first and drops a sort its columns cannot account for, so
+% this only has to refuse what is not a column name at all.
+%
+% Anything that is not text is refused before APPLYCATALOGCOLUMNS is asked to
+% convert it, because a preference file can be hand-edited and STRING throws on
+% some of what could be in one.
+
+columns = read_pref(group, "CatalogColumns", strings(0, 1));
+
+if ~is_text(columns)
+    columns = strings(0, 1);
+end
+
+% Handed over even when it is empty, so an arrangement that validates down to
+% nothing comes back as the default rather than as whatever the property held.
+obj.applyCatalogColumns(string(columns(:))', persist = false);
+
+column = read_pref(group, "CatalogSortColumn", "");
+direction = read_pref(group, "CatalogSortDirection", "ascend");
+
+% Cleared before the saved sort is judged, rather than only once one has been
+% accepted. Preferences can be reloaded onto a browser that is already sorted,
+% and a saved sort naming a column this arrangement no longer shows has to
+% leave no sort at all: returning early without clearing would keep the table
+% ordered by a column nobody can see, which is the state this validation
+% exists to prevent rather than one it may fall back to.
+obj.CatalogSortColumn = "";
+obj.CatalogSortDirection = "ascend";
+obj.CatalogSortPreset = "";
+
+if ~is_text(column) || ~isscalar(string(column)) || ~ismember(string(column), obj.CatalogColumns)
+    return
+end
+
+if ~is_text(direction) || ~ismember(string(direction), ["ascend", "descend"])
+    direction = "ascend";
+end
+
+obj.CatalogSortColumn = string(column);
+obj.CatalogSortDirection = string(direction);
+
+% APPLYFILTERS clears the column sort when the Sort by preset has moved since
+% the sort was made, and a restored sort was made under whatever the preset now
+% reads, so it starts life agreeing with it rather than being thrown away on
+% the first filter.
+obj.CatalogSortPreset = string(obj.SortDropDown.Value);
+
+end
+
+function tf = is_text(value)
+%IS_TEXT True for something STRING can be asked to convert without throwing.
+% Cell arrays of char are included because that is the shape a preference
+% written by an older release, or by hand, can come back in.
+
+tf = isstring(value) || ischar(value) || iscellstr(value);
 
 end
 

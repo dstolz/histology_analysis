@@ -49,7 +49,12 @@ try
         metadataTable = table();
     end
 
-    C = build_histology_image_catalog(rootPath, metadataTable = metadataTable);
+    % The pattern is handed down rather than read from preferences inside the
+    % catalog builder, so the same build can be run from a script against a
+    % pattern the browser is not configured with.
+    C = build_histology_image_catalog(rootPath, ...
+        metadataTable = metadataTable, ...
+        filenamePattern = obj.FilenamePattern);
 
     obj.Data = S;
     obj.Catalog = C;

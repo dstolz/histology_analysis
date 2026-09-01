@@ -1,7 +1,14 @@
 function onToggleEditRoi(obj)
 %ONTOGGLEEDITROI Enter or leave line ROI editing for the selected section.
-% Editing is deliberately limited to a single section: the ROI is dragged on
-% the tile itself, and a drag has to belong to exactly one image.
+% A drag happens on one tile, so an edit session still belongs to exactly one
+% section. It no longer requires exactly one section to be *selected*: with
+% several on screen the first drawn tile takes the line, and the status bar
+% names the section it went to so the choice is never a surprise. Refusing a
+% multi-section selection outright meant the common way of browsing -- select a
+% run of sections, look across them, fix the one that is wrong -- had to be
+% undone before the ROI could be touched.
+%
+% See also ATTACHROIEDITOR, ONDRAWROI, EXITROIEDIT.
 
 if ~obj.EditRoiButton.Value
     if obj.exitRoiEdit(true)
@@ -23,9 +30,18 @@ end
 
 rows = obj.selectedRows();
 
-if height(rows) ~= 1
+if height(rows) == 0
     refuse(obj);
-    obj.setWarning("Select exactly one section before editing its ROI.");
+    obj.setWarning("Select a section before editing its ROI.");
+
+    return
+end
+
+% The line is dragged on a tile, so a layout with no tiles has nothing to drag
+% it on. Saying which control brings them back is more use than refusing.
+if ~obj.showImages()
+    refuse(obj);
+    obj.setWarning("The ROI is dragged on the image, so set Profiles to a layout that shows the tiles.");
 
     return
 end
@@ -66,12 +82,28 @@ end
 obj.updateRoiEditControls();
 obj.renderSelection();
 
-if geometry.isNew
-    obj.setStatus("Placed a new ROI on %s. Drag its ends, then Save ROI.", row.Stem);
+obj.setStatus("%s Drag its ends, then Save ROI.", opening_note(row, height(rows), geometry.isNew));
+
+end
+
+function note = opening_note(row, nSelected, isNew)
+%OPENING_NOTE Say which section the line went to, and whether it is a new one.
+% With one section selected the section is obvious and naming it is enough.
+% With several, which tile just became editable is the thing the user cannot
+% see from the button, so the count goes in the sentence.
+
+if isNew
+    verb = "Placed a new ROI on";
+else
+    verb = "Editing the ROI for";
+end
+
+if nSelected == 1
+    note = sprintf("%s %s.", verb, row.Stem);
     return
 end
 
-obj.setStatus("Editing the ROI for %s. Drag its ends, then Save ROI.", row.Stem);
+note = sprintf("%s %s, the first of %d selected sections.", verb, row.Stem, nSelected);
 
 end
 

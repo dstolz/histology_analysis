@@ -20,16 +20,27 @@ function C = build_histology_image_catalog(rootPath, options)
 %   options.includeMissing: Also emit a row for each tracker entry that has no
 %     image on disk. Off by default because a shared tracker usually spans far
 %     more subjects than any one root folder holds; turn it on to audit gaps.
+%   options.filenamePattern: Named-capture regular expression PARSE_HISTOLOGY_
+%     FILENAME uses in place of the built-in naming convention. Empty (the
+%     default) keeps the convention, so an existing call is unchanged.
 %
 % Returns
 %   C: Table with one row per image stem, sorted by subject and section.
 %      Path columns are "" when that rendition is absent.
+%      The columns are the same whatever the pattern: tokens it names beyond
+%      the known components are parsed but not added as columns, because the
+%      browser's filters, sort order, and table view all name their columns,
+%      and a catalog whose shape changed with the pattern would break them.
+%
+% See also PARSE_HISTOLOGY_FILENAME, COMBINE_VALUES_CSV,
+% HISTOLOGYIMAGEBROWSER.
 
 arguments
     rootPath (1,1) string
     options.metadataTable table = table()
     options.imageFilenameColumn (1,1) string = "Image Filename"
     options.includeMissing (1,1) logical = false
+    options.filenamePattern (1,1) string = ""
 end
 
 if ~isfolder(rootPath)
@@ -37,7 +48,7 @@ if ~isfolder(rootPath)
         "rootPath is not a valid folder: %s", rootPath)
 end
 
-F = scan_files(rootPath);
+F = scan_files(rootPath, options.filenamePattern);
 
 if isempty(F)
     stems = strings(0, 1);
@@ -45,8 +56,9 @@ else
     stems = unique(F.Stem);
 end
 
-rows = build_rows(F, stems);
-rows = attach_metadata(rows, options.metadataTable, options.imageFilenameColumn, options.includeMissing);
+rows = build_rows(F, stems, options.filenamePattern);
+rows = attach_metadata(rows, options.metadataTable, options.imageFilenameColumn, ...
+    options.includeMissing, options.filenamePattern);
 
 if isempty(rows)
     C = table();
@@ -58,7 +70,7 @@ C = sortrows(C, ["SubjectID", "SampleID", "SectionID", "Hemisphere", "Stain"]);
 
 end
 
-function F = scan_files(rootPath)
+function F = scan_files(rootPath, filenamePattern)
 %SCAN_FILES Discover images and sidecars, and parse each filename.
 
 patterns = ["*.tif", "*.tiff", "*.png", "*.czi", "*.roi", "*values.csv"];
@@ -92,7 +104,7 @@ for iFile = 1:nFiles
     folder(iFile) = string(listing(iFile).folder);
     name(iFile) = string(listing(iFile).name);
 
-    info = parse_histology_filename(name(iFile));
+    info = parse_histology_filename(name(iFile), pattern = filenamePattern);
 
     stem(iFile) = info.stem;
     variant(iFile) = info.variant;
@@ -127,7 +139,7 @@ end
 
 end
 
-function rows = build_rows(F, stems)
+function rows = build_rows(F, stems, filenamePattern)
 %BUILD_ROWS Collapse discovered files into one row per stem.
 
 rows = empty_row_struct();
@@ -143,7 +155,7 @@ for iStem = 1:numel(stems)
     thisStem = stems(iStem);
     Fs = F(F.Stem == thisStem, :);
 
-    info = parse_histology_filename(thisStem);
+    info = parse_histology_filename(thisStem, pattern = filenamePattern);
 
     rows(iStem).Stem = thisStem;
     rows(iStem).SubjectID = info.SubjectID;
@@ -274,7 +286,7 @@ s = join(values, ", ");
 
 end
 
-function rows = attach_metadata(rows, metadataTable, imageFilenameColumn, includeMissing)
+function rows = attach_metadata(rows, metadataTable, imageFilenameColumn, includeMissing, filenamePattern)
 %ATTACH_METADATA Join tracker rows onto the catalog by filename stem.
 
 if isempty(metadataTable) || width(metadataTable) == 0
@@ -287,7 +299,7 @@ if ~ismember(imageFilenameColumn, varNames)
     return
 end
 
-trackerStems = normalize_stems(metadataTable.(char(imageFilenameColumn)));
+trackerStems = normalize_stems(metadataTable.(char(imageFilenameColumn)), filenamePattern);
 matched = false(numel(trackerStems), 1);
 
 for iRow = 1:numel(rows)
@@ -318,7 +330,7 @@ for iMissing = 1:numel(missingIdx)
     idx = missingIdx(iMissing);
     thisStem = trackerStems(idx);
 
-    info = parse_histology_filename(thisStem);
+    info = parse_histology_filename(thisStem, pattern = filenamePattern);
 
     extraRows(iMissing).Stem = thisStem;
     extraRows(iMissing).SubjectID = info.SubjectID;
@@ -443,7 +455,7 @@ value = str2double(string(raw));
 
 end
 
-function stems = normalize_stems(names)
+function stems = normalize_stems(names, filenamePattern)
 %NORMALIZE_STEMS Reduce tracker filenames to comparable stems.
 
 names = string(names(:));
@@ -454,7 +466,7 @@ for iName = 1:numel(names)
         continue
     end
 
-    info = parse_histology_filename(strtrim(names(iName)));
+    info = parse_histology_filename(strtrim(names(iName)), pattern = filenamePattern);
     stems(iName) = info.stem;
 end
 

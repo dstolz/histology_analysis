@@ -1,6 +1,8 @@
 function renderProfilePlot(obj)
 %RENDERPROFILEPLOT Plot the profiles of the selected sections on shared axes.
 % Tile colors are reused so a trace is easy to match to its image.
+%
+% See also ATTACHCONTEXTMENU, RENDERSELECTION.
 
 ax = obj.ProfileAxes;
 
@@ -13,6 +15,20 @@ xlabel(ax, "distance along line (\mum)");
 ylabel(ax, "intensity");
 grid(ax, "on");
 box(ax, "on");
+
+draw_profiles(obj, ax);
+
+% Attached once, from the one place this function ends. The traces are drawn by
+% a helper for exactly that reason: with the four early returns inline, every
+% one of them would have had to remember to hand out the menu, and the path
+% that plots nothing is the one most likely to be forgotten and the one where a
+% right-click is most likely to be a request to change the layout.
+obj.attachContextMenu(ax, "profile");
+
+end
+
+function draw_profiles(obj, ax)
+%DRAW_PROFILES Plot one trace per selected section, or say why there is none.
 
 if ~obj.showProfile()
     return

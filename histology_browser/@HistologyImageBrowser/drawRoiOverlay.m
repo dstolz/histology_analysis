@@ -9,6 +9,14 @@ function drawRoiOverlay(obj, ax, row, tileColor)
 % The line and the band outline are stroked by ROISTATESTYLE, so how the ROI
 % stands against the .roi file beside it -- read from disk, being edited,
 % edited and not yet written, or just written -- is readable off the tile.
+%
+% The band can also be ruled with an optional grid. It is drawn in the band's
+% own rotated frame rather than the axes', because the only thing anyone wants
+% to know from it is whether the band is square to the boundary it is being
+% aimed at, and an axis-aligned grid cannot answer that.
+%
+% See also ROISTATESTYLE, REFRESHTILEOVERLAY, REFRESHROIOVERLAY,
+% BUILDDISPLAYPANEL, ATTACHCONTEXTMENU.
 
 % Every overlay object is tagged so a drag can replace just these graphics
 % without redrawing, and so rereading, the image underneath them.
@@ -31,6 +39,13 @@ end
 % the band is outlined and labelled whether or not the overlay is switched on.
 wantsBand = obj.ShowBandCheck.Value || R.isEditing;
 
+% The grid answers one question -- is the band square to the boundary I am
+% aiming it at -- and that question is only ever asked while the line is being
+% placed. Ruling the band on every tile of a twelve-tile view would veil a
+% dozen sections to answer it for nobody, so the grid follows the edit the way
+% the width label below it does, and the checkbox says whether an edit gets one.
+wantsGrid = R.isEditing && obj.ShowBandGridCheck.Value;
+
 if ~(wantsRoi || wantsBand || wantsShading)
     return
 end
@@ -47,6 +62,12 @@ if wantsShading
 end
 
 if wantsBand && geometry.halfWidth > 0
+    % Ruled before the outline so the outline, the line, and the drag handles
+    % all sit above the grid rather than being broken up by it.
+    if wantsGrid
+        draw_band_grid(ax, geometry, style);
+    end
+
     corners = band_corners(geometry);
 
     plot(ax, corners(:, 1), corners(:, 2), ...
@@ -84,6 +105,12 @@ end
 % to anyone reading the tile, and it is the only thing on screen that names an
 % unsaved edit without the control panel being in view.
 label_state(ax, style);
+
+% The right-click menu is handed out by whichever function finishes the tile --
+% DRAWIMAGETILE on a full redraw, REFRESHTILEOVERLAY on an overlay change --
+% rather than from here. Both would then walk the same tile twice on every
+% redraw, and the objects created here are still on the axes when either of
+% them does its walk, so nothing is missed by leaving it to them.
 
 end
 
@@ -167,6 +194,87 @@ corners = [ ...
     p2 - offset; ...
     p1 - offset; ...
     p1 + offset];
+
+end
+
+function draw_band_grid(ax, geometry, style)
+%DRAW_BAND_GRID Rule the sampling band in the band's own rotated frame.
+% Every rule is built from the band's unit direction and its normal rather than
+% from x and y, so the whole grid turns with the line: a layer boundary running
+% along a rule is parallel to the line, and one running across a rule is square
+% to it. An axis-aligned grid was the obvious thing to draw first and is no use
+% here, because it says nothing about the line unless the line happens to point
+% along an axis, which is the one case nobody needs help with.
+%
+% The pitch comes from the band width rather than from the tile, the image, or
+% a field of its own, because the band is the thing being lined up. Eight
+% divisions across put a rule every 75 to 125 px for the 600 to 1000 px bands
+% this study samples with: close enough that a couple of degrees of tilt shows
+% as a visible drift between a boundary and the rule beside it, and far enough
+% apart that the section stays readable between them. That same pitch is
+% repeated along the length so the cells come out square, which is what lets an
+% angle be judged the same way whichever direction the line points; a fixed
+% count of divisions in both directions was the alternative, and it stretches
+% the cells with the line, so the grid would read differently on a long line
+% than on a short one.
+%
+% Endpoints land on the band's own edges, so the grid is bounded by the band by
+% construction and needs no clipping mask to keep it off the rest of the tile.
+
+divisions = 8;
+maxRules = 200;
+
+spacing = 2 * geometry.halfWidth / divisions;
+
+if ~isfinite(spacing) || spacing <= 0 || ~isfinite(geometry.length) || geometry.length <= 0
+    return
+end
+
+origin = [geometry.x1, geometry.y1];
+
+% Interior rules only: the band outline already strokes the perimeter, and a
+% second stroke along it would thicken the very edge being judged. DIVISIONS is
+% even, so the middle rule lands on the line itself.
+half = divisions / 2 - 1;
+across = (-half:half)' * spacing;
+
+alongSpacing = spacing;
+nAlong = floor(geometry.length / alongSpacing) - 1;
+
+% A band many times longer than it is wide would otherwise be ruled into
+% hundreds of cells. Square cells give way to a bounded count there, because a
+% wash of rules hides the section the grid exists to be read against.
+if nAlong > maxRules
+    alongSpacing = geometry.length / (maxRules + 1);
+    nAlong = maxRules;
+end
+
+along = (1:max(nAlong, 0))' * alongSpacing;
+
+starts = [ ...
+    origin + across .* geometry.normal; ...
+    origin + along .* geometry.unit - geometry.normal * geometry.halfWidth];
+
+spans = [ ...
+    repmat(geometry.unit * geometry.length, numel(across), 1); ...
+    repmat(geometry.normal * 2 * geometry.halfWidth, numel(along), 1)];
+
+% One patch of two-vertex faces rather than a line object per rule: a drag
+% replaces a single object instead of a few dozen, and a patch edge is the only
+% documented way to hold the alpha that keeps the grid off the section. The tag
+% is what REFRESHROIOVERLAY sweeps up mid-drag, so it has to be the shared one;
+% UserData is what names this particular overlay.
+nRules = size(starts, 1);
+
+patch(ax, ...
+    Faces = [(1:nRules)', (1:nRules)' + nRules], ...
+    Vertices = [starts; starts + spans], ...
+    FaceColor = "none", ...
+    EdgeColor = style.Color, ...
+    EdgeAlpha = 0.35, ...
+    LineWidth = 0.5, ...
+    Tag = "roiOverlay", ...
+    UserData = "roiBandGrid");
 
 end
 

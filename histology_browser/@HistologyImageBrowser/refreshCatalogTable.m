@@ -1,8 +1,14 @@
 function refreshCatalogTable(obj)
 %REFRESHCATALOGTABLE Push the filtered view into the table and update counts.
+% What the rows look like belongs to CATALOGDISPLAYTABLE and putting them in
+% the widget belongs to WRITECATALOGTABLE, because a sort and a column
+% rearrangement both have to do the same thing without also resetting the
+% selection and the counts the way a fresh filter does. What is left here is
+% only the part that is particular to having just refiltered.
+
+obj.writeCatalogTable();
 
 if height(obj.View) == 0
-    obj.CatalogTable.Data = table();
     obj.Selection = [];
     obj.CountLabel.Text = describe_counts(obj);
     obj.renderSelection();
@@ -15,30 +21,10 @@ if height(obj.View) == 0
     return
 end
 
-display = table();
-display.Subject = shorten_subject(obj.View.SubjectID);
-display.Section = obj.View.SectionID;
-display.Hemi = obj.View.Hemisphere;
-display.Stain = obj.View.Stain;
-display.Plate = obj.View.AtlasPlate;
-display.Prof = obj.View.NProfiles;
-display.Images = obj.View.Variants;
-display.Status = obj.View.Status;
-
-obj.CatalogTable.Data = display;
-obj.CatalogTable.ColumnWidth = {70, 60, 45, 70, 45, 40, "auto", "auto"};
-
 % Selecting the first match keeps a filtered lookup one click from a picture.
 obj.CatalogTable.Selection = 1;
 obj.CountLabel.Text = describe_counts(obj);
 obj.onSelectionChanged();
-
-end
-
-function short = shorten_subject(subjectID)
-%SHORTEN_SUBJECT Drop the shared SUBJ-ID- prefix so the column stays narrow.
-
-short = replace(string(subjectID), "SUBJ-ID-", "");
 
 end
 

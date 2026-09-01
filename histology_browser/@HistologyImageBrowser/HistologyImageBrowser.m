@@ -26,7 +26,9 @@ classdef HistologyImageBrowser < handle
         RootFolderMenu matlab.ui.container.Menu
         MetadataMenu matlab.ui.container.Menu
         ClearMetadataMenu matlab.ui.container.Menu
+        FilenamePatternMenu matlab.ui.container.Menu
         LoadMenu matlab.ui.container.Menu
+        ExportWorkspaceMenu matlab.ui.container.Menu
 
         DisplayMenu matlab.ui.container.Menu
 
@@ -38,7 +40,12 @@ classdef HistologyImageBrowser < handle
         DataColumnMenu matlab.ui.container.Menu
         DisplayRowMenu matlab.ui.container.Menu
         AllPanelsMenu matlab.ui.container.Menu
+
+        HelpMenu matlab.ui.container.Menu
         ShortcutsMenu matlab.ui.container.Menu
+        AtlasExplorerMenu matlab.ui.container.Menu
+        ReportBugMenu matlab.ui.container.Menu
+        RequestFeatureMenu matlab.ui.container.Menu
 
         SearchField matlab.ui.control.EditField
         SubjectList matlab.ui.control.ListBox
@@ -54,6 +61,7 @@ classdef HistologyImageBrowser < handle
         PreviousButton matlab.ui.control.Button
         NextButton matlab.ui.control.Button
         SelectAllButton matlab.ui.control.Button
+        ArrangeColumnsButton matlab.ui.control.Button
 
         VariantDropDown matlab.ui.control.DropDown
         ChannelDropDown matlab.ui.control.DropDown
@@ -66,6 +74,7 @@ classdef HistologyImageBrowser < handle
 
         ShowRoiCheck matlab.ui.control.CheckBox
         ShowBandCheck matlab.ui.control.CheckBox
+        ShowBandGridCheck matlab.ui.control.CheckBox
         ColorByIntensityCheck matlab.ui.control.CheckBox
         ProfileLayoutDropDown matlab.ui.control.DropDown
         ProfileSizeField matlab.ui.control.NumericEditField
@@ -90,16 +99,55 @@ classdef HistologyImageBrowser < handle
         ProfilePanel matlab.ui.container.Panel
         ImageLayout matlab.graphics.layout.TiledChartLayout
         ProfileAxes matlab.ui.control.UIAxes
+
+        % One right-click menu for every tile and one for the profile axes,
+        % both parented to the figure and handed out to each object drawn in a
+        % plot. A menu per tile was the obvious alternative and was rejected:
+        % twelve copies of the same twenty items would be built and thrown away
+        % on every redraw, which is exactly the cost ONDISPLAYOPTIONCHANGED
+        % now goes out of its way to avoid.
+        TileContextMenu matlab.ui.container.ContextMenu
+        ProfileContextMenu matlab.ui.container.ContextMenu
     end
 
     properties
         RootPath string = ""        % Folder scanned for images and values files.
         MetadataPath string = ""    % Optional section tracker CSV.
 
+        % Named-capture pattern PARSE_HISTOLOGY_FILENAME reads names with, or
+        % "" for the built-in convention. Empty by default, so an app nobody
+        % has configured catalogs exactly as it always did.
+        FilenamePattern string = ""
+
         Data struct = struct()      % Structured output from COMBINE_VALUES_CSV.
         Catalog table = table()     % One row per image stem.
         View table = table()        % Catalog rows passing the active filters.
         Selection double = []       % Row indices into View.
+
+        % Catalog variables the Sections table shows, in the order it shows
+        % them. Held as catalog variable names rather than as the headings
+        % they are drawn under, because a heading is a label this code is free
+        % to reword while a saved arrangement has to keep meaning the same
+        % thing across releases.
+        CatalogColumns string = HistologyImageBrowser.DefaultCatalogColumns
+
+        % Column the Sections table is sorted on, as a catalog variable name,
+        % and the direction it runs in. "" when no header sort is in force, in
+        % which case the Sort by preset alone decides the order.
+        CatalogSortColumn string = ""
+        CatalogSortDirection string = "ascend"
+
+        % Sort by preset the column sort was made under. The dropdown's own
+        % callback belongs to BUILDFILTERPANEL and calls straight into
+        % APPLYFILTERS, so that is where the preset moving is noticed, by
+        % comparing it against this rather than by giving the dropdown a
+        % callback of its own.
+        CatalogSortPreset string = ""
+
+        % True while WRITECATALOGTABLE is assigning the table's Data. The
+        % assignment is what ONCATALOGDISPLAYCHANGED reacts to, so without this
+        % the handler could answer its own write.
+        CatalogTableSyncing logical = false
         ImageCache = []             % containers.Map of decoded display images.
         CacheOrder string = strings(0, 1)
 
@@ -120,6 +168,17 @@ classdef HistologyImageBrowser < handle
         % so everything in them survives being hidden.
         DataColumnHidden logical = false
         DisplayRowHidden logical = false
+
+        % Settings the tiles now on screen were drawn from, as one string.
+        % ONDISPLAYOPTIONCHANGED compares it against the settings in force to
+        % tell a change of pixels from a change of overlay, because every
+        % display control shares that one callback and none of them says which
+        % one moved.
+        RenderKey string = ""
+
+        % Axes the last right-click landed on, so a context menu item can act
+        % on the tile under the pointer rather than on the first selected row.
+        ContextAxes = []
 
         StatusLevel string = "info" % Severity of the message now on the status bar.
         StatusHistory string = strings(0, 1)
@@ -156,6 +215,21 @@ classdef HistologyImageBrowser < handle
         MaxStatusHistory = 15       % Messages kept in the status bar tooltip.
         BrowseColumnWidth = 460     % Width of the lookup and catalog column, in pixels.
 
+        % The built-in naming convention written out as a pattern, offered by
+        % ONEDITFILENAMEPATTERN as the starting point for editing rather than
+        % used to parse anything: an empty FilenamePattern runs the convention
+        % directly, which is the only way to keep an unconfigured app parsing
+        % byte-for-byte as it did before patterns existed. Everything the
+        % convention extracts is here except the split of SampleID into
+        % Protocol and Series, which no single flat pattern expresses without
+        % becoming unreadable to the person meant to edit it.
+        DefaultFilenamePattern = "^(?<SubjectID>SUBJ-ID-\d+)(?<SampleID>.*)_(?<SectionID>[^_]+)_(?<Hemisphere>[^_]+)_(?<Stain>[^_]+)_(?<ZPlane>[^_]+)_(?<DateCode>[^_]+)_(?<ImageNumber>[^_]+)$"
+
+        % Filenames the pattern dialog previews against. The table is rebuilt on
+        % every keystroke, so the head of a large catalog stands in for it and
+        % the count is reported beside the table.
+        MaxPatternPreviewNames = 200
+
         % Status severities, and the lamp glyph each one shows.
         StatusLevels = ["info", "busy", "success", "warning", "error"]
         StatusGlyphs = string(char([9679; 9680; 9679; 9650; 9632]))
@@ -176,6 +250,59 @@ classdef HistologyImageBrowser < handle
         % back from it. They are codes only; their text is built where needed.
         PickBackgroundCode = "pick"
         CustomBackgroundCode = "custom"
+
+        % Where the Help menu points. The atlas is a companion tool rather than
+        % part of this app, and the tracker is where its issues are raised, so
+        % both are addresses rather than anything this window renders itself.
+        AtlasExplorerURL = "https://dstolz.github.io/GerbilAtlasExplorer/gerbil_atlas_explorer.html"
+        RepositoryURL = "https://github.com/dstolz/histology_browser"
+
+        % Longest new-issue link worth handing to a browser. Browsers and the
+        % Windows shell both stop accepting a URL somewhere above this, and
+        % they truncate rather than refuse, so a longer report is opened as an
+        % empty form and pasted from the clipboard instead of being cut in half.
+        MaxIssueUrlLength = 8000
+
+        % Columns the Sections table can be made to show: the catalog variable
+        % each one reads, the heading it is drawn under, and the width it is
+        % drawn at. Three parallel arrays rather than a struct array, matching
+        % how the background and profile-layout choices are already written,
+        % because the three read across in one glance here and a struct array
+        % would put each column on five lines of its own.
+        %
+        % The list is a curated subset of the catalog rather than all of it.
+        % ValuesPaths and ROILabels hold a string array per row, which a table
+        % cell cannot draw at all, and the four rendition paths say nothing the
+        % Images column does not already say more briefly. Widths are text so
+        % that one array can carry both a pixel count and the keyword that lets
+        % a column take whatever is left.
+        CatalogColumnFields = ["SubjectID", "SectionID", "Hemisphere", "Stain", ...
+            "AtlasPlate", "NProfiles", "Variants", "Status", "Stem", "SampleID", ...
+            "Protocol", "Series", "ZPlane", "DateCode", "ImageNumber", "ROI", ...
+            "NVariants", "NameParsed", "InTracker", "Content", "Slide", "SliceID", ...
+            "ImageDate", "LaserPower", "Notes", "ProcessingID", "Folder"]
+        CatalogColumnHeadings = ["Subject", "Section", "Hemi", "Stain", ...
+            "Plate", "Prof", "Images", "Status", "Stem", "Sample", ...
+            "Protocol", "Series", "ZPlane", "Date", "ImageNum", "ROI", ...
+            "NImages", "Parsed", "Tracked", "Content", "Slide", "Slice", ...
+            "Acquired", "Laser", "Notes", "Processing", "Folder"]
+        CatalogColumnWidths = ["70", "60", "45", "70", ...
+            "45", "40", "auto", "auto", "220", "70", ...
+            "70", "55", "55", "70", "60", "90", ...
+            "45", "50", "55", "90", "50", "55", ...
+            "80", "55", "auto", "80", "240"]
+
+        % The arrangement an app nobody has configured opens with, which is
+        % exactly the eight columns the table showed before it could be
+        % rearranged, so an existing user sees no change until they ask for one.
+        DefaultCatalogColumns = ["SubjectID", "SectionID", "Hemisphere", "Stain", ...
+            "AtlasPlate", "NProfiles", "Variants", "Status"]
+
+        % Variable the display table carries each row's section stem in, drawn
+        % at zero width. It is what maps a displayed row back to a catalog row
+        % after the user sorts, so it is present in every arrangement whether
+        % or not the visible Stem column is.
+        CatalogKeyColumn = "SectionStem"
     end
 
     methods
@@ -225,6 +352,8 @@ classdef HistologyImageBrowser < handle
 
         buildViewMenu(obj)              % Build the View menu on the menu bar.
 
+        buildHelpMenu(obj)              % Build the Help menu on the menu bar.
+
         buildFilterPanel(obj, parent)   % Build the lookup and filter controls.
 
         buildCatalogTable(obj, parent)  % Build the results table and navigation.
@@ -239,11 +368,25 @@ classdef HistologyImageBrowser < handle
 
         onLoadData(obj)                 % Run COMBINE_VALUES_CSV and build the catalog.
 
+        onEditFilenamePattern(obj)      % Edit the filename pattern, with a live preview.
+
+        tf = applyFilenamePattern(obj, pattern, options)  % Adopt a filename pattern.
+
+        [names, source] = filenamePatternSamples(obj)     % Names the preview runs on.
+
         refreshFilterChoices(obj)       % Repopulate filter lists from the catalog.
 
         applyFilters(obj)               % Filter the catalog and refresh the table.
 
         refreshCatalogTable(obj)        % Push the filtered view into the table.
+
+        writeCatalogTable(obj)          % Put the view into the table widget, row for row.
+
+        onCatalogDisplayChanged(obj)    % Follow a header sort by reordering the view.
+
+        applyCatalogColumns(obj, columns, options)  % Adopt a column arrangement.
+
+        onArrangeColumns(obj)           % Choose which columns show, and in what order.
 
         onSelectionChanged(obj)         % Handle a table selection change.
 
@@ -252,6 +395,14 @@ classdef HistologyImageBrowser < handle
         drawImageTile(obj, ax, row, tileColor)  % Draw one image with its overlay.
 
         drawRoiOverlay(obj, ax, row, tileColor) % Draw the line ROI and sampling band.
+
+        refreshOverlays(obj)            % Redraw every tile's overlay, keeping the images.
+
+        refreshTileOverlay(obj, ax)     % Redraw one tile's overlay, keeping its image.
+
+        buildPlotContextMenus(obj)      % Build the right-click menus for the plots.
+
+        attachContextMenu(obj, ax, kind)  % Give an axes and its contents a right-click menu.
 
         renderProfilePlot(obj)          % Draw profiles for the current selection.
 
@@ -297,6 +448,8 @@ classdef HistologyImageBrowser < handle
 
         onExportView(obj)               % Export the current view to an image file.
 
+        onExportWorkspace(obj, variableName)  % Export the selection to a base workspace table.
+
         onOpenInFigure(obj)             % Redraw the current selection in a normal figure.
 
         loadPreferences(obj)            % Restore saved paths and display settings.
@@ -308,6 +461,12 @@ classdef HistologyImageBrowser < handle
         runShortcut(obj, action)        % Carry out one named shortcut.
 
         onShowShortcuts(obj)            % List every shortcut in a dialog.
+
+        onReportIssue(obj, kind)        % Open a prefilled bug or feature issue.
+
+        [title, body] = issueTemplate(obj, kind)  % Compose one issue's title and body.
+
+        text = diagnosticsReport(obj)   % Describe the build, machine, and settings.
 
         function onCloseRequest(obj)
             % Record where the window sits, then close it.
@@ -406,6 +565,13 @@ classdef HistologyImageBrowser < handle
             obj.PlateList.Value = {};
             obj.ProfileOnlyCheck.Value = false;
             obj.SortDropDown.Value = "section";
+
+            % A header sort is an ordering the user asked for just as the
+            % filters are, so Reset clears it too. APPLYFILTERS would only
+            % notice the preset moving, which it has not when the preset was
+            % already "section".
+            obj.CatalogSortColumn = "";
+
             obj.applyFilters();
         end
 
@@ -437,10 +603,76 @@ classdef HistologyImageBrowser < handle
         end
 
         function onDisplayOptionChanged(obj)
-            % Redraw after a display or overlay option changes.
+            % Redraw after a display or overlay option changes, as cheaply as
+            % that particular change allows.
+            %
+            % RENDERSELECTION tears the tiled layout down and builds it again,
+            % which rereads every image and restretches every pixel. A new
+            % variant, channel, colormap, contrast, tile cap, or background is
+            % worth that; switching the sampling band on is not, because the
+            % pictures and the axes are unchanged and only the overlay
+            % graphics differ.
+            %
+            % Which one happened is worked out by comparing the settings that
+            % decide the pixels against the ones the tiles were last drawn
+            % from, rather than by giving each control a callback of its own.
+            % Every route into this function -- the Display panel, the Display
+            % menu, the context menus, and the keyboard shortcuts -- would have
+            % had to be taught the split, and the state comparison cannot be
+            % bypassed by a caller that forgets.
+
             obj.savePreferences();
             obj.syncDisplayMenu();
+
+            if obj.displayRenderKey() == obj.RenderKey
+                obj.refreshOverlays();
+                return
+            end
+
             obj.renderSelection();
+        end
+
+        function key = displayRenderKey(obj)
+            % Summarize everything the drawn pixels depend on as one string.
+            %
+            % The selection is part of it because the tiles are drawn from it,
+            % and the tile cap is part of it because it decides how many of
+            % them there are. The profile layout is deliberately left out: it
+            % is handled by ONLAYOUTOPTIONCHANGED, which already redraws the
+            % tiles whenever a layout change has to bring them back, and
+            % including it would make every band toggle after a resize of the
+            % profile split pay for a full redraw it does not need.
+
+            % The channel dropdown reports a number for a page and the text
+            % "merge" for the composite, a dropdown with no ItemsData reports
+            % a char row, and the background is a triplet, so every value is
+            % converted to string first and only then laid out flat. Indexing
+            % the raw value instead would take a char row apart letter by
+            % letter, which still compares correctly but reads as nonsense the
+            % first time anyone prints the key while debugging.
+            settings = { ...
+                obj.VariantDropDown.Value, ...
+                obj.ChannelDropDown.Value, ...
+                obj.ColormapDropDown.Value, ...
+                obj.LowPercentileField.Value, ...
+                obj.HighPercentileField.Value, ...
+                obj.MaxTilesField.Value, ...
+                obj.ImageBackground};
+
+            parts = strings(1, numel(settings) + 1);
+
+            for iSetting = 1:numel(settings)
+                value = string(settings{iSetting});
+                parts(iSetting) = join(value(:)', ",");
+            end
+
+            rows = obj.selectedRows();
+
+            if height(rows) > 0
+                parts(end) = join(string(rows.Stem), ",");
+            end
+
+            key = join(parts, "|");
         end
 
         function chooseFromMenu(obj, control, value)
@@ -817,9 +1049,18 @@ classdef HistologyImageBrowser < handle
 
             % Tiles are not drawn while the image panel is hidden, so coming
             % back to a layout that shows them needs a full redraw.
-            if obj.showImages() && (isempty(obj.ImageLayout) || ~isvalid(obj.ImageLayout))
-                obj.renderSelection();
-                return
+            if obj.showImages()
+                if isempty(obj.ImageLayout) || ~isvalid(obj.ImageLayout)
+                    obj.renderSelection();
+                    return
+                end
+            elseif ~isempty(obj.ImageLayout) && isvalid(obj.ImageLayout)
+                % A layout that hides the tiles drops them rather than parking
+                % them in a panel nobody can see. Each tile holds a decoded
+                % page, so leaving them there made "Profiles only" go on
+                % costing the memory of the view it had stopped showing until
+                % the selection happened to move.
+                delete(obj.ImageLayout);
             end
 
             obj.renderProfilePlot();
@@ -848,6 +1089,29 @@ classdef HistologyImageBrowser < handle
             % True when this catalog row is the one being edited.
             tf = obj.RoiEditStem ~= "" && height(row) == 1 ...
                 && string(row.Stem) == obj.RoiEditStem;
+        end
+
+        function tf = isEditedStemSelected(obj)
+            % True when the section being edited is still selected.
+            %
+            % ISEDITINGROW answers for one row, which is the question a tile
+            % asks. A selection holding several rows needs this weaker one, or
+            % adding a second section to the selection would end an edit whose
+            % own tile is still on screen.
+
+            tf = false;
+
+            if obj.RoiEditStem == ""
+                return
+            end
+
+            rows = obj.selectedRows();
+
+            if height(rows) == 0
+                return
+            end
+
+            tf = any(string(rows.Stem) == obj.RoiEditStem);
         end
 
         function pixelSize = roiEditPixelSize(obj)
@@ -943,6 +1207,41 @@ classdef HistologyImageBrowser < handle
             end
         end
 
+        function onOpenAtlasExplorer(obj)
+            % Open the gerbil atlas explorer in the default browser.
+            obj.openExternalLink(HistologyImageBrowser.AtlasExplorerURL, ...
+                "the gerbil atlas explorer");
+        end
+
+        function opened = openExternalLink(obj, url, description)
+            % Hand a URL to the default browser, reporting a refusal rather
+            % than throwing.
+            %
+            % The system browser is asked for by name: the atlas explorer needs
+            % a current engine, and nobody is signed in to GitHub inside
+            % MATLAB's own browser. A release that will not honor "-browser"
+            % falls back to whatever it will open rather than opening nothing.
+
+            opened = true;
+
+            try
+                web(url, "-browser");
+                return
+            catch ME
+                reason = ME.message;
+            end
+
+            try
+                web(url);
+            catch
+                opened = false;
+                obj.setError("Could not open %s: %s", description, reason);
+                uialert(obj.Fig, ...
+                    "Could not open a browser for:" + newline + url, ...
+                    "Browser Failed");
+            end
+        end
+
         function setStatus(obj, varargin)
             % Report ordinary progress on the status bar.
             obj.pushStatus("info", varargin{:});
@@ -1032,6 +1331,64 @@ classdef HistologyImageBrowser < handle
         bindings = keyBindings()        % Every keyboard shortcut, in one table.
 
         style = roiStateStyle(state, tileColor)  % Aesthetics for one ROI save state.
+
+        [tf, message] = checkFilenamePattern(pattern)  % Judge a candidate pattern.
+
+        pattern = tokenListPattern(delimiter, names)   % Compile a token list into one.
+
+        T = filenamePatternPreview(names, pattern)     % What a pattern extracts, tabulated.
+
+        [display, widths] = catalogDisplayTable(rows, columns)  % Table the Sections widget shows.
+
+        idx = catalogSortOrder(display, heading, direction)     % Order one column sort gives.
+
+        function stem = tileStem(ax)
+            % Section a tile was drawn for, or "" for an axes that is not one.
+            % DRAWIMAGETILE stamps it, so anything holding an axes can ask
+            % which section it belongs to without knowing the tile order.
+
+            stem = "";
+
+            if isempty(ax) || ~isvalid(ax) || ~isstruct(ax.UserData) ...
+                    || ~isfield(ax.UserData, "Stem")
+                return
+            end
+
+            stem = string(ax.UserData.Stem);
+        end
+
+        function color = tileColor(ax, fallback)
+            % Color a tile's frame and overlay were drawn in.
+            % An axes drawn before the stamp existed, or one that is not a
+            % tile, falls back to the first tile color rather than to nothing,
+            % because every caller is about to draw with it.
+
+            arguments
+                ax
+                fallback (1,3) double = lines(1)
+            end
+
+            color = fallback;
+
+            if isempty(ax) || ~isvalid(ax) || ~isstruct(ax.UserData) ...
+                    || ~isfield(ax.UserData, "TileColor")
+                return
+            end
+
+            candidate = ax.UserData.TileColor;
+
+            if isnumeric(candidate) && numel(candidate) == 3
+                color = double(candidate(:))';
+            end
+        end
+
+        function root = repositoryRoot()
+            % Folder the app was loaded from, which is the git checkout when
+            % there is one. Methods live one level down, in the class folder,
+            % so the root is two steps up from this file.
+
+            root = string(fileparts(fileparts(mfilename("fullpath"))));
+        end
 
         function label = shortcutLabel(binding)
             % Render one binding the way a menu names a shortcut, e.g.

@@ -2,6 +2,14 @@ function buildViewPanel(obj, parent)
 %BUILDVIEWPANEL Build the image tile area and the linked profile axes.
 % Both panels live in a 2x2 grid; APPLYVIEWLAYOUT decides which cells they
 % occupy and how much room each one gets.
+%
+% The right-click menus these plots hand out are not built here, even though
+% this is where the plots are made. They mirror the Display panel through the
+% same list the Display menu registers with, and BUILDDISPLAYMENU empties that
+% list when it runs, which is after this function; BUILDPLOTCONTEXTMENUS is
+% therefore built on demand when the first tile is drawn instead.
+%
+% See also APPLYVIEWLAYOUT, BUILDPLOTCONTEXTMENUS, RENDERSELECTION.
 
 obj.ViewGrid = uigridlayout(parent, [2 2]);
 obj.ViewGrid.Layout.Row = 2;

@@ -76,8 +76,13 @@ action(obj, menu, "Draw Line", "drawRoi");
 action(obj, menu, "Save ROI", "saveRoi", Mirror = obj.SaveRoiButton);
 action(obj, menu, "Revert", "revertRoi", Mirror = obj.RevertRoiButton);
 
+% The grid and the width are both properties of the band rather than actions
+% taken on it, so they sit together below the separator. The grid has no key of
+% its own, which is what the missing action name says.
+toggle(obj, menu, obj.ShowBandGridCheck, "Band Grid", Separator = true);
+
 number(obj, menu, {obj.RoiWidthField}, "Band Width", "%g px", ...
-    Separator = true, Prompts = "Band width, in pixels");
+    Prompts = "Band width, in pixels");
 
 end
 
@@ -104,22 +109,41 @@ end
 
 function toggle(obj, parent, control, text, action, options)
 %TOGGLE Mirror a checkbox or state button as a checked menu item.
+% An option with no key of its own is named without an action, and the item
+% then writes its control and runs that control's callback -- the same path a
+% click takes. Naming an action KEYBINDINGS does not carry would send the item
+% through RUNSHORTCUT to nothing but a "no handler" message, and inventing a
+% binding to avoid that would put a key on the menu that no key press answers.
 
 arguments
     obj
     parent
     control
     text (1,1) string
-    action (1,1) string
+    action (1,1) string = ""
     options.Separator (1,1) logical = false
+end
+
+if action == ""
+    selected = @(~,~) flip_control(obj, control);
+else
+    selected = @(~,~) obj.runShortcut(action);
 end
 
 menu = uimenu(parent, ...
     Text = text + obj.shortcutHint(action), ...
     Separator = matlab.lang.OnOffSwitchState(options.Separator), ...
-    MenuSelectedFcn = @(~,~) obj.runShortcut(action));
+    MenuSelectedFcn = selected);
 
 record(obj, "toggle", menu, {control}, text, "");
+
+end
+
+function flip_control(obj, control)
+%FLIP_CONTROL Turn a mirrored checkbox over and redraw, as a click on it would.
+
+control.Value = ~control.Value;
+obj.onDisplayOptionChanged();
 
 end
 

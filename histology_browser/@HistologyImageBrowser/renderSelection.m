@@ -1,5 +1,17 @@
 function renderSelection(obj)
 %RENDERSELECTION Draw every selected section as a tile, plus their profiles.
+% This is the expensive path: the tiled layout is destroyed and rebuilt, so
+% every image is read again and every pixel restretched. ONDISPLAYOPTIONCHANGED
+% sends only the changes that actually alter the pixels here, and REFRESHOVERLAYS
+% takes the rest.
+%
+% See also REFRESHOVERLAYS, DRAWIMAGETILE, RENDERPROFILEPLOT.
+
+% Recorded before anything is drawn rather than after, so that every way out of
+% this function -- including the early return on an empty selection -- leaves
+% the key describing what is on screen. Nothing below changes a setting the key
+% is built from, so the two moments are the same state.
+obj.RenderKey = obj.displayRenderKey();
 
 obj.applyViewLayout();
 

@@ -13,7 +13,11 @@ function buildViewMenu(obj)
 % of the window is showing now. The marks are set by APPLYPANELVISIBILITY,
 % which BUILDUI runs once the grids those items resize actually exist.
 %
-% See also APPLYPANELVISIBILITY, KEYBINDINGS.
+% Keyboard Shortcuts used to sit at the bottom of this menu. It moved to Help,
+% which is where KEYBINDINGS already files its key and the first place anyone
+% looks for it; BUILDHELPMENU owns the item now.
+%
+% See also APPLYPANELVISIBILITY, BUILDHELPMENU, KEYBINDINGS.
 
 obj.ViewMenu = uimenu(obj.Fig, Text = "View");
 
@@ -28,10 +32,5 @@ obj.DisplayRowMenu = uimenu(obj.ViewMenu, ...
 obj.AllPanelsMenu = uimenu(obj.ViewMenu, ...
     Text = "Show/Hide All" + obj.shortcutHint("toggleAllPanels"), ...
     MenuSelectedFcn = @(~,~) obj.onToggleAllPanels());
-
-obj.ShortcutsMenu = uimenu(obj.ViewMenu, ...
-    Text = "Keyboard Shortcuts" + obj.shortcutHint("showShortcuts"), ...
-    Separator = "on", ...
-    MenuSelectedFcn = @(~,~) obj.onShowShortcuts());
 
 end

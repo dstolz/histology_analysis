@@ -3,6 +3,12 @@ function onSelectionChanged(obj)
 
 selection = obj.CatalogTable.Selection;
 
+% Taken as indices into obj.View, which is safe with column sorting on because
+% ONCATALOGDISPLAYCHANGED reorders obj.View to whatever the user sorted the
+% table into. Data and DisplayData therefore hold the same rows in the same
+% order, and whether the widget is counting rows of one or of the other makes
+% no difference to what this index names.
+%
 % With SelectionType "row" the table reports a plain vector of row indices,
 % so flatten rather than indexing a column that does not exist.
 if isempty(selection)
@@ -23,7 +29,7 @@ end
 
 % An ROI edit belongs to one section, so moving off it ends the edit. The
 % prompt comes before the redraw, so nothing is lost silently.
-if obj.RoiEditStem ~= "" && ~obj.isEditingRow(obj.selectedRows())
+if obj.RoiEditStem ~= "" && ~obj.isEditedStemSelected()
     % The selection has already moved by this point, so a cancelled prompt
     % cannot put it back; the edit is dropped rather than left attached to a
     % section that is no longer on screen.
@@ -40,6 +46,35 @@ refresh_channel_choices(obj);
 obj.applyStainColormap();
 
 obj.renderSelection();
+
+warn_if_edit_off_screen(obj);
+
+end
+
+function warn_if_edit_off_screen(obj)
+%WARN_IF_EDIT_OFF_SCREEN Say when the edited section is selected but not drawn.
+% The geometry lives in the browser rather than in the graphics object, so an
+% edit survives its tile falling outside the Max tiles cap and Save still
+% writes it. Only the draggable handle is gone, and losing the handle without a
+% word would read as the edit itself having been dropped.
+
+if obj.RoiEditStem == ""
+    return
+end
+
+if ~isempty(obj.RoiEditor) && isvalid(obj.RoiEditor)
+    return
+end
+
+if ~obj.showImages()
+    obj.setWarning("%s is still being edited, but this layout draws no tiles. Set Profiles to one that shows them to drag it again.", ...
+        obj.RoiEditStem);
+
+    return
+end
+
+obj.setWarning("%s is still being edited, but its tile is not on screen. Raise Max tiles to drag it again.", ...
+    obj.RoiEditStem);
 
 end
 

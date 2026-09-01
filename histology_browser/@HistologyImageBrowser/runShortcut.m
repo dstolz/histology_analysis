@@ -35,6 +35,10 @@ switch action
     case "loadDataset"
         obj.onLoadData();
 
+    case "exportWorkspace"
+        % No name is passed, so the key asks for one exactly as the menu does.
+        obj.onExportWorkspace();
+
     case "toggleEditRoi"
         % The state button carries the mode, so it is flipped first and the
         % callback then reads it exactly as it would after a click.

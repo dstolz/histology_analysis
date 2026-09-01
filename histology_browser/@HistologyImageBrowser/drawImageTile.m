@@ -3,6 +3,10 @@ function drawImageTile(obj, ax, row, tileColor)
 % The image is drawn in full resolution coordinates even though the pixel data
 % may be downsampled, so ROI coordinates need no rescaling.
 
+% Stamped before the first early return, so a blank tile is still
+% identifiable, and again once the picture is on it; see STAMP_TILE.
+stamp_tile(ax, row, tileColor);
+
 imagePath = obj.resolveImagePath(row);
 
 ax.Color = obj.ImageBackground;
@@ -41,6 +45,13 @@ end
 % ROI across it. Zoom, pan and restore view still work on the axes.
 hImage.PickableParts = "none";
 
+% IMAGE and IMAGESC both go through NEWPLOT, which resets the axes to its
+% defaults, and UserData is one of the properties reset. Stamping only before
+% the picture is drawn therefore left every tile that actually had an image on
+% it anonymous, and only the blank ones identifiable -- the exact opposite of
+% what the stamp is for.
+stamp_tile(ax, row, tileColor);
+
 axis(ax, "image");
 ax.XTick = [];
 ax.YTick = [];
@@ -58,6 +69,24 @@ note_missing_metadata(ax, row);
 hold(ax, "off");
 
 title(ax, tile_title(row), Interpreter = "none", FontSize = 9, Color = tileColor);
+
+% Attached last, so the title and the overlay drawn above are both covered by
+% the one walk. The image is given the menu along with everything else even
+% though the click can never reach it: its PickableParts were switched off a
+% few lines up, which is what makes the axes behind it answer instead.
+obj.attachContextMenu(ax, "tile");
+
+end
+
+function stamp_tile(ax, row, tileColor)
+%STAMP_TILE Record on the axes which section it shows and in what color.
+% Anything reaching this axes later -- the ROI editor looking for its own tile,
+% an overlay redrawn mid-drag, a context menu item asked to act on the tile
+% under the pointer -- reads what it needs off the axes rather than
+% recomputing the layout that produced it. TILESTEM and TILECOLOR are the
+% readers; this is the one writer.
+
+ax.UserData = struct(Stem = string(row.Stem), TileColor = tileColor);
 
 end
 
@@ -260,6 +289,11 @@ text(ax, 0.5, 0.5, message, ...
 
 title(ax, tile_title(row), Interpreter = "none", FontSize = 9, ...
     Color = obj.tileTextColor());
+
+% A tile with no picture on it is still a tile: the colormap, the variant, and
+% the channel are exactly the settings someone would reach for after seeing
+% one, so it raises the same menu the drawn tiles do.
+obj.attachContextMenu(ax, "tile");
 
 end
 

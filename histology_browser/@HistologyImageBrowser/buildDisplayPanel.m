@@ -200,8 +200,21 @@ place(obj.RevertRoiButton, 3, [9 10]);
 obj.RevertRoiButton.Tooltip = "Discard unsaved changes and reload the ROI from disk." ...
     + obj.shortcutHint("revertRoi");
 
+% The grid rules the band in the band's own frame, which is only worth looking
+% at while a line is being aimed, so its switch belongs on this row rather than
+% among the overlay checkboxes above. It is paid for out of the hint label,
+% which is a sentence and loses less by being two columns shorter than this row
+% would by spilling into a fourth one.
+obj.ShowBandGridCheck = uicheckbox(grid, ...
+    Text = "Band grid", ...
+    Value = false, ...
+    ValueChangedFcn = @(~,~) obj.onDisplayOptionChanged());
+place(obj.ShowBandGridCheck, 3, [11 12]);
+obj.ShowBandGridCheck.Tooltip = "While the ROI is being edited, rule the sampling band " + ...
+    "parallel and square to the line, to check it against a layer boundary.";
+
 obj.RoiEditLabel = uilabel(grid, Text = "");
-place(obj.RoiEditLabel, 3, [11 14]);
+place(obj.RoiEditLabel, 3, [13 14]);
 obj.RoiEditLabel.FontColor = [0.35 0.35 0.35];
 
 end

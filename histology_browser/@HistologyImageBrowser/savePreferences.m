@@ -12,6 +12,7 @@ setpref(group, "HighPercentile", obj.HighPercentileField.Value);
 setpref(group, "MaxTiles", obj.MaxTilesField.Value);
 setpref(group, "ShowRoi", obj.ShowRoiCheck.Value);
 setpref(group, "ShowBand", obj.ShowBandCheck.Value);
+setpref(group, "ShowBandGrid", obj.ShowBandGridCheck.Value);
 setpref(group, "ColorByIntensity", obj.ColorByIntensityCheck.Value);
 setpref(group, "ProfileLayout", obj.ProfileLayoutDropDown.Value);
 setpref(group, "ProfileSize", obj.ProfileSizeField.Value);
@@ -21,11 +22,26 @@ setpref(group, "ImageBackground", obj.ImageBackground);
 % sitting with the browser, so it carries over to the next session.
 setpref(group, "RoiWidth", obj.RoiWidthField.Value);
 
+% How a lab names its files is a property of the lab, not of one sitting, so
+% the pattern carries over. It is written as the plain string the parser takes
+% rather than as the dialog's mode plus its fields, because that is the only
+% form anything outside the dialog has to understand.
+setpref(group, "FilenamePattern", obj.FilenamePattern);
+
 % Which colormap reads best is a property of the stain rather than of one
 % sitting, so the per-stain choices carry over too. They are written as two
 % string arrays rather than a map, so what prefs hold stays a plain value.
 setpref(group, "ColormapStains", obj.ColormapStains);
 setpref(group, "ColormapChoices", obj.ColormapChoices);
+
+% Which columns of a section are worth looking at, and which one the sections
+% are worth being in the order of, are properties of the study rather than of
+% one sitting, so both carry over. They are written as the catalog's own
+% variable names rather than as the headings on screen, because a heading is a
+% label this code is free to reword and a saved arrangement is not.
+setpref(group, "CatalogColumns", obj.CatalogColumns);
+setpref(group, "CatalogSortColumn", obj.CatalogSortColumn);
+setpref(group, "CatalogSortDirection", obj.CatalogSortDirection);
 
 save_figure_geometry(obj, group);
 

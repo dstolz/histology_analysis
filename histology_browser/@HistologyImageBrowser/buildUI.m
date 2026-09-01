@@ -57,6 +57,10 @@ obj.buildViewPanel(obj.ViewColumnGrid);
 obj.buildDisplayMenu(obj.Fig);
 obj.buildViewMenu();
 
+% Help sits last on the bar, and its shortcut item is named through
+% SHORTCUTHINT, so it is built once the bindings it reads from are reachable.
+obj.buildHelpMenu();
+
 % Built last so every panel exists before the first status message is written.
 obj.buildStatusBar(obj.MainGrid);
 
