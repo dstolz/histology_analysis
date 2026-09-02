@@ -9,7 +9,7 @@ function drawImageTile(obj, ax, row, tileColor, isActive)
 %       sets it only when more than one tile is drawn, because on a single tile
 %       the mark would be on the only thing it could be on.
 %
-% See also TILECOLORS, DRAWROIOVERLAY, ATTACHROIEDITOR, ACTIVEROISTEM.
+% See also TILECOLORS, DRAWROIOVERLAY, ATTACHROIEDITOR, ACTIVEROISTEM, MARKTILE.
 
 arguments
     obj
@@ -76,14 +76,17 @@ ax.YLim = [1 imageSize(1)];
 ax.Box = "on";
 ax.XColor = tileColor;
 ax.YColor = tileColor;
-ax.LineWidth = frame_width(isActive);
 
 hold(ax, "on");
 obj.drawRoiOverlay(ax, row, tileColor);
 obj.attachRoiEditor(ax, row);
 note_missing_metadata(ax, row);
-place_title(ax, tile_title(row), tileColor, isActive);
+place_title(ax, tile_title(row), tileColor);
 hold(ax, "off");
+
+% After the label exists, because the mark is written into it as well as into
+% the frame. MARKROITARGET calls the same thing when the target moves later.
+HistologyImageBrowser.markTile(ax, isActive);
 
 % Attached last, so the title and the overlay drawn above are both covered by
 % the one walk. The image is given the menu along with everything else even
@@ -93,20 +96,7 @@ obj.attachContextMenu(ax, "tile");
 
 end
 
-function width = frame_width(isActive)
-%FRAME_WIDTH Stroke the frame of the tile the ROI controls act on more heavily.
-% The one thing readable from across a grid of twelve sections, and the one
-% that survives the figure being printed in grey.
-
-if isActive
-    width = 3;
-else
-    width = 1.5;
-end
-
-end
-
-function place_title(ax, label, tileColor, isActive)
+function place_title(ax, label, tileColor)
 %PLACE_TITLE Write the tile's label inside the axes box rather than above it.
 % A MATLAB title sits outside the box and takes a strip of the layout with it,
 % and on a grid of a dozen sections that is a strip taken a dozen times, out of
@@ -117,37 +107,31 @@ function place_title(ax, label, tileColor, isActive)
 % Sections are usually near-black fluorescence, so the label is set on an
 % opaque plate rather than drawn straight onto the picture: over a dark section
 % the plate disappears and only the color reads, and over a bright brightfield
-% one the plate is what keeps it legible. The active tile inverts the plate --
-% the tile's color filled in, with dark text on it -- which reads at a glance
-% and does not depend on the reader remembering which of two colors means what.
+% one the plate is what keeps it legible.
+%
+% Written unmarked, and MARKTILE restyles it afterwards. The plain wording is
+% kept in UserData because that is what MARKTILE has to put back when the ROI
+% target moves off this tile, and recovering it by trimming a suffix would mean
+% the marked wording was spelled out in two files at once.
 %
 % Left aligned, because DRAWROIOVERLAY puts the ROI state badge in the opposite
 % corner; the two share the top edge and must not be able to collide.
 
-if isActive
-    label = label + "  (ROI target)";
-    plate = tileColor;
-    ink = [0.06 0.06 0.06];
-    weight = "bold";
-else
-    plate = [0.09 0.09 0.09];
-    ink = tileColor;
-    weight = "normal";
-end
-
 % Not tagged "roiOverlay": REFRESHTILEOVERLAY sweeps that tag away on every
 % overlay change and would take the title with it, never to redraw it.
-text(ax, 0.012, 0.988, label, ...
+handle = text(ax, 0.012, 0.988, label, ...
     Units = "normalized", ...
     HorizontalAlignment = "left", ...
     VerticalAlignment = "top", ...
     Interpreter = "none", ...
     FontSize = 9, ...
-    FontWeight = weight, ...
-    Color = ink, ...
-    BackgroundColor = plate, ...
+    FontWeight = "normal", ...
+    Color = tileColor, ...
+    BackgroundColor = [0.09 0.09 0.09], ...
     Margin = 2, ...
     Tag = "tileTitle");
+
+handle.UserData = string(label);
 
 end
 
@@ -354,7 +338,6 @@ ax.YLim = [0 1];
 ax.Box = "on";
 ax.XColor = obj.tileTextColor();
 ax.YColor = obj.tileTextColor();
-ax.LineWidth = frame_width(isActive);
 
 text(ax, 0.5, 0.5, message, ...
     HorizontalAlignment = "center", ...
@@ -363,7 +346,11 @@ text(ax, 0.5, 0.5, message, ...
     FontSize = 9, ...
     Color = obj.tileAlertColor());
 
-place_title(ax, tile_title(row), tileColor, isActive);
+place_title(ax, tile_title(row), tileColor);
+
+% CLA leaves UserData alone, so the stamp made at the top of DRAWIMAGETILE is
+% still there for MARKTILE to read the tile color back off.
+HistologyImageBrowser.markTile(ax, isActive);
 
 % A tile with no picture on it is still a tile: the colormap, the variant, and
 % the channel are exactly the settings someone would reach for after seeing

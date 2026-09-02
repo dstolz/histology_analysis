@@ -48,7 +48,9 @@ if ~editing
     % With several sections on screen, which one the buttons act on is the
     % thing the panel cannot be read without. It is the same section the tile
     % marks, so the two say it at once rather than either being the only place
-    % to look.
+    % to look -- and when there is more than one to choose from, the hint says
+    % how to choose, because a tile being clickable is not something a picture
+    % of a brain looks like.
     target = obj.activeRoiStem();
 
     if target == ""
@@ -57,6 +59,11 @@ if ~editing
     end
 
     text = "Band " + width + ". Edit ROI and Draw Line act on " + target + ".";
+
+    if numel(obj.drawnStems()) > 1
+        text = text + " Click another tile to move the target.";
+    end
+
     return
 end
 

@@ -55,6 +55,14 @@ obj.setStatus("Click where the brain surface crosses the line for %s.", obj.RoiE
 
 style = HistologyImageBrowser.roiStateStyle("dirty");
 
+% Set around the placement rather than only before it, so a click that lands on
+% another tile while this is waiting cannot retarget the ROI controls out from
+% under it. ONCLEANUP rather than a plain assignment after the call, because
+% DRAWPOINT can be cancelled with Escape or throw, and a flag left set would
+% make every later click on a tile do nothing at all.
+obj.RoiPlacing = true;
+placing = onCleanup(@() set_placing(obj, false));
+
 try
     drawn = drawpoint(ax, Color = style.Color, MarkerSize = 8);
 catch ME
@@ -70,6 +78,8 @@ if ~isempty(drawn) && isvalid(drawn)
     position = drawn.Position;
     delete(drawn);
 end
+
+clear placing
 
 if ~isequal(size(position), [1 2]) || any(~isfinite(position))
     obj.setWarning("No point was placed; the brain surface mark is unchanged.");
@@ -90,6 +100,19 @@ obj.refreshRoiEdit();
 
 obj.setStatus("Marked the brain surface for %s %s. Save ROI writes it beside the .roi file.", ...
     obj.RoiEditStem, obj.describeSurface(geometry));
+
+end
+
+function set_placing(obj, tf)
+%SET_PLACING Clear the placement flag without minding a browser already closed.
+% ONCLEANUP fires while the window is being torn down as readily as at the end
+% of a normal placement, and a deleted handle object cannot be written to.
+
+if isempty(obj) || ~isvalid(obj)
+    return
+end
+
+obj.RoiPlacing = tf;
 
 end
 

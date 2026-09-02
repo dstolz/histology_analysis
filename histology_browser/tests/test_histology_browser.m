@@ -1727,6 +1727,30 @@ item.MenuSelectedFcn(item, struct());
 
 assert(app.ShowBandGridCheck.Value, "The Display menu item did not turn the grid back on");
 
+% The question the grid answers -- is this band square to the boundary -- is
+% asked of a saved line as often as of one being dragged, so leaving the edit
+% has to leave the rules on the tile.
+stem = app.RoiEditStem;
+app.EditRoiButton.Value = false;
+app.exitRoiEdit(false);
+app.refreshRoiEdit(stem);
+clear leaveEdit
+
+assert(app.RoiEditStem == "", "The edit session did not end");
+assert(~isempty(band_grid_rules(app)), "The grid was dropped when the edit ended");
+
+% The rules are interior ones, so they follow the band they rule: with the
+% band overlay off there is no outline to bound them and no grid either.
+app.ShowBandCheck.Value = false;
+app.onDisplayOptionChanged();
+
+assert(isempty(band_grid_rules(app)), "The grid outlived the band it rules");
+
+app.ShowBandCheck.Value = true;
+app.onDisplayOptionChanged();
+
+assert(~isempty(band_grid_rules(app)), "The grid did not come back with the band");
+
 end
 
 function item = display_menu_item(app, label)
@@ -2101,12 +2125,16 @@ assert(all(isvalid(images)), "%s reread and redrew the images", what);
 end
 
 function check_active_tile_is_marked(app)
-%CHECK_ACTIVE_TILE_IS_MARKED The tile the ROI controls act on says so, and every
-%title is written inside its axes rather than above it.
-% Which section Edit ROI lands on is a choice the browser makes on the user's
-% behalf -- the first of the selected rows -- and a silent choice is one the
-% user only discovers by having to undo it. So exactly one drawn tile carries
-% the mark, and it is the tile ACTIVEROISTEM names.
+%CHECK_ACTIVE_TILE_IS_MARKED The tile the ROI controls act on says so, follows
+%the user's pick, and every title is written inside its axes rather than above it.
+% Which section Edit ROI lands on used to be a choice the browser made on the
+% user's behalf -- the first of the selected rows -- and a silent choice is one
+% the user only discovers by having to undo it. So exactly one drawn tile
+% carries the mark, it is the tile ACTIVEROISTEM names, and SETROITARGET can
+% move both to any other tile on screen without the pictures being redrawn:
+% picking which section to edit must not cost a dozen images off disk, and must
+% not narrow the selection either, which is what used to blow the picked
+% section up to full screen.
 
 nWanted = min(3, height(app.View));
 
@@ -2122,10 +2150,47 @@ tiles = findall(app.ImageLayout, Type = "axes");
 
 assert(numel(tiles) == nWanted, "Expected %d tiles, found %d", nWanted, numel(tiles));
 
-active = app.activeRoiStem();
+assert(app.activeRoiStem() == app.View.Stem(1), ...
+    "With nothing picked the ROI controls named a section other than the first drawn one");
 
-assert(active == app.View.Stem(1), ...
-    "The ROI controls named a section other than the first selected one");
+check_one_tile_marked(app, string(app.View.Stem(1)));
+
+layout = app.ImageLayout;
+images = findall(app.ImageLayout, Type = "image");
+selection = app.Selection;
+
+wanted = string(app.View.Stem(nWanted));
+
+assert(app.setRoiTarget(wanted), "The last drawn tile could not be made the ROI target");
+assert(app.activeRoiStem() == wanted, ...
+    "The ROI controls stayed on %s after %s was targeted", app.activeRoiStem(), wanted);
+
+check_one_tile_marked(app, wanted);
+check_tiles_intact(app, layout, images, "Moving the ROI target");
+
+assert(isequal(app.Selection, selection), ...
+    "Moving the ROI target changed the selection, which is what used to blow the tile up to full screen");
+
+% A section with no tile on screen is declined outright rather than accepted
+% and then quietly ignored, so the mark and the buttons cannot come apart.
+assert(~app.setRoiTarget("not-a-section-in-this-view"), ...
+    "A section with no tile on screen was accepted as the ROI target");
+
+check_one_tile_marked(app, wanted);
+
+% Handed back to the browser's own choice, so a later check starts where it
+% expects rather than on whichever tile this one finished on.
+app.RoiTargetStem = "";
+app.markRoiTarget();
+
+check_one_tile_marked(app, string(app.View.Stem(1)));
+
+end
+
+function check_one_tile_marked(app, wanted)
+%CHECK_ONE_TILE_MARKED Exactly one drawn tile says the ROI controls act on it.
+
+tiles = findall(app.ImageLayout, Type = "axes");
 
 nMarked = 0;
 
@@ -2139,8 +2204,13 @@ for iTile = 1:numel(tiles)
 
     isMarked = contains(string(label.String), "ROI target");
 
-    assert(isMarked == (HistologyImageBrowser.tileStem(ax) == active), ...
-        "The ROI target mark is on the wrong tile");
+    assert(isMarked == (HistologyImageBrowser.tileStem(ax) == wanted), ...
+        "The ROI target mark is on the wrong tile: expected it on %s", wanted);
+
+    % The frame is the half of the mark that survives being printed in grey,
+    % so it has to agree with the words rather than being set once and left.
+    assert((ax.LineWidth > 2) == isMarked, ...
+        "A tile's frame weight disagreed with its label about being the ROI target");
 
     nMarked = nMarked + isMarked;
 end
@@ -2236,13 +2306,18 @@ app.onDisplayOptionChanged();
 
 check_tiles_carry_menu(app, menu);
 
+check_click_moves_roi_target(app);
 check_context_targets_clicked_tile(app, menu);
 check_context_item_writes_panel(app, menu);
 
 end
 
 function check_tiles_carry_menu(app, menu)
-%CHECK_TILES_CARRY_MENU Every graphic on every tile has to raise the menu.
+%CHECK_TILES_CARRY_MENU Every graphic on every tile answers both mouse buttons.
+% The menu and the left-click that picks the tile ride on one walk over the
+% axes and its contents, so they are checked together: an overlay object the
+% walk missed would take the menu and the pick away at once, and would do it
+% silently on whichever option happened to be switched on.
 
 tiles = findall(app.ImageLayout, Type = "axes");
 
@@ -2253,6 +2328,7 @@ for iTile = 1:numel(tiles)
 
     assert(isequal(ax.ContextMenu, menu), "A tile axes raised no context menu");
     assert(isequal(ax.Title.ContextMenu, menu), "A tile title raised no context menu");
+    assert(~isempty(ax.ButtonDownFcn), "A tile axes answered no left-click");
 
     % The image never receives the click itself, because DRAWIMAGETILE switches
     % its PickableParts off and the axes behind it answers instead; it still
@@ -2264,6 +2340,8 @@ for iTile = 1:numel(tiles)
     for iTarget = 1:numel(targets)
         assert(isequal(targets(iTarget).ContextMenu, menu), ...
             "A %s on a tile raised no context menu", targets(iTarget).Type);
+        assert(~isempty(targets(iTarget).ButtonDownFcn), ...
+            "A %s on a tile answered no left-click", targets(iTarget).Type);
     end
 end
 
@@ -2277,6 +2355,11 @@ menu = app.ProfileContextMenu;
 assert(~isempty(menu) && isvalid(menu), "No profile context menu was built");
 assert(isequal(app.ProfileAxes.ContextMenu, menu), "The profile axes raised no context menu");
 
+% No left-click handler here. The plot draws every selected section at once, so
+% there is no one section a click on it could be picking.
+assert(isempty(app.ProfileAxes.ButtonDownFcn), ...
+    "The profile axes took the tile click handler, which has no section to pick");
+
 traces = findobj(app.ProfileAxes, Type = "line");
 
 for iTrace = 1:numel(traces)
@@ -2286,11 +2369,55 @@ end
 
 end
 
+function check_click_moves_roi_target(app)
+%CHECK_CLICK_MOVES_ROI_TARGET A left-click on a tile hands it the ROI controls.
+% The click is answered by whatever graphic the pointer landed on rather than
+% by the axes alone, so an overlay object is the thing clicked here: a tile
+% that only answered clicks on its bare background would ignore the click
+% wherever the band, the line, or the label covers the picture, which is most
+% of where anyone aims.
+%
+% What it must not do is move the selection. Narrowing the selection to the
+% clicked row is how this used to be done from the context menu, and it threw
+% every other section off screen in the act of picking one of them.
+
+rows = app.selectedRows();
+
+if height(rows) < 2
+    return
+end
+
+before = app.Selection;
+wanted = string(rows.Stem(2));
+ax = tile_for_stem(app, wanted);
+
+clicked = findobj(ax, Tag = "roiOverlay");
+
+if isempty(clicked)
+    clicked = ax;
+end
+
+assert(~isempty(clicked(1).ButtonDownFcn), ...
+    "A %s on a tile answered no left-click", clicked(1).Type);
+
+clicked(1).ButtonDownFcn(clicked(1), struct());
+
+assert(app.activeRoiStem() == wanted, ...
+    "Clicking a tile left the ROI controls on %s rather than on %s", ...
+    app.activeRoiStem(), wanted);
+
+assert(isequal(app.Selection, before), ...
+    "Clicking a tile changed the selection, which is what blew it up to full screen");
+
+end
+
 function check_context_targets_clicked_tile(app, menu)
 %CHECK_CONTEXT_TARGETS_CLICKED_TILE Edit ROI edits the tile under the pointer.
-% With several sections on screen the panel's own Edit ROI takes the first
-% selected row, so the check that matters is on the second tile: right-clicking
-% it has to reach its section rather than the one the panel would have chosen.
+% With several sections on screen the panel's own Edit ROI takes the marked
+% tile, which starts out as the first drawn one, so the check that matters is
+% on the second tile: right-clicking it has to reach its section rather than
+% the one the panel would have chosen, and has to leave the rest of the
+% selection on screen while it does.
 
 if exist("images.roi.Line", "class") ~= 8
     return
@@ -2302,6 +2429,13 @@ if height(rows) < 2
     return
 end
 
+% Handed back to the browser's own choice first, so this check exercises the
+% menu moving the target rather than finding it already moved by the click
+% check above.
+app.RoiTargetStem = "";
+app.markRoiTarget();
+
+before = app.Selection;
 wanted = string(rows.Stem(2));
 ax = tile_for_stem(app, wanted);
 
@@ -2330,6 +2464,13 @@ leaveEdit = onCleanup(@() app.exitRoiEdit(false));
 assert(app.RoiEditStem == wanted, ...
     "Edit ROI from the context menu started on %s rather than on the clicked %s", ...
     app.RoiEditStem, wanted);
+
+assert(isequal(app.Selection, before), ...
+    "Edit ROI from the context menu narrowed the selection, which used to make the tile full screen");
+
+assert(numel(findall(app.ImageLayout, Type = "axes")) == numel(before), ...
+    "Editing from the context menu left %d of %d sections on screen", ...
+    numel(findall(app.ImageLayout, Type = "axes")), numel(before));
 
 end
 

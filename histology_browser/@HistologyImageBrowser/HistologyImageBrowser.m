@@ -202,6 +202,14 @@ classdef HistologyImageBrowser < handle
         StatusHistory string = strings(0, 1)
 
         RoiEditStem string = ""     % Stem being edited; empty when idle.
+
+        % Section the ROI controls act on, chosen by clicking its tile. Empty
+        % means nobody has chosen and the browser picks the first selected row,
+        % which is what an untouched view does and what one whose target has
+        % left the selection falls back to. ACTIVEROISTEM is the reader, and it
+        % validates against what is on screen, so a stale stem here can never
+        % point the buttons at a section nobody can see.
+        RoiTargetStem string = ""
         RoiEditGeom struct = struct()   % Unsaved x1, y1, x2, y2, strokeWidth, name.
         RoiEditDirty logical = false    % True when the edit differs from the file.
         RoiPreview struct = struct()    % Profile measured from the unsaved geometry.
@@ -220,6 +228,14 @@ classdef HistologyImageBrowser < handle
         % line that is still moving would be wrong, so it is left out until the
         % drag ends.
         RoiEditDragging logical = false
+
+        % True while DRAWLINE or DRAWPOINT is waiting for the mouse. Both are
+        % after a click on one particular tile, and a click that wandered onto
+        % another one must not retarget the ROI controls in the middle of them:
+        % that would close the very edit the line or mark is being placed into,
+        % and could raise an unsaved-changes dialog underneath a placement that
+        % is still running. ATTACHCONTEXTMENU's click handler is the reader.
+        RoiPlacing logical = false
 
         % Stem whose ROI was written to disk in this session. It drives the
         % green "saved" aesthetic on the tile, which outlives the edit session
@@ -499,6 +515,10 @@ classdef HistologyImageBrowser < handle
         geometry = initialRoiGeometry(obj, row)  % Geometry an edit session starts from.
 
         onToggleEditRoi(obj)            % Enter or leave ROI editing.
+
+        targeted = setRoiTarget(obj, stem)  % Point the ROI controls at one drawn tile.
+
+        markRoiTarget(obj)              % Move the ROI target mark to the right tile.
 
         proceed = exitRoiEdit(obj, askWhenDirty) % Leave editing, offering to save first.
 
@@ -1550,11 +1570,19 @@ classdef HistologyImageBrowser < handle
         function stem = activeRoiStem(obj)
             % Section the ROI controls act on, or "" when none is selected.
             %
-            % An edit already open owns the line whichever tile it sits on;
-            % otherwise the first selected row takes it, which is the same
-            % choice ONTOGGLEEDITROI and ONDRAWROI make. Naming it in one
-            % place is what lets the tile say so before the button is pressed,
-            % rather than the user finding out by pressing it.
+            % An edit already open owns the line whichever tile it sits on.
+            % Otherwise the tile the user last clicked takes it, and failing
+            % that the first drawn tile does. ONTOGGLEEDITROI, ONDRAWROI and
+            % ONOPENFOLDER all ask here rather than each reaching for the first
+            % selected row, which is what lets the tile say which section is
+            % next before a button is pressed instead of the user finding out
+            % by pressing one.
+            %
+            % The answer is always a section that is drawn, never merely one
+            % that is selected: a stem beyond the Max tiles cap, or one left
+            % over from a selection that has moved on, is ignored rather than
+            % named. That makes ROITARGETSTEM self-healing, so nothing has to
+            % remember to clear it.
 
             stem = obj.RoiEditStem;
 
@@ -1562,26 +1590,72 @@ classdef HistologyImageBrowser < handle
                 return
             end
 
+            stems = obj.drawnStems();
+
+            if isempty(stems)
+                return
+            end
+
+            if obj.RoiTargetStem ~= "" && any(stems == obj.RoiTargetStem)
+                stem = obj.RoiTargetStem;
+                return
+            end
+
+            stem = stems(1);
+        end
+
+        function stems = drawnStems(obj)
+            % Sections RENDERSELECTION would draw a tile for, in tile order.
+            %
+            % The selection truncated to the Max tiles cap, which is the same
+            % arithmetic RENDERSELECTION and ONOPENINFIGURE do. Read off the
+            % table rather than off the tiles themselves, so it answers the
+            % same way in a layout that draws no tiles at all -- the ROI hint
+            % has to name a section there too.
+
+            stems = strings(0, 1);
+
             rows = obj.selectedRows();
 
             if isempty(rows) || height(rows) == 0
                 return
             end
 
-            stem = string(rows.Stem(1));
+            nDrawn = min(height(rows), obj.maxTiles());
+
+            stems = string(rows.Stem(1:nDrawn));
+        end
+
+        function n = maxTiles(obj)
+            % Most tiles the view will draw at once, as a whole number.
+            % One while the field is still being built, so a caller running
+            % before the panel exists sees the cap it always had a floor of.
+
+            n = 1;
+
+            if isempty(obj.MaxTilesField) || ~isvalid(obj.MaxTilesField)
+                return
+            end
+
+            n = max(1, round(obj.MaxTilesField.Value));
         end
 
         function onOpenFolder(obj)
-            % Reveal the folder holding the first selected image.
-            rows = obj.selectedRows();
+            % Reveal the folder holding the image of the marked section.
+            %
+            % Through ACTIVEROISTEM rather than off the first selected row, so
+            % a right-click on the sixth tile opens the sixth section's folder.
+            % With nothing clicked the two are the same section anyway.
 
-            if isempty(rows) || height(rows) == 0
+            row = obj.rowForStem(obj.activeRoiStem());
+
+            if height(row) ~= 1
                 obj.setWarning("Select an image first.");
                 uialert(obj.Fig, "Select an image first.", "Nothing Selected");
                 return
             end
 
-            folder = rows.Folder(1);
+            folder = row.Folder(1);
 
             if folder == "" || ~isfolder(folder)
                 obj.setError("Folder is missing for this entry: %s", folder);
@@ -1871,6 +1945,76 @@ classdef HistologyImageBrowser < handle
             if isnumeric(candidate) && numel(candidate) == 3
                 color = double(candidate(:))';
             end
+        end
+
+        function markTile(ax, isActive)
+            % Say on one tile whether it is the section the ROI controls act
+            % on, without redrawing anything else about it.
+            %
+            % The whole mark is here rather than split between DRAWIMAGETILE
+            % and MARKROITARGET, because the two have to agree exactly: a tile
+            % drawn active and a tile marked active later must be the same
+            % picture, or moving the target would leave two tiles looking
+            % subtly different from each other and from the panel.
+            %
+            % Two channels carry it. The frame weight is the one thing
+            % readable from across a grid of twelve sections and the one that
+            % survives the figure being printed in grey; the label states it in
+            % words for anyone who cannot tell two stroke widths apart. The
+            % active label inverts its plate -- the tile's own color filled in,
+            % with dark text on it -- which reads at a glance and does not
+            % depend on remembering which of two colors means what.
+            %
+            % Parameters
+            %   isActive: True for the tile the ROI controls act on.
+            %
+            % See also DRAWIMAGETILE, MARKROITARGET, ACTIVEROISTEM.
+
+            arguments
+                ax
+                isActive (1,1) logical
+            end
+
+            if isempty(ax) || ~isvalid(ax)
+                return
+            end
+
+            if isActive
+                ax.LineWidth = 3;
+            else
+                ax.LineWidth = 1.5;
+            end
+
+            label = findobj(ax, Tag = "tileTitle");
+
+            if numel(label) ~= 1
+                return
+            end
+
+            % PLACE_TITLE keeps the unmarked wording here, because the marked
+            % wording cannot be turned back into it by trimming a suffix
+            % without this code and that code sharing a literal.
+            base = string(label.UserData);
+
+            if ~isscalar(base) || ismissing(base) || strlength(base) == 0
+                % A label from somewhere that did not record its plain wording.
+                % Rewriting it would risk stacking one suffix on another, so the
+                % frame weight set above carries the mark by itself.
+                return
+            end
+
+            if isActive
+                label.String = base + "  (ROI target)";
+                label.BackgroundColor = HistologyImageBrowser.tileColor(ax);
+                label.Color = [0.06 0.06 0.06];
+                label.FontWeight = "bold";
+                return
+            end
+
+            label.String = base;
+            label.BackgroundColor = [0.09 0.09 0.09];
+            label.Color = HistologyImageBrowser.tileColor(ax);
+            label.FontWeight = "normal";
         end
 
         function root = repositoryRoot()

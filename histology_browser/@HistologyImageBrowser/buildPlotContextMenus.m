@@ -266,7 +266,10 @@ end
 function edit_clicked_roi(obj)
 %EDIT_CLICKED_ROI Start or finish editing the ROI of the tile under the pointer.
 
-focus_clicked_tile(obj);
+if ~target_clicked_tile(obj)
+    return
+end
+
 obj.runShortcut("toggleEditRoi");
 
 end
@@ -274,7 +277,10 @@ end
 function draw_clicked_roi(obj)
 %DRAW_CLICKED_ROI Draw a new line on the tile under the pointer.
 
-focus_clicked_tile(obj);
+if ~target_clicked_tile(obj)
+    return
+end
+
 obj.runShortcut("drawRoi");
 
 end
@@ -282,23 +288,34 @@ end
 function open_clicked_folder(obj)
 %OPEN_CLICKED_FOLDER Reveal the folder of the section under the pointer.
 
-focus_clicked_tile(obj);
+if ~target_clicked_tile(obj)
+    return
+end
+
 obj.runShortcut("openFolder");
 
 end
 
-function focus_clicked_tile(obj)
-%FOCUS_CLICKED_TILE Make the right-clicked tile's section the one acted on.
-% ONTOGGLEEDITROI, ONDRAWROI, and ONOPENFOLDER all work on the first selected
-% row. Selecting the clicked section, through the catalog table and its own
-% callback, is what makes "this tile" reach them without any of those files
-% learning about the pointer. Reordering SELECTION so the clicked stem floated
-% to the front was the alternative, and it was rejected because the tiles are
-% drawn in that same order: editing an ROI from a tile would have silently
-% rearranged the grid it was clicked on.
+function ready = target_clicked_tile(obj)
+%TARGET_CLICKED_TILE Make the right-clicked tile's section the one acted on.
+% ONTOGGLEEDITROI, ONDRAWROI and ONOPENFOLDER all work on the section
+% ACTIVEROISTEM names, so pointing that at the clicked tile is what makes
+% "this tile" reach them without any of those files learning about the pointer.
 %
-% A tile that is already the first selected row is left alone, so the common
-% case of right-clicking the only section on screen costs no redraw at all.
+% What this must not do is narrow the selection to the clicked section, which
+% is how it used to work. Selecting one row redraws the view as a single tile,
+% so right-clicking one section of a dozen threw the other eleven off screen --
+% blowing the clicked one up to full screen in the act of asking to edit it,
+% and undoing the comparison the run was selected for. The selection is left
+% exactly as it was and only the target moves.
+%
+% Returns
+%   ready: False when the tile could not be targeted, in which case the item
+%       does nothing rather than acting on some other section. SETROITARGET
+%       declines a tile that is not on screen, and a click on Cancel in the
+%       unsaved-ROI prompt it may raise.
+
+ready = false;
 
 stem = HistologyImageBrowser.tileStem(obj.ContextAxes);
 
@@ -306,19 +323,6 @@ if stem == ""
     return
 end
 
-rows = obj.selectedRows();
-
-if height(rows) > 0 && string(rows.Stem(1)) == stem
-    return
-end
-
-index = find(string(obj.View.Stem) == stem, 1);
-
-if isempty(index)
-    return
-end
-
-obj.CatalogTable.Selection = index;
-obj.onSelectionChanged();
+ready = obj.setRoiTarget(stem);
 
 end

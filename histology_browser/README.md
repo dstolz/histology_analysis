@@ -222,14 +222,31 @@ stands against its file — read from disk, edited but unsaved, or just written 
 edit is visible without the control panel in view, and leaving a section with unsaved changes
 prompts rather than discarding them.
 
-An edit belongs to one section, because a drag happens on one tile, but it no longer requires
-that only one section be *selected*. With several on screen the first drawn tile takes the
-line, and that tile says so before the button is pressed: it is framed more heavily than the
+An edit belongs to one section, because a drag happens on one tile, but it does not require
+that only one section be *selected*. With several on screen, **click the tile you want** and
+the ROI controls follow it — **Edit ROI**, **Draw Line** and **Open Containing Folder** all
+act on that section. Right-clicking a tile does the same before running the item picked from
+its menu, so **Edit ROI** on the ninth tile of a grid edits the ninth section. Neither gesture
+touches the selection: every section stays on screen, which is the whole point of having
+selected a run of them.
+
+The click is answered by whatever the pointer is over — the picture, the sampling band, the
+line, the label — so it works wherever you aim on the tile.
+
+The targeted tile says so before any button is pressed: it is framed more heavily than the
 others and its label is filled in with the tile's own color and reads **(ROI target)**. The
-ROI hint under the buttons names the same section in words, and the status bar names it again
-once the line lands there. The geometry lives in the browser
-rather than in the graphics object, so an edit survives its tile scrolling past the Max tiles
-cap: the draggable handle goes away, the status bar says so, and **Save ROI** still writes.
+ROI hint under the buttons names the same section in words and says a tile can be clicked to
+move it, and the status bar names it again once the line lands there. With nothing clicked
+the first drawn tile takes it, and a target whose section leaves the view falls back to the
+first drawn tile rather than pointing at something off screen.
+
+Clicking a tile while another section is being edited closes that edit first, with the usual
+prompt if it has unsaved changes; it does not open a new edit by itself, so choosing which
+tile is next and starting to drag it stay separate acts.
+
+The geometry lives in the browser rather than in the graphics object, so an edit survives its
+tile scrolling past the Max tiles cap: the draggable handle goes away, the status bar says so,
+and **Save ROI** still writes.
 
 ## Marking the brain surface
 
@@ -371,8 +388,8 @@ rendered from it, so a shortcut cannot be advertised in one place and bound in a
 | `Ctrl+F` | Jump to the search box |
 | `Ctrl+Shift+R` | Clear every filter |
 | `Ctrl+L` | Load the dataset |
-| `Ctrl+E` | Start or finish editing the line ROI |
-| `Ctrl+D` | Draw a new line over the image |
+| `Ctrl+E` | Start or finish editing the marked section's ROI |
+| `Ctrl+D` | Draw a new line over the marked section |
 | `Ctrl+S` | Save the ROI and remeasure its profile |
 | `Ctrl+Z` | Discard unsaved ROI changes |
 | `Ctrl+B` | Find the brain surface in the profile and mark it |
@@ -383,7 +400,7 @@ rendered from it, so a shortcut cannot be advertised in one place and bound in a
 | `Ctrl+H` | Hide or show both together |
 | `Ctrl+O` | Redraw the view in a normal figure |
 | `Ctrl+P` | Export the view to an image file |
-| `Ctrl+Shift+F` | Open the folder holding the selected image |
+| `Ctrl+Shift+F` | Open the folder holding the marked section's image |
 | `F1` | Show the shortcut list |
 
 Every shortcut carries a modifier. Bare letters are not bound: a uifigure hands key presses
@@ -472,11 +489,14 @@ A tile's menu names the section it came up on at the top, then offers the rendit
 channel, the colormap, the panel background, the four overlay switches, **Edit ROI**,
 **Draw Line**, **Open Containing Folder**, **Open in Figure** and **Export View**. The three
 per-tile items act on the tile that was actually right-clicked rather than on the first
-selected row: they select that section first, exactly as clicking its row in the results
-table would, and then run the same action the button and the keyboard shortcut run. The
-profile plot's menu carries where the plot sits and the three normalizations that rescale its
-axes — the settings whose subject is that plot and nothing else — plus the same two output
-items.
+selected row: they point the ROI controls at that section — the same thing a plain left-click
+on the tile does — and then run the same action the button and the keyboard shortcut run.
+The selection is left alone, so the other sections stay on screen; an earlier version narrowed
+the selection to the clicked row instead, which blew that tile up to full screen in the act of
+asking to edit it. The profile plot's menu carries where the plot sits and the three
+normalizations that rescale its axes — the settings whose subject is that plot and nothing
+else — plus the same two output items. It takes no left-click handler, because it draws every
+selected section at once and no one section of it is "this one".
 
 Nothing in these menus is a second implementation of anything. Each item writes the control
 in the Display panel that it mirrors and then runs that control's own callback, or goes

@@ -1,14 +1,19 @@
 function onToggleEditRoi(obj)
-%ONTOGGLEEDITROI Enter or leave line ROI editing for the selected section.
-% A drag happens on one tile, so an edit session still belongs to exactly one
-% section. It no longer requires exactly one section to be *selected*: with
-% several on screen the first drawn tile takes the line, and the status bar
-% names the section it went to so the choice is never a surprise. Refusing a
-% multi-section selection outright meant the common way of browsing -- select a
-% run of sections, look across them, fix the one that is wrong -- had to be
-% undone before the ROI could be touched.
+%ONTOGGLEEDITROI Enter or leave line ROI editing for the targeted section.
+% A drag happens on one tile, so an edit session belongs to exactly one
+% section. It does not require exactly one section to be *selected*: with
+% several on screen the tile ACTIVEROISTEM names takes the line, which is the
+% tile marked "(ROI target)" and the section the hint under the buttons states,
+% so the choice is settled and visible before this runs rather than being
+% sprung by it. Refusing a multi-section selection outright meant the common
+% way of browsing -- select a run of sections, look across them, fix the one
+% that is wrong -- had to be undone before the ROI could be touched.
 %
-% See also ATTACHROIEDITOR, ONDRAWROI, EXITROIEDIT.
+% Which of the drawn tiles that is, is the user's to say: clicking a tile or
+% right-clicking one moves the target through SETROITARGET. Nothing about that
+% choice is made here.
+%
+% See also ACTIVEROISTEM, SETROITARGET, ATTACHROIEDITOR, ONDRAWROI, EXITROIEDIT.
 
 if ~obj.EditRoiButton.Value
     % Captured before the session is cleared, because the tile that has to be
@@ -33,15 +38,6 @@ if exist("images.roi.Line", "class") ~= 8
     return
 end
 
-rows = obj.selectedRows();
-
-if height(rows) == 0
-    refuse(obj);
-    obj.setWarning("Select a section before editing its ROI.");
-
-    return
-end
-
 % The line is dragged on a tile, so a layout with no tiles has nothing to drag
 % it on. Saying which control brings them back is more use than refusing.
 if ~obj.showImages()
@@ -51,7 +47,17 @@ if ~obj.showImages()
     return
 end
 
-row = rows(1, :);
+% ACTIVEROISTEM comes back empty when nothing is selected, so the one lookup
+% covers both "no section" and "a target that has left the view".
+row = obj.rowForStem(obj.activeRoiStem());
+
+if height(row) ~= 1
+    refuse(obj);
+    obj.setWarning("Select a section before editing its ROI.");
+
+    return
+end
+
 geometry = obj.initialRoiGeometry(row);
 
 if isempty(geometry)
@@ -101,7 +107,7 @@ obj.updateRoiEditControls();
 obj.refreshRoiEdit();
 
 obj.setStatus("%s%s Drag its ends, then Save ROI.", ...
-    opening_note(row, height(rows), geometry.isNew), surface_note(obj, detected));
+    opening_note(row, numel(obj.drawnStems()), geometry.isNew), surface_note(obj, detected));
 
 end
 
@@ -121,11 +127,13 @@ note = " Marked the brain surface " + obj.describeSurface(obj.RoiEditGeom) + "."
 
 end
 
-function note = opening_note(row, nSelected, isNew)
+function note = opening_note(row, nDrawn, isNew)
 %OPENING_NOTE Say which section the line went to, and whether it is a new one.
-% With one section selected the section is obvious and naming it is enough.
-% With several, which tile just became editable is the thing the user cannot
-% see from the button, so the count goes in the sentence.
+% With one section on screen the section is obvious and naming it is enough.
+% With several, which tile just became editable is the thing the button itself
+% cannot say, so the count goes in the sentence and the tile it landed on is
+% named. The tile is marked as well; this is the same fact said in words, for
+% the moment attention is on the button rather than on the pictures.
 
 if isNew
     verb = "Placed a new ROI on";
@@ -133,12 +141,12 @@ else
     verb = "Editing the ROI for";
 end
 
-if nSelected == 1
+if nDrawn <= 1
     note = sprintf("%s %s.", verb, row.Stem);
     return
 end
 
-note = sprintf("%s %s, the first of %d selected sections.", verb, row.Stem, nSelected);
+note = sprintf("%s %s, the marked one of %d sections on screen.", verb, row.Stem, nDrawn);
 
 end
 

@@ -44,12 +44,15 @@ end
 % the band is outlined and labelled whether or not the overlay is switched on.
 wantsBand = obj.ShowBandCheck.Value || R.isEditing;
 
-% The grid answers one question -- is the band square to the boundary I am
-% aiming it at -- and that question is only ever asked while the line is being
-% placed. Ruling the band on every tile of a twelve-tile view would veil a
-% dozen sections to answer it for nobody, so the grid follows the edit the way
-% the width label below it does, and the checkbox says whether an edit gets one.
-wantsGrid = R.isEditing && obj.ShowBandGridCheck.Value;
+% The grid answers one question -- is the band square to the boundary it is
+% aimed at -- and that is asked of a line already on disk as often as of one
+% being placed: a band drawn on an earlier pass is checked the same way before
+% its profile is trusted. So the checkbox alone says whether a line is ruled,
+% and it rules every ROI on the view rather than only the one under edit. It
+% still rules a band that is drawn, because the rules are interior ones and
+% read as unbounded without the outline: turning the band off takes the grid
+% with it rather than leaving the band on screen against its own switch.
+wantsGrid = wantsBand && obj.ShowBandGridCheck.Value;
 
 % The mark has a switch of its own rather than following the line's, because a
 % surface is a different question from where the band sits: comparing a run of
