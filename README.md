@@ -1,8 +1,8 @@
 # histology_analysis
 
 MATLAB tools for histology image processing: interactive alignment and thresholding tools,
-cortex straightening and profile extraction, crop labeling, and the ECM staining analysis
-app.
+cortex straightening and profile extraction, crop labeling, the histology section browser,
+and the ECM staining analysis app.
 
 Extracted from [`helper_fnc`](https://github.com/dstolz/helper_fnc) so these functions can
 be used without pulling in that repository's general-purpose utilities.
@@ -13,8 +13,20 @@ be used without pulling in that repository's general-purpose utilities.
 addpath_nogit('c:/src/histology_analysis')
 ```
 
-Every `.m` file except `ECM_Analysis/` lives at the repository root, so a plain `addpath` of
-the root also works.
+That adds the whole repository, including `histology_browser/` and `ECM_Analysis/`. The
+functions in the table below live at the repository root, so a plain `addpath` of the root
+is enough for them alone.
+
+## Histology browser
+
+[histology_browser/](histology_browser/) is `HistologyImageBrowser`, a GUI that catalogs
+histology section images, overlays the Fiji line ROI and its intensity profile on each one,
+and edits the ROI, plus the ingest helpers behind it (`combine_values_csv`,
+`build_histology_image_catalog`, the ImageJ `.roi` reader and writer) and the Fiji macro that
+produces the measurements. See its [README](histology_browser/README.md).
+
+It was a standalone repository, `dstolz/histology_browser`, until September 2026. Its history
+came with it, so `git log -- histology_browser/` reaches back to its first commit.
 
 ## ECM Analysis app
 
@@ -22,13 +34,8 @@ the root also works.
 staining measurements across groups, tiling, and normalization schemes, with an R export
 path (`ecm_export_for_r.m`, `ecm_analysis.R`).
 
-**It depends on [histology_browser](https://github.com/dstolz/histology_browser)** for
-`combine_values_csv`, so add both repos to the MATLAB path:
-
-```matlab
-addpath_nogit('c:/src/histology_analysis')
-addpath('c:/src/histology_browser')
-```
+**It depends on [histology_browser/](histology_browser/)** for `combine_values_csv`, which
+`addpath_nogit` of the repository root already puts on the path.
 
 ## Functions
 
@@ -55,5 +62,5 @@ addpath('c:/src/histology_browser')
 
 - MATLAB with Image Processing Toolbox-style functionality.
 - Bio-Formats (`parseBfTiff.m`, `ECM_Analysis/` scripts that read OME-TIFF data).
-- [histology_browser](https://github.com/dstolz/histology_browser) on the MATLAB path for `ECM_Analysis/`.
+- [histology_browser/](histology_browser/) on the MATLAB path for `ECM_Analysis/`.
 - R, for `ECM_Analysis/ecm_analysis.R`.
