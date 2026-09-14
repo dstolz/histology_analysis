@@ -1,0 +1,5 @@
+# Normalize to LF in the repo, check out native (CRLF on Windows).
+* text=auto
+
+# ImageJ macros are edited in Fiji on the same machines as the MATLAB code.
+*.ijm text

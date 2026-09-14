@@ -1,0 +1,33 @@
+function buildHelpMenu(obj)
+%BUILDHELPMENU Build the Help menu on the figure menu bar.
+% The atlas explorer and the issue tracker both live in a browser rather than
+% in this window, so they are reached from a menu instead of from controls that
+% would take room in the display row. Keyboard Shortcuts moves here from the
+% View menu because KEYBINDINGS already files its key under "Help", and a Help
+% menu that did not list them would be the first place anyone looked.
+%
+% See also ONREPORTISSUE, ONSHOWSHORTCUTS, KEYBINDINGS.
+
+obj.HelpMenu = uimenu(obj.Fig, Text = "Help");
+
+obj.ShortcutsMenu = uimenu(obj.HelpMenu, ...
+    Text = "Keyboard Shortcuts" + obj.shortcutHint("showShortcuts"), ...
+    MenuSelectedFcn = @(~,~) obj.onShowShortcuts());
+
+obj.AtlasExplorerMenu = uimenu(obj.HelpMenu, ...
+    Text = "Gerbil Atlas Explorer", ...
+    Separator = "on", ...
+    MenuSelectedFcn = @(~,~) obj.onOpenAtlasExplorer());
+
+% The two issue items are worded as the tracker's own templates are, so the
+% menu says which of the two kinds of report it is about to open.
+obj.ReportBugMenu = uimenu(obj.HelpMenu, ...
+    Text = "Report a Bug...", ...
+    Separator = "on", ...
+    MenuSelectedFcn = @(~,~) obj.onReportIssue("bug"));
+
+obj.RequestFeatureMenu = uimenu(obj.HelpMenu, ...
+    Text = "Request a Feature...", ...
+    MenuSelectedFcn = @(~,~) obj.onReportIssue("feature"));
+
+end
