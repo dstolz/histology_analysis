@@ -2,8 +2,7 @@
 
 startup
 
-addpath('C:\src\histology_browser\')
-% addpath('C:\src\histology_browser\.claude\worktrees\published-tracker')
+addpath('C:\src\histology_analysis\histology_browser\')
 addpath_nogit('c:\src\bfmatlab')
 
 
