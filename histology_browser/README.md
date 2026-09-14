@@ -8,10 +8,14 @@ plate, and overlays the Fiji line ROI and its intensity profile on each image.
 Extracted from [`helper_fnc`](https://github.com/dstolz/helper_fnc) so the browser and its ingest helpers can
 be used without pulling in that repository's general-purpose utilities.
 
+This folder is part of [`histology_analysis`](../README.md). It was a standalone repository,
+`dstolz/histology_browser`, until September 2026; its history came with it, so
+`git log -- histology_browser/` reaches back to its first commit.
+
 ## Quick start
 
 ```matlab
-addpath_nogit('c:\src\histology_browser')
+addpath_nogit('c:\src\histology_analysis')   % this folder and the rest of histology_analysis
 
 % Open on the last folder used, then use Dataset > Load Dataset:
 launch_histology_browser()
@@ -25,7 +29,8 @@ launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
     publishedUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-.../pub?gid=1084786865&single=true&output=csv")
 ```
 
-Every `.m` file lives at the repository root, so a plain `addpath` of the root also works.
+Every `.m` file lives at the top of this folder, so a plain
+`addpath('c:\src\histology_analysis\histology_browser')` also works when only the browser is wanted.
 The `@HistologyImageBrowser` class folder is resolved by its parent directory, which must be
 the folder added to the path — not the class folder itself.
 
@@ -89,8 +94,8 @@ the tracker and reloading later, that is invisible.
 
 This route is one-way. A published sheet serves its contents and accepts nothing back, so
 the browser reads the tracker and never writes to it. Writing would need the Google Sheets
-API and a service account, which needs a Google Cloud project — see
-`worktree-sheets-sync` in this repository for an implementation of that, parked because
+API and a service account, which needs a Google Cloud project — see the
+`histology_browser/sheets-sync` branch for an implementation of that, parked because
 creating a Cloud project under a `umd.edu` account is blocked by organization policy.
 
 ### Notes
@@ -140,8 +145,9 @@ catalogs, displays, and plots — only ROI drawing/editing and display downsampl
 
 **Bio-Formats** (`bfmatlab`) is optional and needed only to display raw `.czi`; every other
 rendition reads through `imread`. It does not have to be on the MATLAB path — when it is not,
-the browser looks for a `bfmatlab` folder beside this toolbox, inside it, in `userpath`, and
-at `BFMATLAB_PATH`, and adds the first one it finds. Only when none of those exist does a
+the browser looks for a `bfmatlab` folder inside this toolbox, beside it, beside the
+`histology_analysis` checkout that holds it, in `userpath`, and at `BFMATLAB_PATH`, and adds
+the first one it finds. Only when none of those exist does a
 `.czi` tile refuse to draw, and it then says so on the tile. Reads go through `bfGetReader`
 and pull the single requested channel rather than the whole file.
 
@@ -185,7 +191,7 @@ and show it in their own label. Anything that already has a keyboard shortcut ro
 `Help` holds the keyboard shortcut list, a link that opens the
 [Gerbil Atlas Explorer](https://dstolz.github.io/GerbilAtlasExplorer/gerbil_atlas_explorer.html)
 in the default browser, and the two issue items. **Report a Bug** and **Request a Feature**
-open a prefilled issue on this repository's tracker; nothing is submitted from MATLAB, the
+open a prefilled issue on the `histology_analysis` tracker; nothing is submitted from MATLAB, the
 browser lands on GitHub's new-issue form with the title and body already written and the
 button still to press.
 

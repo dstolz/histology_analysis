@@ -300,8 +300,9 @@ classdef HistologyImageBrowser < handle
         % Where the Help menu points. The atlas is a companion tool rather than
         % part of this app, and the tracker is where its issues are raised, so
         % both are addresses rather than anything this window renders itself.
+        % The browser lives in histology_analysis, so its issues go there.
         AtlasExplorerURL = "https://dstolz.github.io/GerbilAtlasExplorer/gerbil_atlas_explorer.html"
-        RepositoryURL = "https://github.com/dstolz/histology_browser"
+        RepositoryURL = "https://github.com/dstolz/histology_analysis"
 
         % Longest new-issue link worth handing to a browser. Browsers and the
         % Windows shell both stop accepting a URL somewhere above this, and

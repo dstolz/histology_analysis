@@ -90,7 +90,9 @@ if branch ~= "" && branch ~= "HEAD"
     text = text + " on " + branch;
 end
 
-if git_output(root, "status --porcelain") ~= ""
+% The checkout is histology_analysis as a whole, so only edits to the browser's
+% own folder count; work elsewhere in the repository says nothing about a bug.
+if git_output(root, "status --porcelain -- .") ~= ""
     text = text + " (with uncommitted changes)";
 end
 
