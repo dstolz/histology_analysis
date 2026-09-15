@@ -29,6 +29,10 @@ classdef HistologyImageBrowser < handle
         FilenamePatternMenu matlab.ui.container.Menu
         PublishedSheetMenu matlab.ui.container.Menu
         ClearPublishedSheetMenu matlab.ui.container.Menu
+        SheetMenu matlab.ui.container.Menu
+        SheetConfigureMenu matlab.ui.container.Menu
+        SheetPrepareMenu matlab.ui.container.Menu
+        SheetClearMenu matlab.ui.container.Menu
         LoadMenu matlab.ui.container.Menu
         ExportWorkspaceMenu matlab.ui.container.Menu
 
@@ -48,6 +52,12 @@ classdef HistologyImageBrowser < handle
         AtlasExplorerMenu matlab.ui.container.Menu
         ReportBugMenu matlab.ui.container.Menu
         RequestFeatureMenu matlab.ui.container.Menu
+
+        AtlasPlateField matlab.ui.control.EditField
+        SetAtlasPlateButton matlab.ui.control.Button
+        MeasuredButton matlab.ui.control.Button
+        ClearMeasuredButton matlab.ui.control.Button
+        ReviewLabel matlab.ui.control.Label
 
         TrackerLinkLabel matlab.ui.control.Hyperlink
         SearchField matlab.ui.control.EditField
@@ -125,11 +135,29 @@ classdef HistologyImageBrowser < handle
         % has configured catalogs exactly as it always did.
         FilenamePattern string = ""
 
+        % The tracker can come from three places, and ONLOADDATA reads them in
+        % the order they are declared here: the Sheets API first, then the
+        % published copy, then the CSV. The order runs from the most current
+        % and most capable source to the one that asks least of the machine it
+        % runs on, so a browser configured with several uses the best of them
+        % and the others stay set as fallbacks rather than having to be cleared.
+
+        % The tracker read from the Google Sheet it is maintained in rather
+        % than from an export of it. What the browser shows is what the sheet
+        % says now rather than what it said when somebody last exported, and
+        % this is the only source REVIEW can write back to.
+        SheetUrl string = ""        % Spreadsheet URL or ID.
+        SheetTab string = "Sections"
+        SheetCredentials string = "" % Service account JSON key file.
+        Tracker = []                % SECTIONTRACKER once one has been built.
+
         % The same tracker, downloaded from the published copy of the sheet it
         % is maintained in rather than from an export somebody made by hand.
         % Used in place of the CSV when set, so a load picks up whatever the
-        % sheet said the last time Google republished it.
+        % sheet said the last time Google republished it. Needs no credentials,
+        % and is read only.
         PublishedUrl string = ""
+
 
         Data struct = struct()      % Structured output from COMBINE_VALUES_CSV.
         Catalog table = table()     % One row per image stem.
@@ -326,18 +354,21 @@ classdef HistologyImageBrowser < handle
         CatalogColumnFields = ["SubjectID", "SectionID", "Hemisphere", "Stain", ...
             "AtlasPlate", "NProfiles", "Variants", "Status", "Stem", "SampleID", ...
             "Protocol", "Series", "ZPlane", "DateCode", "ImageNumber", "ROI", ...
-            "NVariants", "NameParsed", "InTracker", "Content", "Slide", "SliceID", ...
-            "ImageDate", "LaserPower", "Notes", "ProcessingID", "Folder"]
+            "NVariants", "NameParsed", "InTracker", "Measured", "Content", ...
+            "Slide", "SliceID", "ImageDate", "LaserPower", "Notes", ...
+            "ProcessingID", "Folder"]
         CatalogColumnHeadings = ["Subject", "Section", "Hemi", "Stain", ...
             "Plate", "Prof", "Images", "Status", "Stem", "Sample", ...
             "Protocol", "Series", "ZPlane", "Date", "ImageNum", "ROI", ...
-            "NImages", "Parsed", "Tracked", "Content", "Slide", "Slice", ...
-            "Acquired", "Laser", "Notes", "Processing", "Folder"]
+            "NImages", "Parsed", "Tracked", "Meas", "Content", ...
+            "Slide", "Slice", "Acquired", "Laser", "Notes", ...
+            "Processing", "Folder"]
         CatalogColumnWidths = ["70", "60", "45", "70", ...
             "45", "40", "auto", "auto", "220", "70", ...
             "70", "55", "55", "70", "60", "90", ...
-            "45", "50", "55", "90", "50", "55", ...
-            "80", "55", "auto", "80", "240"]
+            "45", "50", "55", "40", "90", ...
+            "50", "55", "80", "55", "auto", ...
+            "80", "240"]
 
         % The arrangement an app nobody has configured opens with, which is
         % exactly the eight columns the table showed before it could be
@@ -360,6 +391,9 @@ classdef HistologyImageBrowser < handle
                 rootPath (1,1) string = ""
                 options.metadataCSV (1,1) string = ""
                 options.publishedUrl (1,1) string = ""
+                options.sheetUrl (1,1) string = ""
+                options.sheetTab (1,1) string = ""
+                options.sheetCredentials (1,1) string = ""
             end
 
             obj.ImageCache = containers.Map("KeyType", "char", "ValueType", "any");
@@ -382,6 +416,21 @@ classdef HistologyImageBrowser < handle
             % changing what the next one opens on.
             if options.publishedUrl ~= ""
                 obj.PublishedUrl = options.publishedUrl;
+            end
+
+            if options.sheetUrl ~= ""
+                obj.SheetUrl = options.sheetUrl;
+                obj.Tracker = [];
+            end
+
+            if options.sheetTab ~= ""
+                obj.SheetTab = options.sheetTab;
+                obj.Tracker = [];
+            end
+
+            if options.sheetCredentials ~= ""
+                obj.SheetCredentials = options.sheetCredentials;
+                obj.Tracker = [];
             end
 
             obj.refreshDatasetMenu();
@@ -417,11 +466,17 @@ classdef HistologyImageBrowser < handle
 
         buildViewPanel(obj, parent)     % Build the image tiles and profile axes.
 
+        buildReviewPanel(obj, parent)   % Build the controls that write to the tracker.
+
         buildStatusBar(obj, parent)     % Build the status strip along the bottom.
 
         applyViewLayout(obj)            % Place the image and profile panels per the layout choice.
 
         onLoadData(obj)                 % Run COMBINE_VALUES_CSV and build the catalog.
+
+        onConfigureSheet(obj)           % Point the browser at a Google Sheet tracker.
+
+        onPrepareSheet(obj)             % Add the columns a review write needs.
 
         onEditFilenamePattern(obj)      % Edit the filename pattern, with a live preview.
 
@@ -443,7 +498,19 @@ classdef HistologyImageBrowser < handle
 
         onArrangeColumns(obj)           % Choose which columns show, and in what order.
 
+        refreshReviewColumns(obj)       % Rewrite just the review columns, in place.
+
         onSelectionChanged(obj)         % Handle a table selection change.
+
+        target = reviewTarget(obj)      % Tracker rows the review controls would write to.
+
+        updateReviewControls(obj)       % Enable the review controls that apply now.
+
+        onSetAtlasPlate(obj)            % Write the atlas plate for the selection.
+
+        onSetMeasured(obj, measured)    % Mark or unmark the selection as measured.
+
+        ok = writeReview(obj, uids, updates, description)  % Send one review edit to the tracker.
 
         renderSelection(obj)            % Draw the selected images and profiles.
 
@@ -639,6 +706,42 @@ classdef HistologyImageBrowser < handle
             obj.setStatus("Published sheet cleared. Load again to drop its annotations.");
         end
 
+        function onClearSheet(obj)
+            % Stop reading the tracker from the sheet, without touching it.
+            if obj.SheetUrl == ""
+                return
+            end
+
+            obj.SheetUrl = "";
+            obj.Tracker = [];
+            obj.refreshDatasetMenu();
+            obj.savePreferences();
+            obj.setStatus("Sheet tracker cleared. The sheet itself was not changed.");
+        end
+
+        function tracker = sheetTracker(obj)
+            % The tracker object for the configured sheet, built on demand.
+            % Held between loads so a sitting spends one token request rather
+            % than one per read.
+
+            if obj.SheetUrl == ""
+                tracker = [];
+                return
+            end
+
+            needsNew = isempty(obj.Tracker) || ~isvalid(obj.Tracker) ...
+                || obj.Tracker.SpreadsheetId ~= gsheet.spreadsheetId(obj.SheetUrl) ...
+                || obj.Tracker.SheetName ~= obj.SheetTab ...
+                || obj.Tracker.CredentialsPath ~= obj.SheetCredentials;
+
+            if needsNew
+                obj.Tracker = SectionTracker(obj.SheetUrl, obj.SheetCredentials, ...
+                    sheetName = obj.SheetTab);
+            end
+
+            tracker = obj.Tracker;
+        end
+
         function refreshDatasetMenu(obj)
             % Show the current selections on the Dataset menu and in the title.
             % The paths used to sit in edit fields, so the menu labels and the
@@ -664,6 +767,12 @@ classdef HistologyImageBrowser < handle
             obj.ClearPublishedSheetMenu.Enable = ...
                 matlab.lang.OnOffSwitchState(obj.PublishedUrl ~= "");
 
+            obj.refreshSheetMenu();
+
+            % Configuring or clearing the sheet changes whether reviewing is
+            % possible at all, which is the panel's whole enabled state.
+            obj.updateReviewControls();
+
             obj.refreshTrackerLink();
 
             if obj.RootPath == ""
@@ -675,15 +784,20 @@ classdef HistologyImageBrowser < handle
 
         function refreshTrackerLink(obj)
             % Show, above the search field, a link to whichever tracker source
-            % is in play: the published sheet takes priority over a local CSV,
-            % matching the choice ONLOADDATA makes. Hidden when neither is set,
-            % since there is nothing to link to.
+            % is in play: the sheet read over the API first, then the published
+            % copy, then a local CSV, matching the order ONLOADDATA reads them
+            % in. Hidden when none is set, since there is nothing to link to.
 
             if isempty(obj.TrackerLinkLabel) || ~isvalid(obj.TrackerLinkLabel)
                 return
             end
 
-            if obj.PublishedUrl ~= ""
+            if obj.SheetUrl ~= ""
+                obj.TrackerLinkLabel.Text = "Tracker: Google Sheet, " ...
+                    + obj.SheetTab + " tab";
+                obj.TrackerLinkLabel.Tooltip = "Open the sheet in your browser.";
+                obj.TrackerLinkLabel.Visible = "on";
+            elseif obj.PublishedUrl ~= ""
                 obj.TrackerLinkLabel.Text = "Tracker: published sheet " ...
                     + HistologyImageBrowser.publishedSheetLabel(obj.PublishedUrl);
                 obj.TrackerLinkLabel.Tooltip = "Open the published sheet in your browser.";
@@ -701,8 +815,17 @@ classdef HistologyImageBrowser < handle
 
         function onOpenTrackerLink(obj)
             % Open whichever tracker source the link above the search field is
-            % currently showing: the published sheet in a browser, or the local
-            % tracker CSV in whatever application handles CSVs.
+            % currently showing: either sheet in a browser, or the local tracker
+            % CSV in whatever application handles CSVs.
+            %
+            % The order matches REFRESHTRACKERLINK, which in turn matches the
+            % one ONLOADDATA reads them in, so the link always opens the source
+            % the catalog on screen was actually annotated from.
+
+            if obj.SheetUrl ~= ""
+                obj.openExternalLink(obj.sheetEditUrl(), "the tracker sheet");
+                return
+            end
 
             if obj.PublishedUrl ~= ""
                 obj.openExternalLink(obj.PublishedUrl, "the published sheet");
@@ -727,6 +850,51 @@ classdef HistologyImageBrowser < handle
             else
                 system("xdg-open """ + obj.MetadataPath + """ &");
             end
+        end
+
+        function url = sheetEditUrl(obj)
+            % A browsable address for the configured sheet. SheetUrl accepts a
+            % bare spreadsheet ID as well as a pasted edit URL, and an ID on its
+            % own is not something a browser can open, so one is built back up
+            % into the canonical address. A reference neither form recognizes is
+            % handed over as typed rather than refused here, which leaves the
+            % browser to report it.
+
+            url = strtrim(obj.SheetUrl);
+
+            if startsWith(lower(url), "http")
+                return
+            end
+
+            try
+                url = "https://docs.google.com/spreadsheets/d/" ...
+                    + gsheet.spreadsheetId(url) + "/edit";
+            catch
+            end
+        end
+
+        function refreshSheetMenu(obj)
+            % Label the sheet submenu with what it is pointed at, and offer the
+            % actions that only mean something once it is.
+
+            if isempty(obj.SheetMenu) || ~isvalid(obj.SheetMenu)
+                return
+            end
+
+            configured = obj.SheetUrl ~= "";
+
+            if configured
+                obj.SheetMenu.Text = "Google Sheet Tracker:  " + obj.SheetTab;
+            else
+                obj.SheetMenu.Text = "Google Sheet Tracker:  (none)";
+            end
+
+            % Preparing the sheet writes to it, which needs a key file even
+            % though naming the spreadsheet does not.
+            readyToWrite = configured && obj.SheetCredentials ~= "";
+
+            obj.SheetPrepareMenu.Enable = matlab.lang.OnOffSwitchState(readyToWrite);
+            obj.SheetClearMenu.Enable = matlab.lang.OnOffSwitchState(configured);
         end
 
         function onResetFilters(obj)
@@ -1689,6 +1857,20 @@ classdef HistologyImageBrowser < handle
             else
                 label = path;
             end
+        end
+
+        function marks = measuredMarks(measured)
+            % Render the measured flag as a column that stays narrow: a tick
+            % for a section that has been measured and a blank for one that has
+            % not. Shared by CATALOGDISPLAYTABLE, which draws the column on a
+            % full refresh, and REFRESHREVIEWCOLUMNS, which rewrites it in
+            % place after a review is written to the tracker, so the two cannot
+            % render the same flag differently.
+
+            measured = logical(measured(:));
+
+            marks = strings(numel(measured), 1);
+            marks(measured) = char(10003);
         end
 
         function label = publishedSheetLabel(url)

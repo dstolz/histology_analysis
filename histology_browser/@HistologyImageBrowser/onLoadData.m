@@ -3,7 +3,15 @@ function onLoadData(obj)
 
 rootPath = strtrim(obj.RootPath);
 metadataPath = strtrim(obj.MetadataPath);
-usePublished = obj.PublishedUrl ~= "";
+
+% The three tracker sources in the order they are preferred: the sheet read
+% over the API is the most current and the only one a review can be written
+% back to, the published copy is current and needs no credentials, and the CSV
+% is whatever was last exported by hand. Only the first one that is set is
+% read, so the others stay configured as fallbacks rather than having to be
+% cleared to get out of the way.
+useSheet = obj.SheetUrl ~= "";
+usePublished = ~useSheet && obj.PublishedUrl ~= "";
 
 if rootPath == "" || ~isfolder(rootPath)
     obj.setError("Root folder does not exist: %s", rootPath);
@@ -12,9 +20,9 @@ if rootPath == "" || ~isfolder(rootPath)
 end
 
 % The CSV is only checked when it is the one that will be used. A stale path
-% left over from before the published sheet was set is not worth refusing a
+% left over from before either sheet was configured is not worth refusing a
 % load over, since nothing is going to read it.
-if ~usePublished && metadataPath ~= "" && ~isfile(metadataPath)
+if ~useSheet && ~usePublished && metadataPath ~= "" && ~isfile(metadataPath)
     obj.setError("Tracker CSV does not exist: %s", metadataPath);
     uialert(obj.Fig, "The tracker CSV does not exist: " + metadataPath, "Invalid Tracker CSV");
     return
@@ -38,20 +46,28 @@ try
         "progressFcn", @(i, n, f) update_progress(dlg, i, n, f), ...
         "cancelRequestedFcn", @() dlg.CancelRequested};
 
-    % Downloaded before the values files are walked, so a tracker that cannot
-    % be reached is reported before the slow part of the load rather than
-    % after it. The temporary CSV is removed when this function returns,
-    % however it returns.
-    if usePublished
-        dlg.Message = "Downloading the published tracker...";
+    % Either sheet is read before the values files are walked, so a tracker
+    % that cannot be reached is reported before the slow part of the load
+    % rather than after it. The published copy arrives as a temporary CSV,
+    % which is removed when this function returns, however it returns.
+    if useSheet
+        dlg.Message = "Reading the tracker from Google Sheets...";
         drawnow;
 
-        metadataPath = fetch_published_tracker(obj.PublishedUrl);
-        removeDownload = onCleanup(@() delete(metadataPath));
-    end
+        trackerTable = read_sheet_tracker(obj);
+        combineArgs = [{"metadataTable", trackerTable}, combineArgs];
+    else
+        if usePublished
+            dlg.Message = "Downloading the published tracker...";
+            drawnow;
 
-    if metadataPath ~= ""
-        combineArgs = [{"metadataCSV", metadataPath}, combineArgs];
+            metadataPath = fetch_published_tracker(obj.PublishedUrl);
+            removeDownload = onCleanup(@() delete(metadataPath));
+        end
+
+        if metadataPath ~= ""
+            combineArgs = [{"metadataCSV", metadataPath}, combineArgs];
+        end
     end
 
     S = combine_values_csv(rootPath, combineArgs{:});
@@ -83,7 +99,9 @@ try
 
     [summary, level] = summarize_load(S, C);
 
-    if usePublished
+    if useSheet
+        summary = summary + sprintf(" Tracker read from the '%s' tab.", obj.SheetTab);
+    elseif usePublished
         summary = summary + " Tracker downloaded from the published sheet.";
     end
 
@@ -95,6 +113,29 @@ catch ME
 end
 
 clear restoreMenu
+
+end
+
+function trackerTable = read_sheet_tracker(obj)
+%READ_SHEET_TRACKER Fetch the tracker, saying plainly when it cannot be reached.
+% The Sheets errors are precise about what is wrong but say it in Google's
+% terms, so the one thing they cannot say is added here: which of the browser's
+% settings to go and look at.
+
+tracker = obj.sheetTracker();
+
+try
+    trackerTable = tracker.metadataTable(refresh = true);
+catch ME
+    error("HistologyImageBrowser:SheetUnreadable", ...
+        "Could not read the '%s' tab: %s\n\nCheck Dataset > Google Sheet " + ...
+        "Tracker > Configure, and that the sheet is shared with the " + ...
+        "service account.", obj.SheetTab, ME.message)
+end
+
+for iWarning = 1:numel(tracker.Warnings)
+    obj.pushStatus("warning", "%s", tracker.Warnings(iWarning));
+end
 
 end
 

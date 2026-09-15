@@ -27,6 +27,11 @@ launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
 % Or read the tracker straight from the published Google Sheet:
 launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
     publishedUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-.../pub?gid=1084786865&single=true&output=csv")
+
+% Or read it over the Sheets API, which can also write back:
+launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
+    sheetUrl = "https://docs.google.com/spreadsheets/d/1yz6.../edit", ...
+    sheetCredentials = "C:/keys/histology-sheets.json")
 ```
 
 Every `.m` file lives at the top of this folder, so a plain
@@ -59,8 +64,19 @@ the workflow stay together.
 
 An optional section tracker is joined onto the catalog by image filename stem, supplying
 annotations the filenames do not carry. It can come from a CSV export (`metadataCSV`) or
-from the published copy of the Google Sheet it is maintained in (`publishedUrl`) — see
-below.
+from the published copy of the Google Sheet it is maintained in (`publishedUrl`), or over the
+Sheets API from the sheet itself (`sheetUrl`) — see below.
+
+The three are read in that reverse order of preference: `sheetUrl` first, then
+`publishedUrl`, then `metadataCSV`, and only the first one set is used. Setting a better
+source therefore does not mean clearing the others, which stay configured as fallbacks.
+Which one a load actually used is named on the status bar, and the tracker link above the
+search field opens it.
+
+Pick by what the sitting needs. The published copy is the least trouble to set up and needs
+no credentials; the Sheets API is the only one that can write a review back, and needs a
+Google Cloud project to issue the key — see [Reading the tracker over the Sheets
+API](#reading-the-tracker-over-the-sheets-api) for the caveat on that.
 
 ## Reading the tracker from a published Google Sheet
 
@@ -93,10 +109,8 @@ the tracker and reloading later, that is invisible.
 ### Read-only
 
 This route is one-way. A published sheet serves its contents and accepts nothing back, so
-the browser reads the tracker and never writes to it. Writing would need the Google Sheets
-API and a service account, which needs a Google Cloud project — see the
-`histology_browser/sheets-sync` branch for an implementation of that, parked because
-creating a Cloud project under a `umd.edu` account is blocked by organization policy.
+the browser reads the tracker and never writes to it. Writing goes through the Sheets API
+instead, which is the next section.
 
 ### Notes
 
@@ -109,6 +123,128 @@ creating a Cloud project under a `umd.edu` account is blocked by organization po
   the most likely thing to be pasted and would never work.
 - Naming a published sheet takes precedence over naming a tracker CSV.
 
+## Reading the tracker over the Sheets API
+
+The tracker is a tab in a spreadsheet several people edit. Reading it directly means the
+browser shows what the sheet says now rather than what it said when somebody last exported
+it, and it makes writing back possible. Both directions go through `SectionTracker`.
+
+> **Before starting:** this route needs a service account key, and issuing one needs a
+> Google Cloud project. Creating a Cloud project under a `umd.edu` account is blocked by
+> organization policy, so unless that policy has changed or the key comes from a project
+> outside it, the published-sheet route above is the one that will work. The code is here
+> and tested either way; only the credential is gated.
+
+### One-time setup
+
+The sheet is private, so this needs a service account: a Google identity that belongs to a
+program rather than a person, authenticating with a key file instead of a browser prompt.
+Nothing about the spreadsheet's sharing changes except that one more address can see it.
+
+1. In the [Google Cloud console](https://console.cloud.google.com), create a project (or
+   pick an existing one) and enable the **Google Sheets API** for it.
+2. Under **IAM & Admin → Service Accounts**, create a service account. It needs no project
+   roles — its access comes entirely from what the spreadsheet is shared with.
+3. On that account, **Keys → Add key → Create new key → JSON**. Save the file somewhere
+   outside this repository; the private key inside it grants whatever access the account
+   has, to anyone holding the file.
+4. Copy the account's `client_email` (it looks like
+   `something@project.iam.gserviceaccount.com`) and share the spreadsheet with it:
+   **Viewer** to read, **Editor** to write back.
+5. In the browser, **Dataset → Google Sheet Tracker → Configure**, and give it the
+   spreadsheet URL, the tab name, and the key file. **Test Connection** reads the tab and
+   reports what it found.
+
+### Writing back
+
+Writing needs two columns the browser maintains, added by **Dataset → Google Sheet Tracker →
+Prepare Sheet for Writing**. It says what it will change and waits to be told to go ahead.
+Both are additive; no existing cell is touched, and Google Sheets version history can undo
+it.
+
+| Column | Why it exists |
+|---|---|
+| `Row UID` | Names a row in a way that survives sorting, filtering, and edits to every other column. |
+| `Last Updated` | UTC ISO 8601 timestamp of the last write this code made to the row, so a value that changed on its own is distinguishable from one the browser wrote. |
+| `Measured` | Whether the section has been measured. `yes` or blank. |
+
+`Row UID` and `Last Updated` are bookkeeping and are never writable by hand — `updateRows` refuses them. `Measured` is an ordinary column that happens to be created here; it holds a judgement someone makes while reviewing, so it is written like any other.
+
+### Reviewing sections
+
+The **Review** panel under the catalog table writes two things to the tracker for
+whatever is selected: the atlas plate number, and the measured flag. Both act on the
+whole selection, so a stack of sections from one slide can be marked in one go.
+
+- **Atlas plate** shows the selection's own number, and writes it on Enter or **Set**.
+  A selection whose plates disagree shows a blank field rather than one of them.
+  Clearing the field empties the cell, after a confirmation.
+- **Mark Measured** / **Clear** set and unset the flag. Two buttons rather than one
+  checkbox, because a selection can be part measured and a checkbox has no honest way
+  to show that.
+- **Ctrl+M** toggles: it marks until everything selected is marked, and only then starts
+  clearing, so it is safe to press repeatedly down a stack.
+
+The `Meas` column in the catalog table shows a tick for measured sections, so what is
+still outstanding is visible while working. A successful write updates the table in
+place without moving the selection.
+
+Sections the tracker has no row for are skipped rather than refusing the whole write,
+and the panel says how many before the button is pressed. The panel stays disabled,
+naming the reason, when there is no sheet, no key file, no selection, or when the rows
+have no `Row UID` yet.
+
+Rows are found by `Row UID`, which the catalog carries across during the join. That
+matters because the read-side join tolerates a tracker entry being a *prefix* of an
+image name — fine for reading, too loose to write through.
+
+From MATLAB:
+
+```matlab
+tracker = SectionTracker(url, "C:/keys/histology-sheets.json");
+tracker.ensureSchema();                       % idempotent; safe to run any time
+
+idx = tracker.findRows({"Hemisphere", "L", "Content", "DAPI"});
+disp(tracker.Table(idx, :))
+
+tracker.updateRows( ...
+    {"Image Filename", "SUBJ-ID-896_2A_L_DAPI_Z1_250408_1"}, ...
+    {"Notes", "Profile remeasured"}, expected = 1);
+```
+
+**Rows are addressed by what is in them, never by where they are.** A sheet row number is
+true only until somebody sorts the tab, deletes a filtered row, or inserts above it, and
+none of those leave a trace this code could notice. So `updateRows` re-reads the tab,
+resolves the criteria against what is there now, writes, and then reads back to confirm the
+values landed in the rows they were aimed at.
+
+That last step is there because the Sheets API has no conditional write: between resolving a
+row and writing to it there is a window nothing can close. It cannot be prevented, but it can
+be *noticed*, which is the difference between a problem someone can go and fix and one nobody
+knows about. A row that moves inside that window raises
+`SectionTracker:RowMovedDuringWrite`.
+
+Several other things stop a write rather than guessing:
+
+- criteria that match nothing, or a different number of rows than `expected`;
+- a `Row UID` whose row has since been deleted, or that two rows now share (which is what
+  copying a row does);
+- a matched row that has no `Row UID` yet;
+- writing to `Row UID` or `Last Updated` by hand, or to a column the tab does not have.
+
+### Notes
+
+- Reading needs Viewer on the sheet; writing needs Editor. The scope requested is
+  `auth/spreadsheets`, and the account can only reach spreadsheets explicitly shared with it.
+- Tokens last an hour and are cached in memory, so a sitting costs one token request rather
+  than one per read.
+- Every cell arrives as text, which is what the CSV path gave most columns anyway; the
+  columns read as numbers are converted where they are used.
+- The header row is searched for rather than assumed to be row 1, so the blank and title rows
+  above it are fine, exactly as they were in the exported CSV.
+- Signing the service account assertion uses `java.security`, so MATLAB must have its JVM
+  (it does unless started with `-nojvm`, which the GUI needs anyway).
+
 ## Contents
 
 | File | Role |
@@ -116,6 +252,8 @@ creating a Cloud project under a `umd.edu` account is blocked by organization po
 | `launch_histology_browser.m` | Entry point; constructs the browser. |
 | `@HistologyImageBrowser/` | The GUI class — catalog, filters, image tiles, profile plot, ROI editor. |
 | `fetch_published_tracker.m` | Download the section tracker from a published Google Sheet as a CSV. |
+| `@SectionTracker/` | The section tracker as held in a Google Sheet: read it, address rows by content, write back. |
+| `+gsheet/` | Sheets API v4 transport — service account auth, values read/write, A1 notation. |
 | `combine_values_csv.m` | Ingests every `*values.csv` under a root into one structured dataset, with per-file diagnostics. |
 | `build_histology_image_catalog.m` | One row per section: all renditions, the ROI sidecar, the profiles, and joined tracker metadata. |
 | `parse_histology_filename.m` | Non-raising filename parser used by the catalog. |
@@ -126,6 +264,8 @@ creating a Cloud project under a `umd.edu` account is blocked by organization po
 | `addpath_nogit.m` | Add a folder tree to the MATLAB path, skipping `.git`. |
 | `tests/test_histology_browser.m` | Smoke test; see below. |
 | `tests/make_test_dataset.m` | Writes the synthetic dataset the smoke test runs against. |
+| `tests/test_section_tracker.m` | Checks for the sheet tracker, against an in-memory sheet. |
+| `tests/fake_section_tracker.m` | The in-memory sheet both test files drive the tracker against. |
 
 ## Requirements
 
@@ -156,11 +296,13 @@ and pull the single requested channel rather than the whole file.
 ```matlab
 test_histology_browser()                       % generates a dataset and checks everything
 test_histology_browser("D:/GM6001_HISTOLOGY/") % checks the same things against real data
+test_section_tracker()                         % the Google Sheets tracker
 ```
 
-It checks the filename parser, the ROI encode/decode round trip, profile measurement, and
-the values-CSV round trip against synthetic inputs, then builds a catalog and drives a live
-browser through filtering, selection, and the ROI edit / revert cycle.
+`test_histology_browser` checks the filename parser, the ROI encode/decode round trip,
+profile measurement, and the values-CSV round trip against synthetic inputs, then builds a
+catalog and drives a live browser through filtering, selection, and the ROI edit / revert
+cycle.
 
 With no argument the catalog and GUI checks run against a dataset `make_test_dataset` writes
 to a temp folder and the test deletes afterwards, so the whole suite runs on a machine that
@@ -173,11 +315,25 @@ both hemispheres, two stains over a range of atlas plates, multi-page calibrated
 with their `.roi` and `*values.csv` sidecars, a section tracker CSV, and a few deliberately
 unfinished sections. It is deterministic and about 220 KB.
 
+`test_section_tracker` needs no credentials, no key file, and no network: the tracker is
+driven against an in-memory sheet, which is what makes the checks that matter testable at
+all. What happens to a write when somebody reorders the tab underneath it is not something to
+go and try against the real tracker. The two pieces that cannot be reached that way — the
+RSA-SHA256 assertion and the shapes a values reply decodes to — are checked against a
+throwaway key generated for the purpose and against real `jsondecode` output.
+
 ## Menus
 
-`Dataset` picks the root folder and the tracker — a CSV export, or the published Google
-Sheet — and loads them. `View` collapses the data column and the display row, separately
-or together, to give the image tiles the window.
+`Dataset` picks the root folder and the tracker — a CSV export, the published Google Sheet,
+or the sheet itself under **Google Sheet Tracker** — and loads them. When more than one is
+set, the sheet is preferred over the published copy, and the published copy over the CSV.
+`View` collapses the data column and the display row, separately or together, to give the
+image tiles the window.
+
+Under the catalog table, the **Review** panel writes the atlas plate number and the
+measured flag for the selected sections back to the tracker's sheet — see
+[Reviewing sections](#reviewing-sections). It needs the Sheets API route; the CSV and the
+published sheet are both read-only.
 
 `Display` mirrors every control in the Display panel, so collapsing the display row costs
 reach rather than capability. The panel keeps the state; each menu item writes to the control
@@ -277,6 +433,7 @@ rendered from it, so a shortcut cannot be advertised in one place and bound in a
 | `Ctrl+F` | Jump to the search box |
 | `Ctrl+Shift+R` | Clear every filter |
 | `Ctrl+L` | Load the dataset |
+| `Ctrl+M` | Mark the selected sections measured, or clear them if all are |
 | `Ctrl+E` | Start or finish editing the line ROI |
 | `Ctrl+D` | Draw a new line over the image |
 | `Ctrl+S` | Save the ROI and remeasure its profile |
@@ -308,6 +465,10 @@ Window and display settings persist under the MATLAB preference group
 code moved out of `helper_fnc` carry over unchanged. The published sheet URL is saved
 there too, and restored without being fetched — opening the browser should not wait on the
 network to find out something the next load will report anyway.
+
+The sheet settings persist there too: the spreadsheet, the tab, and the *path* to the key
+file. The key file is named rather than read, so nothing secret is written to the preference
+store.
 
 The window reopens at the size and position it was closed at, and reopens maximized if it
 was closed maximized. A saved position that no longer lands on an attached monitor is

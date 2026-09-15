@@ -45,6 +45,10 @@ refresh_channel_choices(obj);
 % in. Set before the redraw, so the tiles are drawn once.
 obj.applyStainColormap();
 
+% The review panel reads the selection's plate and measured state, so it is
+% told before the redraw rather than left showing the section just left.
+obj.updateReviewControls();
+
 obj.renderSelection();
 
 warn_if_edit_off_screen(obj);

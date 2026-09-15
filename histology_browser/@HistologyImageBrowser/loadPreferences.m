@@ -28,6 +28,8 @@ if publishedUrl ~= "" && contains(publishedUrl, "/spreadsheets/d/e/")
     obj.PublishedUrl = publishedUrl;
 end
 
+apply_sheet_settings(obj, group);
+
 apply_dropdown(obj.VariantDropDown, read_pref(group, "Variant", ""));
 apply_dropdown(obj.ColormapDropDown, read_pref(group, "Colormap", ""));
 apply_stain_colormaps(obj, group);
@@ -86,6 +88,40 @@ end
 % Restoring a choice is not making one, so nothing is written back and nothing
 % is announced on a status bar the user has not looked at yet.
 obj.applyFilenamePattern(pattern, persist = false);
+
+end
+
+function apply_sheet_settings(obj, group)
+%APPLY_SHEET_SETTINGS Restore which sheet the tracker is read from.
+% A key file that has since been moved or deleted is dropped, but the sheet
+% itself is kept: naming a new key file is a smaller thing to ask than naming
+% the spreadsheet again, and the sheet is still readable with one.
+
+sheetUrl = read_pref(group, "SheetUrl", "");
+
+if sheetUrl == ""
+    return
+end
+
+try
+    gsheet.spreadsheetId(sheetUrl);
+catch
+    return
+end
+
+obj.SheetUrl = sheetUrl;
+
+sheetTab = read_pref(group, "SheetTab", "");
+
+if sheetTab ~= ""
+    obj.SheetTab = sheetTab;
+end
+
+credentials = read_pref(group, "SheetCredentials", "");
+
+if credentials ~= "" && isfile(credentials)
+    obj.SheetCredentials = credentials;
+end
 
 end
 

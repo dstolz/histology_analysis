@@ -27,7 +27,8 @@ end
 
 % Add the repo root (this file lives in tests/, one level down) so the
 % browser and its helpers resolve regardless of where it is checked out, and
-% this folder so the dataset generator beside this file resolves with them.
+% this folder so the dataset generator and the shared test fixtures beside
+% this file resolve with them.
 addpath(fileparts(fileparts(mfilename("fullpath"))));
 addpath(fileparts(mfilename("fullpath")));
 
@@ -41,6 +42,10 @@ nFailed = nFailed + run_case("profile normalization", @check_profile_normalizati
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
 nFailed = nFailed + run_case("published sheet URLs", @check_published_url);
 nFailed = nFailed + run_case("published sheet settings", @check_published_settings);
+nFailed = nFailed + run_case("tracker table joins without a CSV", @check_metadata_table_option);
+nFailed = nFailed + run_case("sheet tracker settings", @check_sheet_settings);
+nFailed = nFailed + run_case("review writes to the tracker", @check_review_writes);
+nFailed = nFailed + run_case("review controls follow the selection", @check_review_controls);
 
 % With nothing to point at, the catalog and GUI checks run against a dataset
 % generated for this run rather than being skipped, so the browser is covered
@@ -341,6 +346,328 @@ if saved.existed
     setpref(saved.group, "PublishedUrl", saved.value);
 elseif ispref(saved.group, "PublishedUrl")
     rmpref(saved.group, "PublishedUrl");
+end
+
+end
+
+function check_metadata_table_option()
+%CHECK_METADATA_TABLE_OPTION A tracker already in memory annotates a dataset.
+% This is the path a tracker read from Google Sheets takes. It has to land in
+% exactly the same place the CSV did, so the check is that the columns come out
+% on the combined table the same way.
+
+stem = "SUBJ-ID-1174IHC_ECM26A260608S1_1A_L_WFA-PV_Z3_260616_1";
+
+root = string(tempname);
+mkdir(root);
+cleanup = onCleanup(@() rmdir(root, "s"));
+
+write_values_csv(fullfile(root, stem + "_values.csv"), (0:9)', rand(10, 1));
+
+tracker = table( ...
+    stem, "42", "Left ACx", ...
+    VariableNames = ["Image Filename", "Atlas Plate #", "Notes"]);
+
+S = combine_values_csv(root, metadataTable = tracker);
+
+assert(S.metadata.hasMetadata, "The in-memory tracker was not used");
+assert(S.metadata.source == "table", ...
+    "The tracker source was reported as '%s' rather than 'table'", S.metadata.source);
+assert(height(S.combined) == 10, ...
+    "Combined %d rows rather than 10", height(S.combined));
+
+vars = string(S.combined.Properties.VariableNames);
+assert(ismember("Atlas Plate #", vars), "A tracker column did not reach the combined table");
+assert(all(S.combined.("Notes") == "Left ACx"), "A tracker value was not carried across");
+
+% A tracker with no key column cannot be joined, and saying so beats producing
+% a catalog that silently has no metadata on it.
+try
+    combine_values_csv(root, metadataTable = table("x", VariableNames = "Something Else"));
+    error("A tracker with no Image Filename column was accepted");
+catch ME
+    assert(ME.identifier == "combine_values_csv:MissingImageFilenameColumn", ...
+        "Wrong error for a tracker with no key column: %s", ME.identifier);
+end
+
+end
+
+function check_sheet_settings()
+%CHECK_SHEET_SETTINGS The sheet menu reflects what is configured.
+% No network is touched: building a tracker object and labelling the menu are
+% both offline, and they are what breaks when the wiring is wrong.
+
+% Closing the browser saves preferences, so this check would otherwise leave
+% its scratch settings behind as the real configuration. They are put back
+% however the check ends.
+saved = snapshot_sheet_prefs();
+restorePrefs = onCleanup(@() restore_sheet_prefs(saved));
+
+app = HistologyImageBrowser();
+cleanup = onCleanup(@() delete(app.Fig));
+
+% Whatever was configured on this machine is beside the point here, so the
+% starting state is set rather than assumed.
+app.SheetUrl = "";
+app.SheetTab = "Sections";
+app.SheetCredentials = "";
+app.Tracker = [];
+app.refreshDatasetMenu();
+
+assert(contains(app.SheetMenu.Text, "(none)"), ...
+    "The sheet menu did not start out empty");
+assert(app.SheetPrepareMenu.Enable == "off", ...
+    "Preparing the sheet was offered with no sheet configured");
+assert(isempty(app.sheetTracker()), "A tracker was built with no sheet configured");
+
+app.SheetUrl = "https://docs.google.com/spreadsheets/d/1yz6v2yP/edit?gid=108";
+app.refreshDatasetMenu();
+
+% Naming the spreadsheet is enough to read it once a key file is named too,
+% but writing is only offered when there is a key file to write with.
+assert(app.SheetClearMenu.Enable == "on", "Clearing a configured sheet was not offered");
+assert(app.SheetPrepareMenu.Enable == "off", ...
+    "Preparing the sheet was offered without a key file");
+
+app.SheetCredentials = "definitely-not-a-real-key.json";
+app.refreshDatasetMenu();
+
+assert(app.SheetPrepareMenu.Enable == "on", ...
+    "Preparing the sheet was not offered once a key file was named");
+assert(contains(app.SheetMenu.Text, "Sections"), ...
+    "The sheet menu does not name the tab: %s", app.SheetMenu.Text);
+
+tracker = app.sheetTracker();
+assert(tracker.SpreadsheetId == "1yz6v2yP", ...
+    "The spreadsheet ID was not taken from the URL");
+
+% The same object comes back until something about the configuration changes.
+assert(tracker == app.sheetTracker(), "A second tracker was built needlessly");
+
+app.SheetTab = "Other";
+assert(app.sheetTracker().SheetName == "Other", ...
+    "The tracker was not rebuilt after the tab changed");
+
+app.onClearSheet();
+assert(app.SheetUrl == "", "Clearing the sheet left it configured");
+assert(contains(app.SheetMenu.Text, "(none)"), "The menu still names a sheet");
+
+end
+
+function check_review_writes()
+%CHECK_REVIEW_WRITES Marking a section reaches the sheet and the table.
+% The whole point of the review panel is that one click changes two things: the
+% tracker, and what the person doing the reviewing is looking at. A write that
+% reached the sheet but left the table showing the old value would look like it
+% had not worked.
+
+[app, state, cleanup] = review_fixture(); %#ok<ASGLU>
+
+% The second section in the fixture, selected as it would be by clicking it.
+app.CatalogTable.Selection = 2;
+app.onSelectionChanged();
+
+app.onSetMeasured(true);
+
+grid = state("grid");
+row = find(strtrim(grid(:, 4)) == "SUBJ-ID-896_2A_R_WFA-PV-DAPI_Z3_250408_1");
+
+assert(strtrim(grid(row, 11)) == "yes", "The flag did not reach the sheet");
+assert(strtrim(grid(row, 10)) ~= "", "The write was not stamped");
+assert(app.View.Measured(2), "The catalog still says the section is unmeasured");
+assert(app.CatalogTable.Data.Meas(2) ~= "", "The table still shows the section unmarked");
+
+% Nothing else was touched.
+assert(~any(app.View.Measured([1 3])), "Sections that were not selected were marked");
+
+% Working through a stack of sections means the selection must not jump back to
+% the top after every mark.
+assert(isequal(app.CatalogTable.Selection, 2), ...
+    "The selection moved when the table was refreshed");
+
+app.AtlasPlateField.Value = '42';
+app.onSetAtlasPlate();
+
+grid = state("grid");
+assert(strtrim(grid(row, 7)) == "42", "The plate number did not reach the sheet");
+assert(app.View.AtlasPlate(2) == 42, "The catalog kept the old plate number");
+assert(app.CatalogTable.Data.Plate(2) == 42, "The table kept the old plate number");
+
+% A plate number is a number; a cell holding anything else would break the
+% filters and the sort that read this column.
+app.AtlasPlateField.Value = 'thirty';
+app.onSetAtlasPlate();
+
+grid = state("grid");
+assert(strtrim(grid(row, 7)) == "42", "A plate number that is not a number was written");
+
+% Several sections at once is the ordinary case for a stack from one slide.
+app.CatalogTable.Selection = [1 3];
+app.onSelectionChanged();
+app.onSetMeasured(true);
+
+% The fourth section has no tracker row and so can never be marked; the first
+% three are the ones a write reaches.
+assert(all(app.View.Measured(1:3)), "Marking a multiple selection missed a section");
+assert(~app.View.Measured(4), "A section with no tracker row was marked");
+
+% The keyboard toggle clears only once there is nothing left to mark, which is
+% what makes it safe to press repeatedly down a stack. It has to reckon that
+% against the sections it can actually write to: counting the fourth would
+% leave it forever trying to mark a section it can never reach.
+app.onSelectAll();
+app.runShortcut("toggleMeasured");
+assert(~any(app.View.Measured), "The toggle did not clear an all-measured selection");
+
+app.runShortcut("toggleMeasured");
+assert(all(app.View.Measured(1:3)), "The toggle did not mark an unmeasured selection");
+
+end
+
+function check_review_controls()
+%CHECK_REVIEW_CONTROLS The panel shows the selection's own state.
+
+[app, state, cleanup] = review_fixture(); %#ok<ASGLU>
+
+app.CatalogTable.Selection = 3;
+app.onSelectionChanged();
+
+assert(app.MeasuredButton.Enable == "on", "Reviewing was not offered for a tracker row");
+assert(string(app.AtlasPlateField.Value) == "30", ...
+    "The field shows '%s' rather than the section's own plate", app.AtlasPlateField.Value);
+assert(contains(app.ReviewLabel.Text, "None measured"), ...
+    "The label does not say how much is done: %s", app.ReviewLabel.Text);
+
+% Rows 2 and 3 carry different plate numbers. Showing one of them would mean a
+% field reading 20 that overwrites 30 the moment somebody presses Enter.
+app.CatalogTable.Selection = [2 3];
+app.onSelectionChanged();
+assert(string(app.AtlasPlateField.Value) == "", ...
+    "A selection whose plates disagree showed one of them: '%s'", app.AtlasPlateField.Value);
+
+% The fourth fixture row has no tracker identifier, standing for a section the
+% tracker has no row for.
+app.CatalogTable.Selection = 4;
+app.onSelectionChanged();
+
+assert(app.MeasuredButton.Enable == "off", ...
+    "Reviewing was offered for a section with no tracker row");
+assert(contains(app.ReviewLabel.Text, "no row in the tracker"), ...
+    "The label does not say why: %s", app.ReviewLabel.Text);
+
+% A mixed selection writes what it can and says what it skipped.
+app.CatalogTable.Selection = [1 4];
+app.onSelectionChanged();
+
+assert(app.MeasuredButton.Enable == "on", ...
+    "A selection with one writable section was refused entirely");
+assert(contains(app.ReviewLabel.Text, "skipped"), ...
+    "The label does not warn that a section will be skipped: %s", app.ReviewLabel.Text);
+
+app.onSetMeasured(true);
+assert(app.View.Measured(1), "The writable section of a mixed selection was not marked");
+
+grid = state("grid");
+assert(sum(strtrim(grid(:, 11)) == "yes") == 1, "More rows were written than expected");
+
+end
+
+function [app, state, cleanup] = review_fixture()
+%REVIEW_FIXTURE A browser holding a catalog that maps onto the fake sheet.
+% The catalog is built by hand rather than by loading a dataset, because what
+% is under test is the path from a selection to a tracker write, and no images
+% on disk are needed to exercise it.
+
+saved = snapshot_sheet_prefs();
+restorePrefs = onCleanup(@() restore_sheet_prefs(saved));
+
+[tracker, state] = fake_section_tracker();
+tracker.ensureSchema();
+tracker.read();
+
+app = HistologyImageBrowser();
+closeApp = onCleanup(@() delete(app.Fig));
+
+% Matched to the fake tracker so SHEETTRACKER hands back that one rather than
+% building a live one against a spreadsheet that does not exist.
+app.SheetUrl = "fake-spreadsheet";
+app.SheetTab = "Sections";
+app.SheetCredentials = "fake-key.json";
+app.Tracker = tracker;
+
+% Built by the real cataloger against an empty folder, so the join that puts a
+% tracker row's identifier onto a catalog row is the one under test rather than
+% something arranged by hand to look like its output.
+root = string(tempname);
+mkdir(root);
+removeRoot = onCleanup(@() rmdir(root, "s"));
+
+app.Catalog = build_histology_image_catalog(root, ...
+    metadataTable = tracker.metadataTable(), includeMissing = true);
+
+assert(height(app.Catalog) == 4, ...
+    "The fixture catalog has %d rows rather than 4", height(app.Catalog));
+assert(all(app.Catalog.TrackerUid ~= ""), ...
+    "The catalog did not carry the tracker identifiers across");
+
+% The last row stands for a section the tracker has no row for, which is the
+% state a write has to refuse rather than guess at.
+app.Catalog.TrackerUid(4) = "";
+app.Catalog.InTracker(4) = false;
+
+app.View = app.Catalog;
+
+% Measured is not in the default arrangement, because it says nothing at all
+% until a sheet tracker is configured. Reviewing is exactly the sitting that
+% wants it, so the fixture asks for it the way a reviewer would, and the checks
+% below can then read the column off the table. Not persisted: the arrangement
+% is a property of this fixture, not a choice the person running the tests made.
+app.applyCatalogColumns( ...
+    [HistologyImageBrowser.DefaultCatalogColumns, "Measured"], persist = false);
+
+app.refreshCatalogTable();
+
+cleanup = onCleanup(@() release(restorePrefs, closeApp, removeRoot));
+
+end
+
+function release(varargin)
+%RELEASE Hold several cleanup objects until the caller's own one is destroyed.
+
+clear varargin
+
+end
+
+function saved = snapshot_sheet_prefs()
+%SNAPSHOT_SHEET_PREFS Record the sheet preferences as they stand.
+
+group = char(HistologyImageBrowser.PrefGroup);
+names = ["SheetUrl", "SheetTab", "SheetCredentials"];
+
+saved = struct(group = group, names = names, values = {cell(size(names))}, ...
+    existed = false(size(names)));
+
+for iName = 1:numel(names)
+    saved.existed(iName) = ispref(group, char(names(iName)));
+
+    if saved.existed(iName)
+        saved.values{iName} = getpref(group, char(names(iName)));
+    end
+end
+
+end
+
+function restore_sheet_prefs(saved)
+%RESTORE_SHEET_PREFS Put the sheet preferences back as they were.
+
+for iName = 1:numel(saved.names)
+    name = char(saved.names(iName));
+
+    if saved.existed(iName)
+        setpref(saved.group, name, saved.values{iName});
+    elseif ispref(saved.group, name)
+        rmpref(saved.group, name);
+    end
 end
 
 end

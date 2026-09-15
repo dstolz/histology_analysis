@@ -73,14 +73,25 @@ end
 
 function values = display_values(rows, field)
 %DISPLAY_VALUES Take one catalog column, shortened where the heading is narrow.
-% Only the subject is touched. Every subject in a dataset carries the same
-% SUBJ-ID- prefix, so the prefix distinguishes nothing and costs the column
-% eight characters it does not have.
+% Two are touched. Every subject in a dataset carries the same SUBJ-ID- prefix,
+% so the prefix distinguishes nothing and costs the column eight characters it
+% does not have. Measured is drawn as a tick and a blank rather than as yes and
+% no, because the column is there to be scanned down while working through a
+% stack of sections: what matters is which rows are still outstanding, and
+% blanks show that at a glance.
+%
+% REFRESHREVIEWCOLUMNS rewrites both review columns in place after a write to
+% the tracker, so anything rendered rather than shown raw has to be rendered
+% the same way there or a review edit and a full refresh would disagree.
 
 values = rows.(field);
 
 if field == "SubjectID"
     values = replace(string(values), "SUBJ-ID-", "");
+end
+
+if field == "Measured"
+    values = HistologyImageBrowser.measuredMarks(values);
 end
 
 end

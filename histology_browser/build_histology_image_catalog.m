@@ -211,7 +211,7 @@ row = struct( ...
     "NProfiles", 0, "ROI", "", "Folder", "", "Status", "no image", ...
     "InTracker", false, "AtlasPlate", NaN, "Content", "", "Slide", "", ...
     "SliceID", "", "ImageDate", "", "LaserPower", "", "Notes", "", ...
-    "ProcessingID", "");
+    "ProcessingID", "", "TrackerUid", "", "Measured", false);
 
 end
 
@@ -384,6 +384,14 @@ row.ImageDate = tracker_text(metadataTable, idx, "Image Date");
 row.LaserPower = tracker_text(metadataTable, idx, "Laser power");
 row.Notes = tracker_text(metadataTable, idx, "Notes");
 row.ProcessingID = tracker_text(metadataTable, idx, "Processing ID");
+
+% Carried so a write can be aimed back at the tracker row this came from. The
+% join is by filename stem and tolerates a tracker entry being a prefix of the
+% image name, which is fine for reading but too loose to write through: the
+% identifier says exactly which row, with no matching to redo.
+row.TrackerUid = tracker_text(metadataTable, idx, SectionTracker.UidColumn);
+row.Measured = SectionTracker.isMeasured( ...
+    tracker_text(metadataTable, idx, SectionTracker.MeasuredColumn));
 
 if row.Hemisphere == ""
     row.Hemisphere = tracker_text(metadataTable, idx, "Hemisphere");
