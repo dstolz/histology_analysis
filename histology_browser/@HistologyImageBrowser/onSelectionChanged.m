@@ -28,6 +28,14 @@ if obj.RoiSavedStem ~= "" && ~(height(selectedStems) > 0 ...
     obj.RoiSavedKey = "";
 end
 
+% The tile the user picked for the ROI controls is a mark they put on something
+% now off screen, not a property of the section, so it is dropped rather than
+% left to reappear if the same run of sections is selected again later.
+% ACTIVEROISTEM would ignore it either way; this is so it cannot come back.
+if obj.RoiTargetStem ~= "" && ~any(obj.drawnStems() == obj.RoiTargetStem)
+    obj.RoiTargetStem = "";
+end
+
 % An ROI edit belongs to one section, so moving off it ends the edit. The
 % prompt comes before the redraw, so nothing is lost silently.
 if obj.RoiEditStem ~= "" && ~obj.isEditedStemSelected()
@@ -61,6 +69,10 @@ obj.applyStainColormap();
 obj.updateReviewControls();
 
 obj.renderSelection();
+
+% The hint names the section the ROI buttons will act on, and the selection
+% just moved it.
+obj.updateRoiEditControls();
 
 warn_if_edit_off_screen(obj);
 

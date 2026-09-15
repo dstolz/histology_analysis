@@ -10,7 +10,13 @@ function refreshRoiOverlay(obj)
 % to a drag -- finding the tile from the handle being dragged, and recoloring
 % that handle the instant the edit turns dirty.
 %
-% See also REFRESHTILEOVERLAY, REFRESHOVERLAYS, ONROIEDITCHANGED.
+% Every other step of an ROI session -- opening it, drawing a line, saving,
+% reverting, closing -- goes through REFRESHROIEDIT instead, which also rebuilds
+% the handle and redraws the profile. Neither belongs in a drag: the handle is
+% the object the mouse is holding, and remeasuring a wide band off a full
+% resolution page on every mouse move is far too slow.
+%
+% See also REFRESHROIEDIT, REFRESHTILEOVERLAY, REFRESHOVERLAYS, ONROIEDITCHANGED.
 
 if isempty(obj.RoiEditor) || ~isvalid(obj.RoiEditor)
     return

@@ -68,6 +68,14 @@ switch action
         press(obj, obj.RevertRoiButton, @obj.onRevertRoiEdits, ...
             "The ROI has no unsaved changes to discard.");
 
+    case "detectSurface"
+        press(obj, obj.DetectSurfaceButton, @obj.onDetectSurface, ...
+            "Nothing is being edited, so there is no line to find a surface on.");
+
+    case "markSurface"
+        press(obj, obj.MarkSurfaceButton, @obj.onMarkSurface, ...
+            "Nothing is being edited, so there is no line to mark a surface on.");
+
     case "cancelRoiEdit"
         cancel_roi_edit(obj);
 
@@ -79,6 +87,9 @@ switch action
 
     case "toggleIntensityShading"
         toggle_check(obj, obj.ColorByIntensityCheck, "Intensity shading");
+
+    case "toggleSurfaceOverlay"
+        toggle_check(obj, obj.ShowSurfaceCheck, "Brain surface marks");
 
     case "toggleDataColumn"
         obj.onToggleDataColumn();
@@ -231,8 +242,12 @@ if isempty(check) || ~isvalid(check)
     return
 end
 
-check.Value = ~check.Value;
-obj.onDisplayOptionChanged();
+% Through CHOOSEFROMMENU, which writes the control and runs that control's own
+% callback, rather than through a redraw named here: the brain surface marks
+% are drawn on the profile plot as well as on the tiles and ask for more redraw
+% than the other four, and a key press has to get whatever a click on the same
+% checkbox would.
+obj.chooseFromMenu(check, ~check.Value);
 
 if check.Value
     obj.setStatus("%s on.", name);

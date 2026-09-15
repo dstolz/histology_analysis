@@ -29,12 +29,11 @@ fig = figure( ...
 
 layout = tiledlayout(fig, "flow", Padding = "tight", TileSpacing = "tight");
 
-if nDrawn <= 7
-    colors = lines(nDrawn);
-else
-    colors = turbo(nDrawn);
-end
+colors = HistologyImageBrowser.tileColors(nDrawn);
 
+% No tile is marked active here. This figure is a picture to keep, not the
+% surface an ROI is dragged on, and the ROI controls act on the browser's own
+% tiles whatever this window is showing.
 for iRow = 1:nDrawn
     ax = nexttile(layout);
     obj.drawImageTile(ax, rows(iRow, :), colors(iRow, :));

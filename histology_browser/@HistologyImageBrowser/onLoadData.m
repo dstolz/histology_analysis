@@ -50,6 +50,14 @@ try
     % that cannot be reached is reported before the slow part of the load
     % rather than after it. The published copy arrives as a temporary CSV,
     % which is removed when this function returns, however it returns.
+    %
+    % The download is the one step of the published route that needs a
+    % network, and it is caught on its own so that losing it costs the
+    % annotations the tracker carries rather than the whole dataset.
+    % Everything the browser draws comes off the local disk, and a section
+    % with no plate number is still a section worth looking at.
+    trackerNote = "";
+
     if useSheet
         dlg.Message = "Reading the tracker from Google Sheets...";
         drawnow;
@@ -61,8 +69,15 @@ try
             dlg.Message = "Downloading the published tracker...";
             drawnow;
 
-            metadataPath = fetch_published_tracker(obj.PublishedUrl);
-            removeDownload = onCleanup(@() delete(metadataPath));
+            try
+                metadataPath = fetch_published_tracker(obj.PublishedUrl);
+                removeDownload = onCleanup(@() delete(metadataPath));
+            catch downloadError
+                [metadataPath, trackerNote] = tracker_fallback(obj, downloadError);
+
+                dlg.Message = "Loading without the tracker...";
+                drawnow;
+            end
         end
 
         if metadataPath ~= ""
@@ -101,6 +116,15 @@ try
 
     if useSheet
         summary = summary + sprintf(" Tracker read from the '%s' tab.", obj.SheetTab);
+    elseif trackerNote ~= ""
+        summary = summary + " " + trackerNote;
+        level = "warning";
+
+        % Said twice on purpose. The status bar is where the load reports, but
+        % a dataset that quietly comes up with half its columns blank is worth
+        % interrupting for, and the columns are named where there is room to
+        % name them.
+        uialert(obj.Fig, trackerNote, "Tracker Not Downloaded", Icon = "warning");
     elseif usePublished
         summary = summary + " Tracker downloaded from the published sheet.";
     end
@@ -136,6 +160,52 @@ end
 for iWarning = 1:numel(tracker.Warnings)
     obj.pushStatus("warning", "%s", tracker.Warnings(iWarning));
 end
+
+end
+
+function [metadataPath, note] = tracker_fallback(obj, downloadError)
+%TRACKER_FALLBACK Say what a load loses when the published tracker is missing.
+% Hands back the metadata CSV to load with in place of the download, which is
+% the CSV the browser is configured with when there is one, and a sentence for
+% the status bar and the alert saying what happened and what it cost.
+
+% Led with what happened to the load rather than with the failure, because
+% the sentence lands on a status bar under a line saying how much was read and
+% the reader's question is what they are looking at. The download errors read
+% as several paragraphs of advice, which is right in a dialog and wrong on one
+% line, so they are flattened here and shown the same way in both places.
+lines = strtrim(splitlines("Loaded without the published tracker. " + ...
+    string(downloadError.message)));
+
+note = join(lines(lines ~= ""), " ");
+
+metadataPath = strtrim(obj.MetadataPath);
+
+% An exported copy of the same tracker, and the browser is already configured
+% with it, so it is worth more than nothing even when it is a few edits behind
+% the sheet. Which one was read is said either way, because the two disagree.
+if metadataPath ~= "" && isfile(metadataPath)
+    note = note + " Read the tracker CSV instead: " + metadataPath;
+    return
+end
+
+metadataPath = "";
+
+note = note + " No tracker was read, so " + ...
+    join(tracker_column_names(), ", ") + " are blank.";
+
+end
+
+function names = tracker_column_names()
+%TRACKER_COLUMN_NAMES Name the Sections columns only the tracker fills.
+% Given as the headings on screen rather than as the catalog's variable names,
+% because the heading is what the user is looking at when a column is empty.
+
+fields = HistologyImageBrowser.TrackerColumns;
+[known, spec] = ismember(fields, HistologyImageBrowser.CatalogColumnFields);
+
+names = fields;
+names(known) = HistologyImageBrowser.CatalogColumnHeadings(spec(known));
 
 end
 

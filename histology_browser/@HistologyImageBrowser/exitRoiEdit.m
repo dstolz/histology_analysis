@@ -64,7 +64,13 @@ if ~isempty(obj.RoiEditor) && isvalid(obj.RoiEditor)
     delete(obj.RoiEditor);
 end
 
+if ~isempty(obj.SurfaceEditor) && isvalid(obj.SurfaceEditor)
+    delete(obj.SurfaceEditor);
+end
+
 obj.RoiEditor = [];
+obj.SurfaceEditor = [];
+obj.SurfaceEditDragging = false;
 obj.RoiEditStem = "";
 
 % The active key outlives the session: it is which ROI the controls are

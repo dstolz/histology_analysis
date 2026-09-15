@@ -29,7 +29,10 @@ if isempty(findobj(ax, Type = "image"))
     return
 end
 
-row = tile_row(obj, ax);
+% Which section the tile shows is read off the stamp rather than off the
+% selection, because the caller may be redrawing a tile that is not the first
+% selected row -- REFRESHOVERLAYS walks all of them.
+row = obj.rowForStem(HistologyImageBrowser.tileStem(ax));
 
 if height(row) ~= 1
     return
@@ -56,50 +59,37 @@ restack_editor(obj, ax);
 
 end
 
-function row = tile_row(obj, ax)
-%TILE_ROW Find the catalog row a tile was drawn for, or an empty table.
-% The stem is looked up in the filtered view rather than in the selection,
-% because the two agree whenever a tile is on screen and the view is the table
-% every other reader of a row uses.
-
-row = obj.View([], :);
-
-stem = HistologyImageBrowser.tileStem(ax);
-
-if stem == "" || height(obj.View) == 0
-    return
-end
-
-index = find(string(obj.View.Stem) == stem, 1);
-
-if isempty(index)
-    return
-end
-
-row = obj.View(index, :);
-
-end
-
 function restack_editor(obj, ax)
-%RESTACK_EDITOR Lift the draggable line back above the overlay it now sits under.
-% The shaded band and the grid are drawn after the handle was created, so
+%RESTACK_EDITOR Lift the draggable handles back above the overlay they now sit
+% under.
+% The shaded band and the grid are drawn after the handles were created, so
 % without this the line the mouse is holding ends up underneath them and its
-% end markers stop being grabbable. Only the tile actually carrying the editor
-% is restacked; the others have no handle to lift.
+% end markers stop being grabbable. The brain surface marker is lifted last, so
+% it stays grabbable where it crosses the line rather than being buried by it.
+% Only the tile actually carrying a handle is restacked; the others have none
+% to lift.
 
-if isempty(obj.RoiEditor) || ~isvalid(obj.RoiEditor)
+lift(obj.RoiEditor, ax);
+lift(obj.SurfaceEditor, ax);
+
+end
+
+function lift(editor, ax)
+%LIFT Raise one draggable handle above the overlay, when it is on this tile.
+
+if isempty(editor) || ~isvalid(editor)
     return
 end
 
-if ~isequal(obj.RoiEditor.Parent, ax)
+if ~isequal(editor.Parent, ax)
     return
 end
 
 try
-    uistack(obj.RoiEditor, "top");
+    uistack(editor, "top");
 catch
     % Not every release lets an ROI object restack; the overlay is
-    % semi-transparent, so the line stays visible either way.
+    % semi-transparent, so the handle stays visible either way.
 end
 
 end

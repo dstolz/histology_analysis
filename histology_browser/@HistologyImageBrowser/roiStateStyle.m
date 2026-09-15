@@ -21,7 +21,7 @@ function style = roiStateStyle(state, tileColor)
 
 arguments
     state (1,1) string
-    tileColor (1,3) double = [0 0.447 0.741]
+    tileColor (1,3) double = HistologyImageBrowser.tileColors(1)
 end
 
 style = struct( ...
