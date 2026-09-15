@@ -1,5 +1,5 @@
 function onDrawRoi(obj)
-%ONDRAWROI Draw a new line ROI by dragging across the image.
+%ONDRAWROI Redraw the active line ROI by dragging across the image.
 % The line is created at the width in the Width field rather than at whatever
 % the previous ROI happened to use, so a section drawn today samples the same
 % band as one drawn last week. Nothing is written until Save ROI.
@@ -7,6 +7,10 @@ function onDrawRoi(obj)
 % Several sections can be selected while this runs. An edit already open owns
 % the line whichever tile it sits on; otherwise the first drawn tile takes it,
 % which is the same tile ONTOGGLEEDITROI would have chosen.
+%
+% This replaces the ROI the dropdown is on rather than adding one, so that a
+% line dragged badly can simply be dragged again. ONADDROI is what gives a
+% section another ROI.
 
 if exist("drawline", "file") == 0
     obj.setError("Drawing a line ROI needs the Image Processing Toolbox.");
@@ -61,7 +65,8 @@ if ~isempty(obj.RoiEditor) && isvalid(obj.RoiEditor)
     obj.RoiEditor = [];
 end
 
-obj.setStatus("Drag across the image to draw a %d px wide line.", width);
+obj.setStatus("Drag across the image to draw ROI %s as a %d px wide line.", ...
+    obj.roiName(obj.RoiEditKey), width);
 
 % Drawn in the unsaved color, because that is what the line will be the
 % instant the mouse comes up: nothing is written until Save ROI.
@@ -101,13 +106,15 @@ obj.RoiEditGeom = geometry;
 obj.RoiEditDirty = true;
 obj.RoiEditDragging = false;
 obj.RoiSavedStem = "";
+obj.RoiSavedKey = "";
 
 obj.updateRoiPreview();
 obj.updateRoiEditControls();
 obj.renderSelection();
 
-obj.setStatus("Drew a %d px line over %.0f px. Save ROI writes it to disk.", ...
-    width, hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1));
+obj.setStatus("Drew ROI %s as a %d px line over %.0f px. Save ROI writes it to disk.", ...
+    obj.roiName(obj.RoiEditKey), width, ...
+    hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1));
 
 end
 

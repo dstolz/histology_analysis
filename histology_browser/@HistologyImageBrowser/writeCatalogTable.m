@@ -28,7 +28,8 @@ obj.CatalogTableSyncing = true;
 % Held in a variable so the guard lives until this function returns.
 releaseGuard = onCleanup(@() release_guard(obj));
 
-[display, widths] = HistologyImageBrowser.catalogDisplayTable(obj.View, obj.CatalogColumns);
+[display, widths] = HistologyImageBrowser.catalogDisplayTable(obj.View, obj.CatalogColumns, ...
+    roiText = obj.roiListText(obj.View));
 
 obj.CatalogTable.Data = display;
 obj.CatalogTable.ColumnWidth = widths;

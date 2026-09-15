@@ -96,7 +96,8 @@ end
 
 heading = HistologyImageBrowser.CatalogColumnHeadings(spec);
 
-display = HistologyImageBrowser.catalogDisplayTable(V, obj.CatalogColumns);
+display = HistologyImageBrowser.catalogDisplayTable(V, obj.CatalogColumns, ...
+    roiText = obj.roiListText(V));
 
 % Asked of the table that was actually built rather than of the arrangement,
 % because CATALOGDISPLAYTABLE drops any column this catalog does not carry and

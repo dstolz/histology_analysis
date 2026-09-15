@@ -75,7 +75,13 @@ function build_roi_submenu(obj)
 % above is also called Line ROI and the two do quite different things.
 menu = uimenu(obj.DisplayMenu, Text = "ROI Editing", Separator = "on");
 
-toggle(obj, menu, obj.EditRoiButton, "Edit ROI", "toggleEditRoi");
+% Which ROI the rest of this submenu acts on comes first, for the same reason
+% it does in the panel.
+choice(obj, menu, obj.RoiSelectDropDown, "ROI");
+action(obj, menu, "Add ROI", "addRoi", Mirror = obj.AddRoiButton);
+action(obj, menu, "Name ROIs...", "editRoiNames");
+
+toggle(obj, menu, obj.EditRoiButton, "Edit ROI", "toggleEditRoi", Separator = true);
 action(obj, menu, "Draw Line", "drawRoi");
 action(obj, menu, "Save ROI", "saveRoi", Mirror = obj.SaveRoiButton);
 action(obj, menu, "Revert", "revertRoi", Mirror = obj.RevertRoiButton);

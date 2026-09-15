@@ -25,6 +25,7 @@ selectedStems = obj.selectedRows();
 if obj.RoiSavedStem ~= "" && ~(height(selectedStems) > 0 ...
         && any(string(selectedStems.Stem) == obj.RoiSavedStem))
     obj.RoiSavedStem = "";
+    obj.RoiSavedKey = "";
 end
 
 % An ROI edit belongs to one section, so moving off it ends the edit. The
@@ -39,6 +40,16 @@ if obj.RoiEditStem ~= "" && ~obj.isEditedStemSelected()
 end
 
 refresh_channel_choices(obj);
+
+% The ROI the controls point at is settled before the redraw, so the dropdown
+% and the tile agree from the first frame. ACTIVEROIKEY keeps the region last
+% chosen when the new section also has it, so stepping down a series stays on
+% one region rather than jumping to whichever ROI each section lists first.
+if height(selectedStems) == 1
+    obj.ActiveRoiKey = obj.activeRoiKey(selectedStems(1, :));
+end
+
+obj.updateRoiEditControls();
 
 % The colormap that reads well for one stain rarely reads well for another,
 % so the section now selected comes back in the map its stain was last shown

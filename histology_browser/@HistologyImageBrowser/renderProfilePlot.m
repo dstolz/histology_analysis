@@ -1,6 +1,9 @@
 function renderProfilePlot(obj)
 %RENDERPROFILEPLOT Plot the profiles of the selected sections on shared axes.
-% Tile colors are reused so a trace is easy to match to its image.
+% Tile colors are reused so a trace is easy to match to its image. A section
+% carrying several ROIs contributes one trace each, all in the tile's color
+% and told apart by stroke, so which section a trace came from and which
+% region of it are two separate things to read rather than one guess.
 %
 % The traces are read in one pass and drawn in another, with NORMALIZEPROFILES
 % between them, because a normalization measured over all traces cannot be
@@ -32,7 +35,8 @@ obj.attachContextMenu(ax, "profile");
 end
 
 function draw_profiles(obj, ax)
-%DRAW_PROFILES Plot one trace per selected section, or say why there is none.
+%DRAW_PROFILES Plot one trace per ROI of each selected section, or say why
+% there is none.
 
 % Set before the early returns, so an empty plot is still labelled for the
 % normalization in force rather than for whatever the last selection used.
@@ -81,11 +85,19 @@ N = obj.normalizeProfiles(traces, ...
 xlabel(ax, N.xLabel);
 ylabel(ax, N.yLabel);
 
+% One stroke per ROI of a section, in the order the section lists them, so the
+% same region draws the same way on every section that has it. The color stays
+% the section's, so the two readings do not compete for it.
+strokes = ["-", "--", ":", "-."];
+
 hold(ax, "on");
 
 for iTrace = 1:numel(N.profiles)
+    stroke = strokes(mod(N.profiles(iTrace).strokeIndex - 1, numel(strokes)) + 1);
+
     plot(ax, N.profiles(iTrace).distance, N.profiles(iTrace).intensity, ...
         LineWidth = 1.25, ...
+        LineStyle = stroke, ...
         Color = colors(N.profiles(iTrace).colorIndex, :), ...
         DisplayName = N.profiles(iTrace).label);
 end
@@ -114,36 +126,51 @@ end
 
 function [traces, missingLabels] = read_traces(obj, rows, nDrawn)
 %READ_TRACES Collect the profiles that have data, and name the ones that do not.
-% Each trace carries the color index and legend entry its row earns, so the
-% drawing pass never has to look at the catalog again -- which matters because
-% NORMALIZEPROFILES returns a copy, and a copy that had to be lined back up
-% against the rows by position would break the moment a row contributed
-% nothing.
+% Each trace carries the color index, the stroke index, and the legend entry it
+% earns, so the drawing pass never has to look at the catalog again -- which
+% matters because NORMALIZEPROFILES returns a copy, and a copy that had to be
+% lined back up against the rows by position would break the moment a row
+% contributed nothing. With several ROIs to a section there is no one trace per
+% row to line up against in the first place.
 
 % Declared with its fields rather than as a bare empty struct, so the first
 % append lands in an array that already has the shape it is growing.
-traces = struct(distance = {}, intensity = {}, colorIndex = {}, label = {});
+traces = struct(distance = {}, intensity = {}, ...
+    colorIndex = {}, strokeIndex = {}, label = {});
 missingLabels = strings(0, 1);
 
 for iRow = 1:nDrawn
-    P = obj.readProfile(rows(iRow, :));
+    row = rows(iRow, :);
+    keys = obj.roiKeysForRow(row);
 
-    if ~P.hasData
-        missingLabels(end + 1) = section_label(rows(iRow, :)); %#ok<AGROW>
+    % A section with no ROI at all is named once, by itself: there is no key to
+    % report it under, and listing it per missing ROI would report nothing.
+    if isempty(keys)
+        missingLabels(end + 1) = section_label(row); %#ok<AGROW>
         continue
     end
 
-    traces(end + 1, 1) = struct( ...
-        distance = double(P.distance(:)), ...
-        intensity = double(P.intensity(:)), ...
-        colorIndex = iRow, ...
-        label = trace_label(rows(iRow, :), P)); %#ok<AGROW>
+    for iKey = 1:numel(keys)
+        P = obj.readProfile(row, keys(iKey));
+
+        if ~P.hasData
+            missingLabels(end + 1) = trace_label(obj, row, keys, keys(iKey)); %#ok<AGROW>
+            continue
+        end
+
+        traces(end + 1, 1) = struct( ...
+            distance = double(P.distance(:)), ...
+            intensity = double(P.intensity(:)), ...
+            colorIndex = iRow, ...
+            strokeIndex = iKey, ...
+            label = trace_label(obj, row, keys, keys(iKey))); %#ok<AGROW>
+    end
 end
 
 end
 
 function note = missing_note(missingLabels)
-%MISSING_NOTE Name the omitted sections, abbreviating a long list.
+%MISSING_NOTE Name the omitted profiles, abbreviating a long list.
 
 if numel(missingLabels) > 3
     note = sprintf("No profile: %s and %d more", ...
@@ -186,13 +213,22 @@ label = subject + " " + row.SectionID + " " + row.Hemisphere;
 
 end
 
-function label = trace_label(row, P)
-%TRACE_LABEL Build a concise legend entry for one profile.
+function label = trace_label(obj, row, keys, key)
+%TRACE_LABEL Build a concise legend entry for one ROI of one section.
+% The ROI is named only when naming it says something. A section with a single
+% ROI still called by the letter it was filed under would otherwise add "(A)"
+% to every entry in the legend while distinguishing nothing; a key that is a
+% region's own name always earns its place, and so does any ROI on a section
+% that has more than one.
 
 label = section_label(row);
 
-if P.roiLabel ~= ""
-    label = label + " (" + P.roiLabel + ")";
+name = obj.roiName(key);
+
+if isscalar(keys) && name == key && strlength(key) == 1
+    return
 end
+
+label = label + " (" + name + ")";
 
 end

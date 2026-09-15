@@ -25,6 +25,7 @@ obj.RoiEditDirty = true;
 % Moving the line makes the last save no longer describe it, so the green
 % confirmation goes as soon as the geometry does.
 obj.RoiSavedStem = "";
+obj.RoiSavedKey = "";
 
 % While the line is moving, the shading still belongs to the old position, so
 % the band is left empty and the measurement waits for the button to come up.

@@ -34,6 +34,7 @@ apply_dropdown(obj.VariantDropDown, read_pref(group, "Variant", ""));
 apply_dropdown(obj.ColormapDropDown, read_pref(group, "Colormap", ""));
 apply_stain_colormaps(obj, group);
 apply_catalog_columns(obj, group);
+apply_roi_names(obj, group);
 
 apply_numeric(obj.LowPercentileField, read_pref(group, "LowPercentile", []));
 apply_numeric(obj.HighPercentileField, read_pref(group, "HighPercentile", []));
@@ -311,6 +312,31 @@ function tf = is_text(value)
 % written by an older release, or by hand, can come back in.
 
 tf = isstring(value) || ischar(value) || iscellstr(value);
+
+end
+
+function apply_roi_names(obj, group)
+%APPLY_ROI_NAMES Restore what each ROI key is called.
+% The pairs are dropped rather than trusted when the two saved lists disagree
+% in length, for the same reason the stain colormaps are: half a pairing says
+% nothing about which name went with which key. Unlike the colormaps, nothing
+% here is checked against a list of what is offered, because a key is whatever
+% the filenames on disk turn out to hold.
+
+keys = string(read_pref(group, "RoiNameKeys", strings(0, 1)));
+labels = string(read_pref(group, "RoiNameLabels", strings(0, 1)));
+
+keys = keys(:);
+labels = labels(:);
+
+if isempty(keys) || numel(keys) ~= numel(labels)
+    return
+end
+
+keep = keys ~= "" & labels ~= "" & ~ismissing(keys) & ~ismissing(labels);
+
+obj.RoiNameKeys = keys(keep);
+obj.RoiNameLabels = labels(keep);
 
 end
 

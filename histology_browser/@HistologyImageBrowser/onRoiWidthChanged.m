@@ -32,6 +32,7 @@ obj.refreshRoiOverlay();
 obj.renderProfilePlot();
 obj.updateRoiEditControls();
 
-obj.setStatus("Sampling band is now %s wide.", obj.describeRoiWidth(width));
+obj.setStatus("Sampling band of ROI %s is now %s wide.", ...
+    obj.roiName(obj.RoiEditKey), obj.describeRoiWidth(width));
 
 end

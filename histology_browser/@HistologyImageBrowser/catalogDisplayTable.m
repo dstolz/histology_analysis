@@ -1,4 +1,4 @@
-function [display, widths] = catalogDisplayTable(rows, columns)
+function [display, widths] = catalogDisplayTable(rows, columns, options)
 %CATALOGDISPLAYTABLE Build the table the Sections widget shows for some rows.
 % The one place a catalog turns into what the Sections table draws, so that
 % WRITECATALOGTABLE and the sort APPLYFILTERS restores cannot disagree about
@@ -20,6 +20,14 @@ function [display, widths] = catalogDisplayTable(rows, columns)
 %   columns: Catalog variable names to show, in display order. Names this
 %       catalog does not carry are dropped rather than thrown on, so a catalog
 %       built by an older release cannot leave the table empty.
+%   options.roiText: What to draw in the ROI column, one string per row, or
+%       an empty array to draw the keys the catalog holds. What an ROI key is
+%       called is a setting of the browser rather than anything in the catalog,
+%       and this function is static so that APPLYFILTERS can build a table for
+%       a view it has not adopted; handing the rendered text in keeps it that
+%       way rather than giving it a browser to ask. Anything the wrong length
+%       is ignored, so a caller that has not kept up cannot misalign the names
+%       against the rows.
 %
 % Returns
 %   display: One variable per shown column, named for its heading, plus the
@@ -32,6 +40,13 @@ function [display, widths] = catalogDisplayTable(rows, columns)
 arguments
     rows table
     columns string = HistologyImageBrowser.DefaultCatalogColumns
+    options.roiText string = strings(0, 1)
+end
+
+roiText = options.roiText(:);
+
+if numel(roiText) ~= height(rows)
+    roiText = strings(0, 1);
 end
 
 display = table();
@@ -61,7 +76,7 @@ for iColumn = 1:numel(columns)
     spec = find(fields == columns(iColumn), 1);
 
     display.(HistologyImageBrowser.CatalogColumnHeadings(spec)) = ...
-        display_values(rows, columns(iColumn));
+        display_values(rows, columns(iColumn), roiText);
 
     widths{iColumn} = width_value(HistologyImageBrowser.CatalogColumnWidths(spec));
 end
@@ -71,14 +86,17 @@ widths{end} = 0;
 
 end
 
-function values = display_values(rows, field)
+function values = display_values(rows, field, roiText)
 %DISPLAY_VALUES Take one catalog column, shortened where the heading is narrow.
-% Two are touched. Every subject in a dataset carries the same SUBJ-ID- prefix,
+% Three are touched. Every subject in a dataset carries the same SUBJ-ID- prefix,
 % so the prefix distinguishes nothing and costs the column eight characters it
 % does not have. Measured is drawn as a tick and a blank rather than as yes and
 % no, because the column is there to be scanned down while working through a
 % stack of sections: what matters is which rows are still outstanding, and
 % blanks show that at a glance.
+%
+% And ROI lists the section's ROIs by the names they have been given, when the
+% caller supplied them; the catalog itself only knows their keys.
 %
 % REFRESHREVIEWCOLUMNS rewrites both review columns in place after a write to
 % the tracker, so anything rendered rather than shown raw has to be rendered
@@ -92,6 +110,10 @@ end
 
 if field == "Measured"
     values = HistologyImageBrowser.measuredMarks(values);
+end
+
+if field == "ROI" && ~isempty(roiText)
+    values = roiText;
 end
 
 end

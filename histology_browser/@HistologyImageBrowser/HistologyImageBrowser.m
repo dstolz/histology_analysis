@@ -7,12 +7,19 @@ classdef HistologyImageBrowser < handle
     %
     % Loads a histology root folder with COMBINE_VALUES_CSV, catalogs every
     % image rendition found beside the values files, and provides filtered
-    % lookup plus single or multi-image display. The line ROI written by the
+    % lookup plus single or multi-image display. The line ROIs written by the
     % Fiji line-measure macro can be overlaid on each image, optionally shaded
     % by the intensities recorded in the matching *values.csv file.
     %
+    % A section may carry several line ROIs, one per region measured across
+    % it. Each is keyed by the letter in its filenames -- A, B, C, and so on,
+    % with the macro's unlabelled pair taken as A -- and each key can be given
+    % the region's own name, so a study that measures auditory and
+    % somatosensory cortex reads as ACx and S1 wherever an ROI is drawn,
+    % plotted, or listed. Those names persist between sessions.
+    %
     % See also COMBINE_VALUES_CSV, BUILD_HISTOLOGY_IMAGE_CATALOG,
-    % READ_IMAGEJ_ROI, LAUNCH_HISTOLOGY_BROWSER.
+    % HISTOLOGY_ROI_KEY, READ_IMAGEJ_ROI, LAUNCH_HISTOLOGY_BROWSER.
 
     properties
         Fig matlab.ui.Figure
@@ -94,6 +101,11 @@ classdef HistologyImageBrowser < handle
         ProfileNormDropDown matlab.ui.control.DropDown
         ProfileScopeDropDown matlab.ui.control.DropDown
         ProfileDistanceDropDown matlab.ui.control.DropDown
+
+        RoiSelectDropDown matlab.ui.control.DropDown
+        AddRoiButton matlab.ui.control.Button
+        RoiNamesButton matlab.ui.control.Button
+        RoiListLabel matlab.ui.control.Label
 
         EditRoiButton matlab.ui.control.StateButton
         RoiWidthField matlab.ui.control.NumericEditField
@@ -197,6 +209,18 @@ classdef HistologyImageBrowser < handle
         ColormapStains string = strings(0, 1)
         ColormapChoices string = strings(0, 1)
 
+        % What each ROI key is called on screen, kept as parallel lists for
+        % the same reason the colormaps are. A section's ROIs are keyed by the
+        % letters A, B, C ... in the filenames of their .roi and values.csv
+        % sidecars, and those letters say nothing about what was measured, so
+        % a key can be given the region's own name -- A is ACx, B is S1 -- and
+        % the overlay, the legend, and the catalog then use it. The names
+        % belong to the study rather than to one sitting with the browser, so
+        % they are kept between sessions. A key with no name here shows as
+        % itself.
+        RoiNameKeys string = strings(0, 1)
+        RoiNameLabels string = strings(0, 1)
+
         % Color behind the image tiles. Set from the panel's own default when
         % the UI is built, so an untouched app looks exactly as it always did.
         ImageBackground double = [0.96 0.96 0.96]
@@ -223,7 +247,15 @@ classdef HistologyImageBrowser < handle
         StatusLevel string = "info" % Severity of the message now on the status bar.
         StatusHistory string = strings(0, 1)
 
+        % Which of the selected section's ROIs the edit controls act on. The
+        % key is kept rather than an index into the section's list, so
+        % stepping through sections stays on the same region -- ACx after ACx
+        % -- instead of landing on whichever ROI each section happens to list
+        % first.
+        ActiveRoiKey string = ""
+
         RoiEditStem string = ""     % Stem being edited; empty when idle.
+        RoiEditKey string = ""      % Which ROI of that stem is being edited.
         RoiEditGeom struct = struct()   % Unsaved x1, y1, x2, y2, strokeWidth, name.
         RoiEditDirty logical = false    % True when the edit differs from the file.
         RoiPreview struct = struct()    % Profile measured from the unsaved geometry.
@@ -235,11 +267,14 @@ classdef HistologyImageBrowser < handle
         % drag ends.
         RoiEditDragging logical = false
 
-        % Stem whose ROI was written to disk in this session. It drives the
-        % green "saved" aesthetic on the tile, which outlives the edit session
-        % so leaving edit mode does not erase the confirmation, and is cleared
-        % as soon as the selection moves on or the line is touched again.
+        % Stem and ROI written to disk in this session. They drive the green
+        % "saved" aesthetic on the tile, which outlives the edit session so
+        % leaving edit mode does not erase the confirmation, and is cleared as
+        % soon as the selection moves on or the line is touched again. The key
+        % is carried too, so a section holding several ROIs marks the one that
+        % was actually written rather than all of them.
         RoiSavedStem string = ""
+        RoiSavedKey string = ""
 
         MeasureImage = []           % Full resolution page profiles are measured from.
         MeasureKey string = ""      % Image path the cached page came from.
@@ -269,6 +304,12 @@ classdef HistologyImageBrowser < handle
         % every keystroke, so the head of a large catalog stands in for it and
         % the count is reported beside the table.
         MaxPatternPreviewNames = 200
+
+        % Keys the naming dialog always offers, whether or not a section uses
+        % them yet, so the regions a study measures can be named once at the
+        % start rather than one at a time as each is first drawn. Any further
+        % key a dataset turns out to hold is offered alongside them.
+        DefaultRoiKeys = ["A", "B", "C", "D", "E", "F"]
 
         % Status severities, and the lamp glyph each one shows.
         StatusLevels = ["info", "busy", "success", "warning", "error"]
@@ -370,11 +411,18 @@ classdef HistologyImageBrowser < handle
             "50", "55", "80", "55", "auto", ...
             "80", "240"]
 
-        % The arrangement an app nobody has configured opens with, which is
-        % exactly the eight columns the table showed before it could be
-        % rearranged, so an existing user sees no change until they ask for one.
+        % The arrangement an app nobody has configured opens with: the eight
+        % columns the table showed before it could be rearranged, plus ROI.
+        %
+        % ROI is the one addition. A section can carry several lines now, one
+        % per region measured across it, and which regions those are is the
+        % first thing anyone working through a stack needs to see; leaving it
+        % out would have hidden the whole point of the ROI keys behind Arrange
+        % Columns. NProfiles stays beside it rather than being replaced by it:
+        % the two disagree whenever a line has been drawn but not yet measured,
+        % and that gap is worth seeing.
         DefaultCatalogColumns = ["SubjectID", "SectionID", "Hemisphere", "Stain", ...
-            "AtlasPlate", "NProfiles", "Variants", "Status"]
+            "AtlasPlate", "NProfiles", "ROI", "Variants", "Status"]
 
         % Variable the display table carries each row's section stem in, drawn
         % at zero width. It is what maps a displayed row back to a catalog row
@@ -516,7 +564,7 @@ classdef HistologyImageBrowser < handle
 
         drawImageTile(obj, ax, row, tileColor)  % Draw one image with its overlay.
 
-        drawRoiOverlay(obj, ax, row, tileColor) % Draw the line ROI and sampling band.
+        drawRoiOverlay(obj, ax, row, tileColor) % Draw every line ROI and sampling band.
 
         refreshOverlays(obj)            % Redraw every tile's overlay, keeping the images.
 
@@ -532,13 +580,21 @@ classdef HistologyImageBrowser < handle
 
         [img, imageSize, reason] = loadDisplayImage(obj, imagePath, page)  % Load and cache one image.
 
-        P = readProfile(obj, row)       % Read profile data for one catalog row.
+        P = readProfile(obj, row, key)  % Read one ROI's profile for a catalog row.
 
-        R = roiForRow(obj, row)         % Line ROI to draw for a row, edited or on disk.
+        R = roiForRow(obj, row, key)    % One line ROI of a row, edited or on disk.
 
-        geometry = initialRoiGeometry(obj, row)  % Geometry an edit session starts from.
+        geometry = initialRoiGeometry(obj, row, key)  % Geometry an edit session starts from.
 
-        onToggleEditRoi(obj)            % Enter or leave ROI editing.
+        onAddRoi(obj)                   % Start a new ROI on the selected section.
+
+        onRoiSelectionChanged(obj)      % Take a new active ROI from the dropdown.
+
+        syncRoiSelector(obj)            % Offer the selected section's ROIs.
+
+        onEditRoiNames(obj)             % Rename the ROI keys A, B, C ...
+
+        onToggleEditRoi(obj, key)       % Enter or leave ROI editing.
 
         proceed = exitRoiEdit(obj, askWhenDirty) % Leave editing, offering to save first.
 
@@ -1505,6 +1561,180 @@ classdef HistologyImageBrowser < handle
             tf = any(string(rows.Stem) == obj.RoiEditStem);
         end
 
+        function tf = isEditingRoi(obj, row, key)
+            % True when this row's named ROI is the one being edited.
+            % Only one ROI of one section is ever open at a time, so this is
+            % what tells the overlay which line on a tile carries the handles
+            % and which are simply drawn.
+            tf = obj.isEditingRow(row) && string(key) == obj.RoiEditKey;
+        end
+
+        function keys = roiKeysForRow(obj, row)
+            % Every ROI one section holds, in the order they are offered.
+            %
+            % An ROI being added is included before anything of it exists on
+            % disk, because until it is saved the edit session is the only
+            % place it lives, and it still has to be drawn and named.
+
+            keys = strings(0, 1);
+
+            if height(row) ~= 1
+                return
+            end
+
+            if ismember("RoiKeys", string(row.Properties.VariableNames))
+                keys = string(row.RoiKeys{1});
+                keys = keys(:);
+            end
+
+            if obj.RoiEditKey ~= "" && obj.isEditingRow(row) ...
+                    && ~ismember(obj.RoiEditKey, keys)
+                keys(end + 1, 1) = obj.RoiEditKey;
+            end
+        end
+
+        function E = roiEntry(obj, row, key)
+            % The two sidecars of one ROI, either of which may be absent.
+            %
+            % Returns
+            %   E: Struct with fields key, name, roiPath, and valuesPath. The
+            %      paths are "" when that file has not been written yet.
+
+            E = struct( ...
+                "key", string(key), ...
+                "name", obj.roiName(key), ...
+                "roiPath", "", ...
+                "valuesPath", "");
+
+            if height(row) ~= 1
+                return
+            end
+
+            varNames = string(row.Properties.VariableNames);
+
+            if ~all(ismember(["RoiKeys", "RoiPaths", "RoiValues"], varNames))
+                return
+            end
+
+            index = find(string(row.RoiKeys{1}) == E.key, 1);
+
+            if isempty(index)
+                return
+            end
+
+            roiPaths = string(row.RoiPaths{1});
+            valuesPaths = string(row.RoiValues{1});
+
+            if index <= numel(roiPaths)
+                E.roiPath = roiPaths(index);
+            end
+
+            if index <= numel(valuesPaths)
+                E.valuesPath = valuesPaths(index);
+            end
+        end
+
+        function key = activeRoiKey(obj, row)
+            % Which ROI of a section the edit controls act on right now.
+            %
+            % The key last chosen wins when the section has it, so moving
+            % between sections stays on one region. Otherwise the section's
+            % first ROI is taken, and a section with no ROI at all answers "A"
+            % so that drawing on it has somewhere to put the result.
+
+            keys = obj.roiKeysForRow(row);
+
+            if obj.ActiveRoiKey ~= "" && ismember(obj.ActiveRoiKey, keys)
+                key = obj.ActiveRoiKey;
+                return
+            end
+
+            if isempty(keys)
+                key = "A";
+                return
+            end
+
+            key = keys(1);
+        end
+
+        function name = roiName(obj, key)
+            % What one ROI key is called on screen, which is the key itself
+            % until somebody names it.
+
+            name = string(key);
+
+            index = find(obj.RoiNameKeys == name, 1);
+
+            if isempty(index) || obj.RoiNameLabels(index) == ""
+                return
+            end
+
+            name = obj.RoiNameLabels(index);
+        end
+
+        function setRoiName(obj, key, name)
+            % Name one ROI key, or clear the name by passing "".
+            % Clearing removes the pair outright rather than storing a blank,
+            % so the naming dialog and the saved preference hold only names
+            % somebody actually chose.
+
+            key = strtrim(string(key));
+            name = strtrim(string(name));
+
+            if key == ""
+                return
+            end
+
+            index = find(obj.RoiNameKeys == key, 1);
+
+            if name == "" || name == key
+                if ~isempty(index)
+                    obj.RoiNameKeys(index) = [];
+                    obj.RoiNameLabels(index) = [];
+                end
+
+                return
+            end
+
+            if isempty(index)
+                obj.RoiNameKeys(end + 1, 1) = key;
+                obj.RoiNameLabels(end + 1, 1) = name;
+                return
+            end
+
+            obj.RoiNameLabels(index) = name;
+        end
+
+        function text = describeRoiList(obj, row)
+            % Name the ROIs one section holds, for the panel and the table.
+
+            keys = obj.roiKeysForRow(row);
+
+            if isempty(keys)
+                text = "";
+                return
+            end
+
+            names = arrayfun(@(k) obj.roiName(k), keys);
+            text = join(names, ", ");
+        end
+
+        function text = roiListText(obj, rows)
+            % DESCRIBEROILIST down a whole view, for the Sections table.
+            %
+            % CATALOGDISPLAYTABLE is static, so that APPLYFILTERS can build a
+            % table for a view it has not adopted yet, and what an ROI key is
+            % called is a setting of this browser rather than anything in the
+            % catalog. This is where the two meet: the names are rendered here
+            % and handed over already drawn.
+
+            text = strings(height(rows), 1);
+
+            for iRow = 1:height(rows)
+                text(iRow) = obj.describeRoiList(rows(iRow, :));
+            end
+        end
+
         function pixelSize = roiEditPixelSize(obj)
             % Pixel size of the image the edited profile is measured from.
             % NaN when the image carries no calibration, in which case
@@ -1729,7 +1959,7 @@ classdef HistologyImageBrowser < handle
 
         T = filenamePatternPreview(names, pattern)     % What a pattern extracts, tabulated.
 
-        [display, widths] = catalogDisplayTable(rows, columns)  % Table the Sections widget shows.
+        [display, widths] = catalogDisplayTable(rows, columns, options)  % Table the Sections widget shows.
 
         idx = catalogSortOrder(display, heading, direction)     % Order one column sort gives.
 
@@ -1781,6 +2011,28 @@ classdef HistologyImageBrowser < handle
             % so the root is two steps up from this file.
 
             root = string(fileparts(fileparts(mfilename("fullpath"))));
+        end
+
+        function key = nextRoiKey(usedKeys)
+            % Name the next ROI a section gains: the first letter it is not
+            % already using. Letters rather than numbers, because the label
+            % goes into a filename beside the section's own name, where "_B_"
+            % cannot be mistaken for part of the section, slide, or z index
+            % that surround it.
+
+            usedKeys = string(usedKeys(:));
+            letters = string(char((double('A'):double('Z'))'));
+
+            free = letters(~ismember(letters, usedKeys));
+
+            if isempty(free)
+                % Twenty-six lines across one section is far past what the
+                % study measures, so this only has to be unique, not pretty.
+                key = "R" + string(numel(usedKeys) + 1);
+                return
+            end
+
+            key = free(1);
         end
 
         function label = shortcutLabel(binding)

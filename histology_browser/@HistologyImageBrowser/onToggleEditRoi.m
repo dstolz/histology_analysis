@@ -1,14 +1,27 @@
-function onToggleEditRoi(obj)
+function onToggleEditRoi(obj, key)
 %ONTOGGLEEDITROI Enter or leave line ROI editing for the selected section.
-% A drag happens on one tile, so an edit session still belongs to exactly one
-% section. It no longer requires exactly one section to be *selected*: with
-% several on screen the first drawn tile takes the line, and the status bar
-% names the section it went to so the choice is never a surprise. Refusing a
-% multi-section selection outright meant the common way of browsing -- select a
-% run of sections, look across them, fix the one that is wrong -- had to be
-% undone before the ROI could be touched.
+% An edit session belongs to exactly one ROI of exactly one section: the line
+% is dragged on the tile itself, so a drag has to belong to one image, and a
+% section holding several lines has to say which of them the handles are on.
 %
-% See also ATTACHROIEDITOR, ONDRAWROI, EXITROIEDIT.
+% It does not require exactly one section to be *selected*, though: with
+% several on screen the first drawn tile takes the line, and the status bar
+% names the section and the ROI it went to so the choice is never a surprise.
+% Refusing a multi-section selection outright meant the common way of browsing
+% -- select a run of sections, look across them, fix the one that is wrong --
+% had to be undone before the ROI could be touched.
+%
+% Parameters
+%   key: Which ROI to open. Defaults to the one the ROI dropdown is on, which
+%       is what a click on the button or its shortcut means. ONADDROI names a
+%       key the section does not have yet.
+%
+% See also ATTACHROIEDITOR, ONDRAWROI, ONADDROI, EXITROIEDIT.
+
+arguments
+    obj
+    key (1,1) string = ""
+end
 
 if ~obj.EditRoiButton.Value
     if obj.exitRoiEdit(true)
@@ -47,7 +60,12 @@ if ~obj.showImages()
 end
 
 row = rows(1, :);
-geometry = obj.initialRoiGeometry(row);
+
+if key == ""
+    key = obj.activeRoiKey(row);
+end
+
+geometry = obj.initialRoiGeometry(row, key);
 
 if isempty(geometry)
     refuse(obj);
@@ -57,6 +75,8 @@ if isempty(geometry)
 end
 
 obj.RoiEditStem = string(row.Stem);
+obj.RoiEditKey = key;
+obj.ActiveRoiKey = key;
 obj.RoiEditGeom = geometry;
 
 % A line that was just invented has nothing on disk to match, so it counts as
@@ -64,11 +84,13 @@ obj.RoiEditGeom = geometry;
 obj.RoiEditDirty = geometry.isNew;
 obj.RoiEditDragging = false;
 
-% A confirmation left over from another section would read as though this one
-% had just been written, so it is dropped when a new session opens.
-if obj.RoiSavedStem ~= obj.RoiEditStem
+% A confirmation left over from another ROI would read as though this one had
+% just been written, so it is dropped when a new session opens.
+if obj.RoiSavedStem ~= obj.RoiEditStem || obj.RoiSavedKey ~= key
     obj.RoiSavedStem = "";
+    obj.RoiSavedKey = "";
 end
+
 obj.RoiPreview = struct();
 obj.RoiWidthField.Value = geometry.strokeWidth;
 
@@ -82,20 +104,24 @@ end
 obj.updateRoiEditControls();
 obj.renderSelection();
 
-obj.setStatus("%s Drag its ends, then Save ROI.", opening_note(row, height(rows), geometry.isNew));
+obj.setStatus("%s Drag its ends, then Save ROI.", ...
+    opening_note(row, height(rows), obj.roiName(key), geometry.isNew));
 
 end
 
-function note = opening_note(row, nSelected, isNew)
-%OPENING_NOTE Say which section the line went to, and whether it is a new one.
+function note = opening_note(row, nSelected, name, isNew)
+%OPENING_NOTE Say which ROI of which section the line went to, and whether it
+% is a new one.
 % With one section selected the section is obvious and naming it is enough.
 % With several, which tile just became editable is the thing the user cannot
-% see from the button, so the count goes in the sentence.
+% see from the button, so the count goes in the sentence. The ROI is named
+% either way: a section can carry several, and which of them has the handles
+% is no more visible from the button than which tile does.
 
 if isNew
-    verb = "Placed a new ROI on";
+    verb = "Placed new ROI " + name + " on";
 else
-    verb = "Editing the ROI for";
+    verb = "Editing ROI " + name + " of";
 end
 
 if nSelected == 1

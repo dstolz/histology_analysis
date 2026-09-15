@@ -3,15 +3,17 @@ function onExportWorkspace(obj, variableName)
 % Finding the sections happens in this window, but the analysis that follows
 % happens at the command line, and the only way across used to be rebuilding
 % the catalog by hand and re-reading every ROI and values file. This hands over
-% exactly what is on screen instead: one row per selected section, carrying the
-% tokenized name, the files it was read from, the tracker's annotations, the
-% line ROI in pixel coordinates, and the profile measured through it.
+% exactly what is on screen instead: one row per ROI of each selected section,
+% carrying the tokenized name, the files it was read from, the tracker's
+% annotations, the line ROI in pixel coordinates, and the profile measured
+% through it. A section measured across several regions contributes one row per
+% region, told apart by ROIKey, with its own columns repeated down them.
 %
-% The profile is packed into a single cell per section, each holding its own
+% The profile is packed into a single cell per row, each holding its own
 % two-column table, rather than being unnested into one row per sample. A
 % flattened export would repeat all forty section columns for each of the
 % hundreds of samples in a profile, and the first thing any analysis does is
-% group those samples back by section anyway.
+% group those samples back by ROI anyway.
 %
 % ROI coordinates are exported in pixels, as they are stored and as the overlay
 % draws them, with the calibration beside them rather than applied to them.
@@ -90,13 +92,13 @@ fprintf("\n%s =\n\n", variableName);
 head(T);
 
 if replacing
-    obj.setWarning("Exported %d section(s) to ""%s"", replacing what was there.", ...
-        height(T), variableName);
+    obj.setWarning("Exported %d ROI(s) from %d section(s) to ""%s"", replacing what was there.", ...
+        height(T), height(rows), variableName);
     return
 end
 
-obj.setSuccess("Exported %d section(s) to ""%s"" in the base workspace.", ...
-    height(T), variableName);
+obj.setSuccess("Exported %d ROI(s) from %d section(s) to ""%s"" in the base workspace.", ...
+    height(T), height(rows), variableName);
 
 end
 
@@ -143,10 +145,18 @@ tf = string(choice) == "Replace";
 end
 
 function T = build_export_table(obj, rows)
-%BUILD_EXPORT_TABLE Assemble one row per selected section.
+%BUILD_EXPORT_TABLE Assemble one row per ROI of each selected section.
 % Columns the catalog already carries are copied across rather than rebuilt, so
 % an exported column cannot come out under a different name or a different type
 % than the one the browser filters and sorts on.
+%
+% A section carrying several ROIs contributes one row each, identified by
+% ROIKey. One row per section would have had to pick an ROI to export, and the
+% only available answer -- the one the edit controls happen to be pointed at --
+% would have made the same selection export different numbers depending on
+% where a dropdown was left, and dropped the rest of the measurements without
+% saying so. The section's own columns repeat down its ROIs, which is what
+% makes the table joinable and groupable on either.
 
 tokens = ["Stem", "SubjectID", "SampleID", "SectionID", "Hemisphere", ...
     "Stain", "ZPlane", "DateCode", "ImageNumber", "Protocol", "Series", "NameParsed"];
@@ -157,6 +167,8 @@ tokens = ["Stem", "SubjectID", "SampleID", "SectionID", "Hemisphere", ...
 tracker = ["Status", "InTracker", "AtlasPlate", "Content", "Slide", ...
     "SliceID", "ImageDate", "LaserPower", "ProcessingID", "Notes"];
 
+[nSections, rows, keys] = expand_by_roi(obj, rows);
+
 % Read once and handed to both the geometry and the profile, because a
 % profile's distance axis is in the same unit as the pixel size that measured
 % it and neither should be able to report a different one.
@@ -164,13 +176,60 @@ C = calibrations(obj, rows);
 
 T = [ ...
     pick_columns(rows, tokens), ...
+    roi_identity(obj, keys), ...
     source_files(obj, rows), ...
     pick_columns(rows, tracker), ...
-    roi_geometry(obj, rows, C), ...
-    profile_column(obj, rows, C)];
+    roi_geometry(obj, rows, C, keys), ...
+    profile_column(obj, rows, C, keys)];
 
-T.Properties.Description = sprintf("%d histology section(s) exported from %s on %s.", ...
-    height(T), obj.RootPath, string(datetime("now", Format = "yyyy-MM-dd HH:mm:ss")));
+T.Properties.Description = sprintf( ...
+    "%d ROI(s) across %d histology section(s) exported from %s on %s.", ...
+    height(T), nSections, obj.RootPath, ...
+    string(datetime("now", Format = "yyyy-MM-dd HH:mm:ss")));
+
+end
+
+function [nSections, rows, keys] = expand_by_roi(obj, rows)
+%EXPAND_BY_ROI Repeat each selected section once per ROI it carries.
+% A section with no ROI at all still gets exactly one row, under the key a new
+% ROI on it would take, so that it appears in the export with its coordinates
+% NaN and its state "none" rather than vanishing from it. That is the same
+% treatment an unmeasured section has always had.
+%
+% Returns
+%   nSections: How many sections went in, for the counts that are reported in
+%       sections rather than in rows.
+%   rows: The selected rows, repeated.
+%   keys: The ROI key each repeated row stands for.
+
+nSections = height(rows);
+
+index = zeros(0, 1);
+keys = strings(0, 1);
+
+for iRow = 1:nSections
+    rowKeys = obj.roiKeysForRow(rows(iRow, :));
+
+    if isempty(rowKeys)
+        rowKeys = obj.activeRoiKey(rows(iRow, :));
+    end
+
+    index = [index; repmat(iRow, numel(rowKeys), 1)];  %#ok<AGROW>
+    keys = [keys; string(rowKeys(:))];                 %#ok<AGROW>
+end
+
+rows = rows(index, :);
+
+end
+
+function R = roi_identity(obj, keys)
+%ROI_IDENTITY Name the ROI each row stands for, by key and by display name.
+% The key is what the filenames on disk are keyed by and is what an analysis
+% should group on; the name is whatever it has been called in this browser,
+% which is a label rather than an identifier and may not have been set at all.
+
+R = table(keys, arrayfun(@(k) obj.roiName(k), keys), ...
+    VariableNames = ["ROIKey", "ROIName"]);
 
 end
 
@@ -228,11 +287,12 @@ end
 
 end
 
-function G = roi_geometry(obj, rows, C)
+function G = roi_geometry(obj, rows, C, keys)
 %ROI_GEOMETRY Export each line ROI in pixels, with its calibration beside it.
-% A section with no line still gets a row: its coordinates are NaN and its
-% state says "none", which keeps the columns numeric and lets an analysis
-% filter on ISFINITE rather than on a column of mixed types.
+% One row per ROI, in the order EXPAND_BY_ROI put them in. An ROI with no line
+% still gets a row: its coordinates are NaN and its state says "none", which
+% keeps the columns numeric and lets an analysis filter on ISFINITE rather than
+% on a column of mixed types.
 
 n = height(rows);
 
@@ -246,7 +306,7 @@ lineLength = nan(n, 1);
 pixelSize = nan(n, 1);
 
 for iRow = 1:n
-    R = obj.roiForRow(rows(iRow, :));
+    R = obj.roiForRow(rows(iRow, :), keys(iRow));
     state(iRow) = R.state;
 
     if ~R.isValid || ~R.isLine
@@ -275,10 +335,10 @@ G = table(state, x1, y1, x2, y2, strokeWidth, lineLength, pixelSize, [C.unit]', 
 
 end
 
-function P = profile_column(obj, rows, C)
-%PROFILE_COLUMN Pack each section's measured profile into a single cell.
-% A section that was never measured gets an empty two-column table rather than
-% an empty cell, so VERTCAT over the column works without testing every element
+function P = profile_column(obj, rows, C, keys)
+%PROFILE_COLUMN Pack each ROI's measured profile into a single cell.
+% An ROI that was never measured gets an empty two-column table rather than an
+% empty cell, so VERTCAT over the column works without testing every element
 % first and a plotting loop draws nothing instead of erroring.
 
 n = height(rows);
@@ -289,7 +349,7 @@ source = strings(n, 1);
 nSamples = zeros(n, 1);
 
 for iRow = 1:n
-    D = obj.readProfile(rows(iRow, :));
+    D = obj.readProfile(rows(iRow, :), keys(iRow));
 
     roiLabel(iRow) = D.roiLabel;
     source(iRow) = D.source;
