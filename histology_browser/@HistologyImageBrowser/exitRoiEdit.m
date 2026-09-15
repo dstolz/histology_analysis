@@ -23,7 +23,8 @@ end
 
 if askWhenDirty && obj.RoiEditDirty
     choice = uiconfirm(obj.Fig, ...
-        "The ROI for " + obj.RoiEditStem + " has unsaved changes.", ...
+        "ROI " + obj.roiName(obj.RoiEditKey) + " of " + obj.RoiEditStem ...
+            + " has unsaved changes.", ...
         "Unsaved ROI", ...
         Options = ["Save", "Discard", "Cancel"], ...
         DefaultOption = "Save", ...
@@ -47,7 +48,8 @@ if askWhenDirty && obj.RoiEditDirty
             return
 
         otherwise
-            obj.setWarning("Discarded unsaved ROI changes for %s.", obj.RoiEditStem);
+            obj.setWarning("Discarded unsaved changes to ROI %s of %s.", ...
+                obj.roiName(obj.RoiEditKey), obj.RoiEditStem);
     end
 end
 
@@ -62,8 +64,19 @@ if ~isempty(obj.RoiEditor) && isvalid(obj.RoiEditor)
     delete(obj.RoiEditor);
 end
 
+if ~isempty(obj.SurfaceEditor) && isvalid(obj.SurfaceEditor)
+    delete(obj.SurfaceEditor);
+end
+
 obj.RoiEditor = [];
+obj.SurfaceEditor = [];
+obj.SurfaceEditDragging = false;
 obj.RoiEditStem = "";
+
+% The active key outlives the session: it is which ROI the controls are
+% pointed at, not which one has handles on it, and the next section stepped to
+% should open on the same region.
+obj.RoiEditKey = "";
 obj.RoiEditGeom = struct();
 obj.RoiEditDirty = false;
 obj.RoiEditDragging = false;

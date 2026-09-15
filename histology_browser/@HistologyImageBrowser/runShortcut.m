@@ -39,6 +39,18 @@ switch action
         % No name is passed, so the key asks for one exactly as the menu does.
         obj.onExportWorkspace();
 
+    case "toggleMeasured"
+        toggle_measured(obj);
+
+    case "addRoi"
+        obj.onAddRoi();
+
+    case "nextRoi"
+        step_roi(obj);
+
+    case "editRoiNames"
+        obj.onEditRoiNames();
+
     case "toggleEditRoi"
         % The state button carries the mode, so it is flipped first and the
         % callback then reads it exactly as it would after a click.
@@ -56,6 +68,14 @@ switch action
         press(obj, obj.RevertRoiButton, @obj.onRevertRoiEdits, ...
             "The ROI has no unsaved changes to discard.");
 
+    case "detectSurface"
+        press(obj, obj.DetectSurfaceButton, @obj.onDetectSurface, ...
+            "Nothing is being edited, so there is no line to find a surface on.");
+
+    case "markSurface"
+        press(obj, obj.MarkSurfaceButton, @obj.onMarkSurface, ...
+            "Nothing is being edited, so there is no line to mark a surface on.");
+
     case "cancelRoiEdit"
         cancel_roi_edit(obj);
 
@@ -67,6 +87,9 @@ switch action
 
     case "toggleIntensityShading"
         toggle_check(obj, obj.ColorByIntensityCheck, "Intensity shading");
+
+    case "toggleSurfaceOverlay"
+        toggle_check(obj, obj.ShowSurfaceCheck, "Brain surface marks");
 
     case "toggleDataColumn"
         obj.onToggleDataColumn();
@@ -149,6 +172,33 @@ callback();
 
 end
 
+function step_roi(obj)
+%STEP_ROI Move to the section's next ROI, wrapping at the end.
+% The dropdown is what holds the choice, so it is written and then asked to
+% run its own callback: a key and a click then take the same path, including
+% the offer to save whatever the ROI being left has outstanding.
+
+rows = obj.selectedRows();
+
+if height(rows) ~= 1
+    obj.setWarning("Select exactly one section before moving between its ROIs.");
+    return
+end
+
+keys = obj.roiKeysForRow(rows(1, :));
+
+if numel(keys) < 2
+    obj.setStatus("This section has only one ROI.");
+    return
+end
+
+next = mod(find(keys == obj.activeRoiKey(rows(1, :)), 1), numel(keys)) + 1;
+
+obj.RoiSelectDropDown.Value = keys(next);
+obj.onRoiSelectionChanged();
+
+end
+
 function cancel_roi_edit(obj)
 %CANCEL_ROI_EDIT Leave ROI editing, or say there was nothing to leave.
 % Unsaved work still gets its prompt: Escape asks to leave, it does not throw
@@ -163,6 +213,25 @@ obj.onToggleEditRoi();
 
 end
 
+function toggle_measured(obj)
+%TOGGLE_MEASURED Flip the measured flag for whatever is selected.
+% The panel offers two explicit buttons, because a selection can be part
+% measured and a single control cannot honestly show that. One key still has to
+% pick a direction, so it clears only when there is nothing left to mark, which
+% is what makes it safe to hold down through a stack of sections: it marks
+% until everything selected is marked, and only then starts undoing.
+
+target = obj.reviewTarget();
+
+if ~target.writable
+    obj.setWarning("%s", target.reason);
+    return
+end
+
+obj.onSetMeasured(~all(obj.View.Measured(target.writableRows)));
+
+end
+
 function toggle_check(obj, check, name)
 %TOGGLE_CHECK Flip an overlay checkbox and redraw, naming its new state.
 % The checkbox is off screen whenever the configuration panels are hidden,
@@ -173,8 +242,12 @@ if isempty(check) || ~isvalid(check)
     return
 end
 
-check.Value = ~check.Value;
-obj.onDisplayOptionChanged();
+% Through CHOOSEFROMMENU, which writes the control and runs that control's own
+% callback, rather than through a redraw named here: the brain surface marks
+% are drawn on the profile plot as well as on the tiles and ask for more redraw
+% than the other four, and a key press has to get whatever a click on the same
+% checkbox would.
+obj.chooseFromMenu(check, ~check.Value);
 
 if check.Value
     obj.setStatus("%s on.", name);

@@ -1,59 +1,118 @@
-function P = readProfile(obj, row)
-%READPROFILE Return the line profile associated with one catalog row.
+function P = readProfile(obj, row, key)
+%READPROFILE Return the line profile of one of a section's ROIs.
 %
 % The already-loaded COMBINE_VALUES_CSV output is preferred, so the browser
 % shows exactly the data the analysis pipeline sees. Reading the CSV directly
 % is only a fallback for rows that combiner skipped, for example when the
 % filename did not match the tracker.
 %
+% The brain surface mark comes back on the same axis as the samples, so a
+% caller plotting the trace can put a marker on it, or shift the axis so the
+% surface sits at zero, without knowing that the mark is stored in pixels along
+% the line. The conversion is the fraction of the line the mark sits at, mapped
+% onto the span of the trace, which is exact because the trace spans the line
+% by construction and holds whether or not the page carries a calibration.
+%
+% Parameters
+%   row: One catalog row.
+%   key: Which of the section's ROIs to read. Defaults to the one the edit
+%       controls are pointed at.
+%
 % Returns
-%   P: Struct with fields hasData, distance, intensity, roiLabel, source,
-%      and message.
+%   P: Struct with fields hasData, distance, intensity, surface,
+%      surfaceSource, roiKey, roiLabel, source, and message. The label is what
+%      the ROI is called on screen, which is the key until somebody names it.
+%      The surface is NaN when this ROI has no mark.
+
+arguments
+    obj
+    row table
+    key (1,1) string = obj.activeRoiKey(row)
+end
 
 P = struct( ...
     "hasData", false, ...
     "distance", zeros(0, 1), ...
     "intensity", zeros(0, 1), ...
-    "roiLabel", "", ...
+    "surface", NaN, ...
+    "surfaceSource", "", ...
+    "roiKey", key, ...
+    "roiLabel", obj.roiName(key), ...
     "source", "", ...
     "message", "");
 
 % An unsaved edit is what the user is looking at, so the profile measured
 % under the moved line takes precedence over whatever is still on disk.
-P = read_from_preview(P, obj, row);
+P = read_from_preview(P, obj, row, key);
 
 if P.hasData
+    P = attach_surface(P, obj, row, key);
     return
 end
 
-valuesPaths = row.ValuesPaths{1};
+valuesPath = obj.roiEntry(row, key).valuesPath;
 
-if isempty(valuesPaths)
-    P.message = "No values file for this section.";
+if valuesPath == ""
+    P.message = "No values file for ROI " + P.roiLabel + " of this section.";
     return
-end
-
-valuesPath = valuesPaths(1);
-roiLabels = row.ROILabels{1};
-
-if ~isempty(roiLabels)
-    P.roiLabel = roiLabels(1);
 end
 
 P = read_from_combined(P, obj.Data, valuesPath);
 
 if P.hasData
+    P = attach_surface(P, obj, row, key);
     return
 end
 
 P = read_from_csv(P, valuesPath);
+P = attach_surface(P, obj, row, key);
 
 end
 
-function P = read_from_preview(P, obj, row)
+function P = attach_surface(P, obj, row, key)
+%ATTACH_SURFACE Put the brain surface mark onto the trace's own distance axis.
+% ROIFORROW is what resolves the mark, so an unsaved one wins over the sidecar
+% exactly as an unsaved line wins over the .roi file, and everything that draws
+% the surface is reading the same number.
+%
+% Asked for this profile's own ROI rather than for the section's default one.
+% Each line crosses the surface at its own depth and has its own length to
+% scale that depth by, so reading the default would have put one ROI's mark on
+% another ROI's trace whenever a section carries more than one.
+
+if ~P.hasData
+    return
+end
+
+R = obj.roiForRow(row, key);
+
+if ~R.isValid || ~R.isLine || ~isfinite(R.surface)
+    return
+end
+
+lineLength = hypot(R.x2 - R.x1, R.y2 - R.y1);
+
+if ~isfinite(lineLength) || lineLength <= 0
+    return
+end
+
+span = P.distance(end) - P.distance(1);
+
+if ~isfinite(span) || span <= 0
+    return
+end
+
+fraction = min(max(R.surface / lineLength, 0), 1);
+
+P.surface = P.distance(1) + fraction * span;
+P.surfaceSource = R.surfaceSource;
+
+end
+
+function P = read_from_preview(P, obj, row, key)
 %READ_FROM_PREVIEW Return the profile measured under an unsaved ROI edit.
 
-if ~obj.isEditingRow(row)
+if ~obj.isEditingRoi(row, key)
     return
 end
 
@@ -61,12 +120,6 @@ preview = obj.RoiPreview;
 
 if ~isfield(preview, "hasData") || ~preview.hasData
     return
-end
-
-roiLabels = row.ROILabels{1};
-
-if ~isempty(roiLabels)
-    P.roiLabel = roiLabels(1);
 end
 
 P.distance = preview.distance;

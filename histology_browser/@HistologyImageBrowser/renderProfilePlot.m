@@ -1,12 +1,20 @@
 function renderProfilePlot(obj)
 %RENDERPROFILEPLOT Plot the profiles of the selected sections on shared axes.
-% Tile colors are reused so a trace is easy to match to its image.
+% Tile colors are reused so a trace is easy to match to its image. A section
+% carrying several ROIs contributes one trace each, all in the tile's color
+% and told apart by stroke, so which section a trace came from and which
+% region of it are two separate things to read rather than one guess.
 %
 % The traces are read in one pass and drawn in another, with NORMALIZEPROFILES
 % between them, because a normalization measured over all traces cannot be
 % applied to the first one until the last one has been read. Reading and
 % drawing in a single loop was what this did before there was anything to
 % measure across the plot.
+%
+% A section whose brain surface has been marked gets a dashed rule at that
+% depth in its own trace's color, on the same switch as the tick the tiles
+% carry. Under "From brain surface" every rule lands on zero and they draw as
+% one, which is exactly what that alignment is claiming.
 %
 % See also ATTACHCONTEXTMENU, NORMALIZEPROFILES, RENDERSELECTION.
 
@@ -32,7 +40,8 @@ obj.attachContextMenu(ax, "profile");
 end
 
 function draw_profiles(obj, ax)
-%DRAW_PROFILES Plot one trace per selected section, or say why there is none.
+%DRAW_PROFILES Plot one trace per ROI of each selected section, or say why
+% there is none.
 
 % Set before the early returns, so an empty plot is still labelled for the
 % normalization in force rather than for whatever the last selection used.
@@ -56,11 +65,9 @@ end
 
 nDrawn = min(height(rows), max(1, round(obj.MaxTilesField.Value)));
 
-if nDrawn <= 7
-    colors = lines(nDrawn);
-else
-    colors = turbo(nDrawn);
-end
+% The same colors the tiles are framed and titled in, from the same place, so
+% a trace can be matched to its picture without counting positions.
+colors = HistologyImageBrowser.tileColors(nDrawn);
 
 [traces, missingLabels] = read_traces(obj, rows, nDrawn);
 
@@ -81,27 +88,49 @@ N = obj.normalizeProfiles(traces, ...
 xlabel(ax, N.xLabel);
 ylabel(ax, N.yLabel);
 
+% One stroke per ROI of a section, in the order the section lists them, so the
+% same region draws the same way on every section that has it. The color stays
+% the section's, so the two readings do not compete for it.
+strokes = ["-", "--", ":", "-."];
+
 hold(ax, "on");
 
+traceLines = gobjects(numel(N.profiles), 1);
+
 for iTrace = 1:numel(N.profiles)
-    plot(ax, N.profiles(iTrace).distance, N.profiles(iTrace).intensity, ...
+    stroke = strokes(mod(N.profiles(iTrace).strokeIndex - 1, numel(strokes)) + 1);
+
+    traceLines(iTrace) = plot(ax, N.profiles(iTrace).distance, N.profiles(iTrace).intensity, ...
         LineWidth = 1.25, ...
+        LineStyle = stroke, ...
         Color = colors(N.profiles(iTrace).colorIndex, :), ...
         DisplayName = N.profiles(iTrace).label);
+end
+
+% Drawn after the traces so a rule sits over the curve it belongs to.
+if obj.ShowSurfaceCheck.Value
+    draw_surface_rules(ax, N.profiles, colors);
 end
 
 hold(ax, "off");
 
 axis(ax, "tight");
 
+% The traces are named rather than the axes being asked what is on it, so the
+% surface rules cannot end up in a legend that is meant to name sections: a
+% second entry per section would double a twelve-trace legend to say nothing.
 if numel(N.profiles) <= 12
-    legend(ax, Interpreter = "none", Location = "best", Box = "off");
+    legend(ax, traceLines, Interpreter = "none", Location = "best", Box = "off");
 end
 
 % With a mixed selection the plotted traces alone would not reveal that some
-% sections contributed nothing, so the omission is stated on the axes.
-if ~isempty(missingLabels)
-    text(ax, 0.99, 0.99, missing_note(missingLabels), ...
+% sections contributed nothing, or that some of them are sitting on their line
+% start because no surface was ever marked on them, so both are stated on the
+% axes rather than left to be inferred from a plot that looks complete.
+lines = notes(missingLabels, N);
+
+if ~isempty(lines)
+    text(ax, 0.99, 0.99, join(lines, "; "), ...
         Units = "normalized", ...
         HorizontalAlignment = "right", ...
         VerticalAlignment = "top", ...
@@ -112,38 +141,100 @@ end
 
 end
 
-function [traces, missingLabels] = read_traces(obj, rows, nDrawn)
-%READ_TRACES Collect the profiles that have data, and name the ones that do not.
-% Each trace carries the color index and legend entry its row earns, so the
-% drawing pass never has to look at the catalog again -- which matters because
-% NORMALIZEPROFILES returns a copy, and a copy that had to be lined back up
-% against the rows by position would break the moment a row contributed
-% nothing.
+function lines = notes(missingLabels, N)
+%NOTES Collect what the plot has to say about what is not on it.
 
-% Declared with its fields rather than as a bare empty struct, so the first
-% append lands in an array that already has the shape it is growing.
-traces = struct(distance = {}, intensity = {}, colorIndex = {}, label = {});
-missingLabels = strings(0, 1);
+lines = strings(0, 1);
 
-for iRow = 1:nDrawn
-    P = obj.readProfile(rows(iRow, :));
+if ~isempty(missingLabels)
+    lines(end + 1, 1) = missing_note(missingLabels);
+end
 
-    if ~P.hasData
-        missingLabels(end + 1) = section_label(rows(iRow, :)); %#ok<AGROW>
+% Only under the alignment that needed a mark. Under every other distance
+% mapping an unmarked section is not missing anything.
+if N.distance == "surface" && N.nUnmarked > 0
+    lines(end + 1, 1) = sprintf("%d trace(s) not surface-marked, shown from the line start", ...
+        N.nUnmarked);
+end
+
+end
+
+function draw_surface_rules(ax, profiles, colors)
+%DRAW_SURFACE_RULES Rule each trace at the depth its brain surface was marked.
+% XLINE rather than a plotted pair of points, so the rule spans whatever the
+% intensity axis turns out to be after the normalization has had it, and so it
+% keeps spanning it if the axis is later zoomed.
+
+for iProfile = 1:numel(profiles)
+    surface = profiles(iProfile).surface;
+
+    if ~isscalar(surface) || ~isfinite(surface)
         continue
     end
 
-    traces(end + 1, 1) = struct( ...
-        distance = double(P.distance(:)), ...
-        intensity = double(P.intensity(:)), ...
-        colorIndex = iRow, ...
-        label = trace_label(rows(iRow, :), P)); %#ok<AGROW>
+    xline(ax, surface, ...
+        LineStyle = "--", ...
+        LineWidth = 1, ...
+        Color = colors(profiles(iProfile).colorIndex, :), ...
+        Alpha = 0.9);
+end
+
+end
+
+function [traces, missingLabels] = read_traces(obj, rows, nDrawn)
+%READ_TRACES Collect the profiles that have data, and name the ones that do not.
+% Each trace carries the color index, the stroke index, and the legend entry it
+% earns, so the drawing pass never has to look at the catalog again -- which
+% matters because NORMALIZEPROFILES returns a copy, and a copy that had to be
+% lined back up against the rows by position would break the moment a row
+% contributed nothing. With several ROIs to a section there is no one trace per
+% row to line up against in the first place.
+
+% Declared with its fields rather than as a bare empty struct, so the first
+% append lands in an array that already has the shape it is growing.
+traces = struct(distance = {}, intensity = {}, surface = {}, ...
+    colorIndex = {}, strokeIndex = {}, label = {});
+missingLabels = strings(0, 1);
+
+for iRow = 1:nDrawn
+    row = rows(iRow, :);
+    keys = obj.roiKeysForRow(row);
+
+    % A section with no ROI at all is named once, by itself: there is no key to
+    % report it under, and listing it per missing ROI would report nothing.
+    if isempty(keys)
+        missingLabels(end + 1) = section_label(row); %#ok<AGROW>
+        continue
+    end
+
+    for iKey = 1:numel(keys)
+        P = obj.readProfile(row, keys(iKey));
+
+        if ~P.hasData
+            missingLabels(end + 1) = trace_label(obj, row, keys, keys(iKey)); %#ok<AGROW>
+            continue
+        end
+
+        % The surface rides along on the trace rather than being looked up
+        % again at drawing time, for the same reason the color, the stroke, and
+        % the label do: NORMALIZEPROFILES returns a copy, and anything that had
+        % to be lined back up against the rows by position would break the
+        % moment a row contributed nothing. It is per ROI, not per section:
+        % each line crosses the surface at its own depth.
+        traces(end + 1, 1) = struct( ...
+            distance = double(P.distance(:)), ...
+            intensity = double(P.intensity(:)), ...
+            surface = double(P.surface), ...
+            colorIndex = iRow, ...
+            strokeIndex = iKey, ...
+            label = trace_label(obj, row, keys, keys(iKey))); %#ok<AGROW>
+    end
 end
 
 end
 
 function note = missing_note(missingLabels)
-%MISSING_NOTE Name the omitted sections, abbreviating a long list.
+%MISSING_NOTE Name the omitted profiles, abbreviating a long list.
 
 if numel(missingLabels) > 3
     note = sprintf("No profile: %s and %d more", ...
@@ -186,13 +277,22 @@ label = subject + " " + row.SectionID + " " + row.Hemisphere;
 
 end
 
-function label = trace_label(row, P)
-%TRACE_LABEL Build a concise legend entry for one profile.
+function label = trace_label(obj, row, keys, key)
+%TRACE_LABEL Build a concise legend entry for one ROI of one section.
+% The ROI is named only when naming it says something. A section with a single
+% ROI still called by the letter it was filed under would otherwise add "(A)"
+% to every entry in the legend while distinguishing nothing; a key that is a
+% region's own name always earns its place, and so does any ROI on a section
+% that has more than one.
 
 label = section_label(row);
 
-if P.roiLabel ~= ""
-    label = label + " (" + P.roiLabel + ")";
+name = obj.roiName(key);
+
+if isscalar(keys) && name == key && strlength(key) == 1
+    return
 end
+
+label = label + " (" + name + ")";
 
 end

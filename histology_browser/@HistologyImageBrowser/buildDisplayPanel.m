@@ -9,8 +9,8 @@ panel.Layout.Row = 1;
 % reach the right edge of the window at its opening size. Anything added here
 % has to be paid for out of the widths below, which is why a new group of
 % settings takes a row of its own rather than a column.
-grid = uigridlayout(panel, [4 14]);
-grid.RowHeight = {"fit", "fit", "fit", "fit"};
+grid = uigridlayout(panel, [6 14]);
+grid.RowHeight = {"fit", "fit", "fit", "fit", "fit", "fit"};
 grid.ColumnWidth = {"fit", 92, "fit", 92, "fit", 92, "fit", 60, 60, "fit", 50, "fit", 100, 90};
 grid.Padding = [8 8 8 8];
 grid.RowSpacing = 4;
@@ -149,7 +149,62 @@ obj.ExportButton.Tooltip = "Save the current view to an image file." ...
     + obj.shortcutHint("exportView");
 
 build_roi_edit_row(obj, grid);
+build_surface_row(obj, grid);
 build_profile_row(obj, grid);
+
+end
+
+function build_surface_row(obj, grid)
+%BUILD_SURFACE_ROW Build the controls that mark the brain surface on a line.
+% A row of its own under the ROI edit row it belongs to, because that row has
+% no width left in it and because these four are one question -- where on this
+% line does the brain start -- rather than four settings that happen to be
+% adjacent. They read left to right as the order they are used in: switch the
+% marks on, let the profile place one, place one by hand, take one off.
+%
+% Only the switch applies with nothing being edited. The other three change a
+% line, and a line is only changeable inside an edit session, so
+% UPDATEROIEDITCONTROLS greys them the way it greys Save and Revert.
+
+% The one overlay switch with a callback of its own, because it is the one
+% drawn on the profile plot as well as on the tiles.
+obj.ShowSurfaceCheck = uicheckbox(grid, ...
+    Text = "Brain surface", ...
+    Value = true, ...
+    ValueChangedFcn = @(~,~) obj.onSurfaceOverlayChanged());
+place(obj.ShowSurfaceCheck, 5, [1 2]);
+obj.ShowSurfaceCheck.Tooltip = "Tick each line where its brain surface was marked, " + ...
+    "and rule the profile plot at the same depth." ...
+    + obj.shortcutHint("toggleSurfaceOverlay");
+
+obj.DetectSurfaceButton = uibutton(grid, "push", ...
+    Text = "Detect", ...
+    Enable = "off", ...
+    ButtonPushedFcn = @(~,~) obj.onDetectSurface());
+place(obj.DetectSurfaceButton, 5, [3 4]);
+obj.DetectSurfaceButton.Tooltip = "Find the brain surface in the profile under the line, " + ...
+    "where it steps up out of the background." ...
+    + obj.shortcutHint("detectSurface");
+
+obj.MarkSurfaceButton = uibutton(grid, "push", ...
+    Text = "Mark Surface", ...
+    Enable = "off", ...
+    ButtonPushedFcn = @(~,~) obj.onMarkSurface());
+place(obj.MarkSurfaceButton, 5, [5 6]);
+obj.MarkSurfaceButton.Tooltip = "Click on the image to place the brain surface; " + ...
+    "the point is taken onto the line." + obj.shortcutHint("markSurface");
+
+obj.ClearSurfaceButton = uibutton(grid, "push", ...
+    Text = "Clear", ...
+    Enable = "off", ...
+    ButtonPushedFcn = @(~,~) obj.onClearSurface());
+place(obj.ClearSurfaceButton, 5, [7 8]);
+obj.ClearSurfaceButton.Tooltip = "Take the brain surface mark off this line. " + ...
+    "Save ROI then removes it from disk.";
+
+obj.SurfaceLabel = uilabel(grid, Text = "");
+place(obj.SurfaceLabel, 5, [9 14]);
+obj.SurfaceLabel.FontColor = [0.35 0.35 0.35];
 
 end
 
@@ -160,64 +215,99 @@ function build_profile_row(obj, grid)
 % axis rather than the pixels in a tile, and because there are three of them:
 % what the intensity axis is put through, what that is measured over, and what
 % the distance axis is put through. They cost the panel a row and no width,
-% which is the resource the three rows above have already spent.
+% which is the resource the five rows above have already spent.
 %
 % The row reads left to right as the sentence it is: normalize <this> over
 % <that>, distance <this>.
 
-place(uilabel(grid, Text = "Normalize"), 4, 1);
+place(uilabel(grid, Text = "Normalize"), 6, 1);
 
 obj.ProfileNormDropDown = uidropdown(grid, ...
     Items = obj.ProfileNormNames, ...
     ItemsData = num2cell(obj.ProfileNormCodes), ...
     Value = "none", ...
     ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
-place(obj.ProfileNormDropDown, 4, [2 3]);
+place(obj.ProfileNormDropDown, 6, [2 3]);
 obj.ProfileNormDropDown.Tooltip = "Rescale the intensity axis of the profile plot. " + ...
     "The plot only; the values files and everything exported from the app " + ...
     "stay in the units they were measured in.";
 
 scopeLabel = uilabel(grid, Text = "over");
 scopeLabel.HorizontalAlignment = "right";
-place(scopeLabel, 4, 4);
+place(scopeLabel, 6, 4);
 
 obj.ProfileScopeDropDown = uidropdown(grid, ...
     Items = obj.ProfileScopeNames, ...
     ItemsData = num2cell(obj.ProfileScopeCodes), ...
     Value = "each", ...
     ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
-place(obj.ProfileScopeDropDown, 4, [5 6]);
+place(obj.ProfileScopeDropDown, 6, [5 6]);
 obj.ProfileScopeDropDown.Tooltip = "Whether each trace is scaled by its own numbers, " + ...
     "which hides how bright one section was against another, or every trace " + ...
     "by one set taken over the whole plot, which keeps that difference.";
 
-place(uilabel(grid, Text = "Distance"), 4, 7);
+place(uilabel(grid, Text = "Distance"), 6, 7);
 
 obj.ProfileDistanceDropDown = uidropdown(grid, ...
     Items = obj.ProfileDistanceNames, ...
     ItemsData = num2cell(obj.ProfileDistanceCodes), ...
     Value = "none", ...
     ValueChangedFcn = @(~,~) obj.onProfileOptionChanged());
-place(obj.ProfileDistanceDropDown, 4, [8 9]);
+place(obj.ProfileDistanceDropDown, 6, [8 9]);
 obj.ProfileDistanceDropDown.Tooltip = "Rescale the distance axis, to line the traces up " + ...
     "at their starts or to read them as a percentage of each line's own length.";
 
 end
 
 function build_roi_edit_row(obj, grid)
-%BUILD_ROI_EDIT_ROW Build the controls that move a line ROI and save it back.
+%BUILD_ROI_EDIT_ROW Build the controls that pick, move, and save a line ROI.
 % Editing writes over the .roi file and the values.csv beside it, so the
-% controls that do it sit together on their own row rather than among the
+% controls that do it sit together on their own rows rather than among the
 % display options, and the hint says what Save will touch.
+%
+% A section may carry several ROIs, and every one of these controls acts on
+% exactly one of them, so which one comes first: the row that picks it sits
+% above the row that edits it.
+
+place(uilabel(grid, Text = "ROI"), 3, 1);
+
+% Keyed by letter, shown by name. SYNCROISELECTOR owns Items, ItemsData, and
+% Value, because the list changes with every selection.
+obj.RoiSelectDropDown = uidropdown(grid, ...
+    Items = "A", ...
+    ItemsData = {"A"}, ...
+    Value = "A", ...
+    ValueChangedFcn = @(~,~) obj.onRoiSelectionChanged());
+place(obj.RoiSelectDropDown, 3, 2);
+obj.RoiSelectDropDown.Tooltip = "Which of this section's line ROIs the controls below act on.";
+
+obj.AddRoiButton = uibutton(grid, "push", ...
+    Text = "Add ROI", ...
+    ButtonPushedFcn = @(~,~) obj.onAddRoi());
+place(obj.AddRoiButton, 3, [3 4]);
+obj.AddRoiButton.Tooltip = "Start another line ROI on this section, under the next free letter." ...
+    + obj.shortcutHint("addRoi");
+
+obj.RoiNamesButton = uibutton(grid, "push", ...
+    Text = "Name ROIs...", ...
+    ButtonPushedFcn = @(~,~) obj.onEditRoiNames());
+place(obj.RoiNamesButton, 3, [5 6]);
+obj.RoiNamesButton.Tooltip = "Call the ROI keys after the regions they measure, " + ...
+    "for example A is ACx and B is S1. The names are kept between sessions.";
+
+obj.RoiListLabel = uilabel(grid, Text = "");
+place(obj.RoiListLabel, 3, [7 14]);
+obj.RoiListLabel.FontColor = [0.35 0.35 0.35];
 
 obj.EditRoiButton = uibutton(grid, "state", ...
     Text = "Edit ROI", ...
     ValueChangedFcn = @(~,~) obj.onToggleEditRoi());
-place(obj.EditRoiButton, 3, [1 2]);
-obj.EditRoiButton.Tooltip = "Drag the line ROI of the one selected section." ...
+place(obj.EditRoiButton, 4, [1 2]);
+obj.EditRoiButton.Tooltip = "Drag the chosen line ROI of the marked section. " ...
+    + "With several on screen, click a tile to move the mark to it." ...
     + obj.shortcutHint("toggleEditRoi");
 
-place(uilabel(grid, Text = "Width px"), 3, 3);
+place(uilabel(grid, Text = "Width px"), 4, 3);
 
 % The width applies to whatever line is drawn next, so it stays editable even
 % when nothing is being edited, and it is remembered between sessions.
@@ -226,48 +316,49 @@ obj.RoiWidthField = uieditfield(grid, "numeric", ...
     Limits = [1 20000], ...
     RoundFractionalValues = "on", ...
     ValueChangedFcn = @(~,~) obj.onRoiWidthChanged());
-place(obj.RoiWidthField, 3, 4);
+place(obj.RoiWidthField, 4, 4);
 obj.RoiWidthField.Tooltip = "Width of the band the profile averages over, in pixels. " + ...
     "The Fiji macro's band is 994 um, which is about 600 px on these projections.";
 
 obj.DrawRoiButton = uibutton(grid, "push", ...
     Text = "Draw Line", ...
     ButtonPushedFcn = @(~,~) obj.onDrawRoi());
-place(obj.DrawRoiButton, 3, [5 6]);
-obj.DrawRoiButton.Tooltip = "Drag on the image to place a new line at the width above." ...
-    + obj.shortcutHint("drawRoi");
+place(obj.DrawRoiButton, 4, [5 6]);
+obj.DrawRoiButton.Tooltip = "Drag on the marked section to replace the chosen ROI " ...
+    + "at the width above." + obj.shortcutHint("drawRoi");
 
 obj.SaveRoiButton = uibutton(grid, "push", ...
     Text = "Save ROI", ...
     Enable = "off", ...
     ButtonPushedFcn = @(~,~) obj.onSaveRoiEdits());
-place(obj.SaveRoiButton, 3, [7 8]);
-obj.SaveRoiButton.Tooltip = "Overwrite the .roi file and remeasure its values.csv." ...
+place(obj.SaveRoiButton, 4, [7 8]);
+obj.SaveRoiButton.Tooltip = "Overwrite this ROI's .roi file and remeasure its values.csv." ...
     + obj.shortcutHint("saveRoi");
 
 obj.RevertRoiButton = uibutton(grid, "push", ...
     Text = "Revert", ...
     Enable = "off", ...
     ButtonPushedFcn = @(~,~) obj.onRevertRoiEdits());
-place(obj.RevertRoiButton, 3, [9 10]);
-obj.RevertRoiButton.Tooltip = "Discard unsaved changes and reload the ROI from disk." ...
+place(obj.RevertRoiButton, 4, [9 10]);
+obj.RevertRoiButton.Tooltip = "Discard unsaved changes and reload this ROI from disk." ...
     + obj.shortcutHint("revertRoi");
 
-% The grid rules the band in the band's own frame, which is only worth looking
-% at while a line is being aimed, so its switch belongs on this row rather than
-% among the overlay checkboxes above. It is paid for out of the hint label,
-% which is a sentence and loses less by being two columns shorter than this row
-% would by spilling into a fourth one.
+% The grid rules the band in the band's own frame, for any ROI on the view
+% rather than only the one being edited, so it is an overlay switch like the
+% ones above; it sits on this row because that is where the space is. It is
+% paid for out of the hint label, which is a sentence and loses less by being
+% two columns shorter than this row would by spilling into a fourth one.
 obj.ShowBandGridCheck = uicheckbox(grid, ...
     Text = "Band grid", ...
     Value = false, ...
     ValueChangedFcn = @(~,~) obj.onDisplayOptionChanged());
-place(obj.ShowBandGridCheck, 3, [11 12]);
+place(obj.ShowBandGridCheck, 4, [11 12]);
 obj.ShowBandGridCheck.Tooltip = "While the ROI is being edited, rule the sampling band " + ...
-    "parallel and square to the line, to check it against a layer boundary.";
+    "parallel and square to the line, to check it against a layer boundary. " + ...
+    "Needs the band itself shown.";
 
 obj.RoiEditLabel = uilabel(grid, Text = "");
-place(obj.RoiEditLabel, 3, [13 14]);
+place(obj.RoiEditLabel, 4, [13 14]);
 obj.RoiEditLabel.FontColor = [0.35 0.35 0.35];
 
 end

@@ -28,10 +28,13 @@ if publishedUrl ~= "" && contains(publishedUrl, "/spreadsheets/d/e/")
     obj.PublishedUrl = publishedUrl;
 end
 
+apply_sheet_settings(obj, group);
+
 apply_dropdown(obj.VariantDropDown, read_pref(group, "Variant", ""));
 apply_dropdown(obj.ColormapDropDown, read_pref(group, "Colormap", ""));
 apply_stain_colormaps(obj, group);
 apply_catalog_columns(obj, group);
+apply_roi_names(obj, group);
 
 apply_numeric(obj.LowPercentileField, read_pref(group, "LowPercentile", []));
 apply_numeric(obj.HighPercentileField, read_pref(group, "HighPercentile", []));
@@ -41,6 +44,7 @@ apply_checkbox(obj.ShowRoiCheck, read_pref(group, "ShowRoi", []));
 apply_checkbox(obj.ShowBandCheck, read_pref(group, "ShowBand", []));
 apply_checkbox(obj.ShowBandGridCheck, read_pref(group, "ShowBandGrid", []));
 apply_checkbox(obj.ColorByIntensityCheck, read_pref(group, "ColorByIntensity", []));
+apply_checkbox(obj.ShowSurfaceCheck, read_pref(group, "ShowSurface", []));
 apply_dropdown(obj.ProfileLayoutDropDown, profile_layout_pref(group));
 apply_numeric(obj.ProfileSizeField, read_pref(group, "ProfileSize", []));
 
@@ -86,6 +90,40 @@ end
 % Restoring a choice is not making one, so nothing is written back and nothing
 % is announced on a status bar the user has not looked at yet.
 obj.applyFilenamePattern(pattern, persist = false);
+
+end
+
+function apply_sheet_settings(obj, group)
+%APPLY_SHEET_SETTINGS Restore which sheet the tracker is read from.
+% A key file that has since been moved or deleted is dropped, but the sheet
+% itself is kept: naming a new key file is a smaller thing to ask than naming
+% the spreadsheet again, and the sheet is still readable with one.
+
+sheetUrl = read_pref(group, "SheetUrl", "");
+
+if sheetUrl == ""
+    return
+end
+
+try
+    gsheet.spreadsheetId(sheetUrl);
+catch
+    return
+end
+
+obj.SheetUrl = sheetUrl;
+
+sheetTab = read_pref(group, "SheetTab", "");
+
+if sheetTab ~= ""
+    obj.SheetTab = sheetTab;
+end
+
+credentials = read_pref(group, "SheetCredentials", "");
+
+if credentials ~= "" && isfile(credentials)
+    obj.SheetCredentials = credentials;
+end
 
 end
 
@@ -275,6 +313,31 @@ function tf = is_text(value)
 % written by an older release, or by hand, can come back in.
 
 tf = isstring(value) || ischar(value) || iscellstr(value);
+
+end
+
+function apply_roi_names(obj, group)
+%APPLY_ROI_NAMES Restore what each ROI key is called.
+% The pairs are dropped rather than trusted when the two saved lists disagree
+% in length, for the same reason the stain colormaps are: half a pairing says
+% nothing about which name went with which key. Unlike the colormaps, nothing
+% here is checked against a list of what is offered, because a key is whatever
+% the filenames on disk turn out to hold.
+
+keys = string(read_pref(group, "RoiNameKeys", strings(0, 1)));
+labels = string(read_pref(group, "RoiNameLabels", strings(0, 1)));
+
+keys = keys(:);
+labels = labels(:);
+
+if isempty(keys) || numel(keys) ~= numel(labels)
+    return
+end
+
+keep = keys ~= "" & labels ~= "" & ~ismissing(keys) & ~ismissing(labels);
+
+obj.RoiNameKeys = keys(keep);
+obj.RoiNameLabels = labels(keep);
 
 end
 

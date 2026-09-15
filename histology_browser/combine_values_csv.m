@@ -3,6 +3,7 @@ function S = combine_values_csv(rootPath, options)
 %   S = combine_values_csv()
 %   S = combine_values_csv(rootPath)
 %   S = combine_values_csv(rootPath, metadataCSV = metadataPath)
+%   S = combine_values_csv(rootPath, metadataTable = trackerTable)
 %   S = combine_values_csv(rootPath, outCSV = outPath)
 %
 % Build a structured dataset from all *_values.csv files under a root folder.
@@ -13,6 +14,9 @@ function S = combine_values_csv(rootPath, options)
 %   rootPath: Root folder containing values CSV files.
 %   options.outCSV: Optional path to write the combined table.
 %   options.metadataCSV: Optional metadata tracker CSV path.
+%   options.metadataTable: Optional tracker already in memory, as from
+%     SECTIONTRACKER when the tracker is read from Google Sheets. Takes
+%     precedence over metadataCSV when both are given.
 %   options.continueOnError: Continue processing after file-level errors.
 %   options.progressFcn: Optional callback progressFcn(iFile,nFiles,filePath).
 %   options.cancelRequestedFcn: Optional callback that returns true to cancel.
@@ -30,6 +34,7 @@ arguments
     rootPath (1,1) string = ""
     options.outCSV (1,1) string = ""
     options.metadataCSV (1,1) string = ""
+    options.metadataTable table = table()
     options.continueOnError (1,1) logical = true
     options.progressFcn = []
     options.cancelRequestedFcn = []
@@ -38,7 +43,7 @@ end
 rootPath = resolve_root_path(rootPath);
 
 if rootPath == ""
-    S = initialize_output_struct(rootPath, options, load_metadata(""));
+    S = initialize_output_struct(rootPath, options, load_metadata("", table()));
     return
 end
 
@@ -46,7 +51,7 @@ resolvedOptions = options;
 resolvedOptions.outCSV = string(options.outCSV);
 resolvedOptions.metadataCSV = string(options.metadataCSV);
 
-metadataInfo = load_metadata(resolvedOptions.metadataCSV);
+metadataInfo = load_metadata(resolvedOptions.metadataCSV, options.metadataTable);
 % Match both "<base>_values.csv" and "<base>_proj_<ROI>values.csv", since the
 % Fiji line-measure macro's suffix prompt does not always include the "_".
 files = dir(fullfile(rootPath, "**", "*values.csv"));
@@ -256,26 +261,41 @@ end
 
 end
 
-function metadataInfo = load_metadata(metadataCSV)
+function metadataInfo = load_metadata(metadataCSV, metadataTable)
 %LOAD_METADATA Load and normalize metadata inputs.
+% The tracker reaches here either as a CSV on disk or as a table already in
+% memory, which is how SECTIONTRACKER hands over a tracker read from Google
+% Sheets. Only the first few lines differ between the two; everything past the
+% point where a table exists is the same work, and is shared.
 
 metadataInfo = struct();
 metadataInfo.hasMetadata = false;
 metadataInfo.metadataCSV = metadataCSV;
+metadataInfo.source = "none";
 metadataInfo.table = table();
 metadataInfo.imageStems = strings(0, 1);
 metadataInfo.imageFilenameColumn = "Image Filename";
 
-if metadataCSV == ""
+if ~isempty(metadataTable)
+    if ~ismember(metadataInfo.imageFilenameColumn, string(metadataTable.Properties.VariableNames))
+        error("combine_values_csv:MissingImageFilenameColumn", ...
+            "metadataTable must contain a column named ""%s"".", ...
+            metadataInfo.imageFilenameColumn)
+    end
+
+    metadataInfo.source = "table";
+elseif metadataCSV ~= ""
+    if ~isfile(metadataCSV)
+        error("combine_values_csv:InvalidMetadataCSV", ...
+            "metadataCSV is not a valid file: %s", metadataCSV)
+    end
+
+    metadataTable = read_metadata_csv(metadataCSV, metadataInfo.imageFilenameColumn);
+    metadataInfo.source = "csv";
+else
     return
 end
 
-if ~isfile(metadataCSV)
-    error("combine_values_csv:InvalidMetadataCSV", ...
-        "metadataCSV is not a valid file: %s", metadataCSV)
-end
-
-metadataTable = read_metadata_csv(metadataCSV, metadataInfo.imageFilenameColumn);
 metadataTable = normalize_table_strings(metadataTable);
 metadataImageStems = normalize_image_stems(metadataTable.(metadataInfo.imageFilenameColumn));
 
@@ -285,7 +305,8 @@ metadataImageStems = metadataImageStems(validRows);
 
 if isempty(metadataImageStems)
     error("combine_values_csv:NoMetadataFilenames", ...
-        "No valid entries were found in metadataCSV column: %s", metadataInfo.imageFilenameColumn)
+        "No valid entries were found in the tracker's ""%s"" column.", ...
+        metadataInfo.imageFilenameColumn)
 end
 
 metadataInfo.hasMetadata = true;

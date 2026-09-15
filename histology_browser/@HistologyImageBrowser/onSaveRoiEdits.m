@@ -5,8 +5,19 @@ function onSaveRoiEdits(obj)
 % format, so the next run of the line-measure macro, and anyone opening the
 % section in Fiji, sees exactly the line that was dragged here.
 %
-% Both files are overwritten in place. Nothing is backed up, so a profile is
-% only ever as recoverable as the images it was measured from.
+% Only the ROI being edited is touched. A section's other ROIs live in their
+% own pair of files, named for their own key, so writing one can neither
+% overwrite nor invalidate another.
+%
+% The brain surface mark goes out with them, into a small sidecar named after
+% the .roi file. Fiji has no field for a point along a line, so the mark
+% travels beside the ROI rather than inside it -- which also means clearing a
+% mark has to remove that sidecar rather than write an empty one, so that an
+% ROI either has a surface beside it or does not. Being named after the .roi
+% file, the sidecar is per ROI as well.
+%
+% All three files are overwritten in place. Nothing is backed up, so a profile
+% is only ever as recoverable as the images it was measured from.
 
 row = obj.editedRow();
 
@@ -15,6 +26,7 @@ if height(row) ~= 1
     return
 end
 
+key = obj.RoiEditKey;
 geometry = obj.RoiEditGeom;
 
 if hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1) < 1
@@ -38,7 +50,7 @@ if ~(isfield(P, "hasData") && P.hasData)
     return
 end
 
-paths = resolve_output_paths(row);
+paths = resolve_output_paths(obj, row, key);
 
 if paths.roiPath == ""
     obj.setError("No folder to save into for %s.", row.Stem);
@@ -50,14 +62,19 @@ if ~confirm_new_files(obj, paths)
     return
 end
 
-obj.setBusy("Saving the ROI and profile for %s ...", row.Stem);
+obj.setBusy("Saving ROI %s of %s ...", obj.roiName(key), row.Stem);
 
 try
     write_imagej_roi(paths.roiPath, geometry, ...
         template = paths.template, ...
-        name = roi_name(geometry, paths));
+        name = roi_name(obj, geometry, paths));
 
     write_values_csv(paths.valuesPath, P.distance, P.intensity);
+
+    % Last of the three, and the only one that can remove a file: a geometry
+    % whose surface is NaN takes the sidecar away rather than leaving one
+    % behind that says nothing.
+    surface = write_surface_mark(surface_mark_path(paths.roiPath), geometry);
 catch ME
     obj.setError("Could not save %s: %s", row.Stem, ME.message);
     uialert(obj.Fig, ME.message, "Save Failed");
@@ -70,34 +87,35 @@ update_combined_profile(obj, paths.valuesPath, P);
 
 obj.RoiEditDirty = false;
 
-% The line now has a file behind it, so it is no longer a new one, and the
-% stem is flagged so the tile shows the write rather than only reporting it in
-% a status message that the next action pushes off the bar.
+% The line now has a file behind it, so it is no longer a new one, and the ROI
+% is flagged so the tile shows the write rather than only reporting it in a
+% status message that the next action pushes off the bar.
 if isfield(geometry, "isNew")
     geometry.isNew = false;
     obj.RoiEditGeom = geometry;
 end
 
 obj.RoiSavedStem = string(row.Stem);
+obj.RoiSavedKey = key;
 
 % The files on disk are the truth from here on, so the preview is dropped and
 % the redraw reads back what was just written.
 obj.RoiPreview = struct();
 
 obj.updateRoiEditControls();
-obj.renderSelection();
+obj.refreshRoiEdit();
 
-obj.setSuccess("Saved %s and %s: %d samples, %s.%s", ...
-    filename(paths.roiPath), filename(paths.valuesPath), P.nSamples, ...
-    describe_calibration(P), extra_values_note(paths));
+obj.setSuccess("Saved %s and %s for ROI %s: %d samples, %s.%s", ...
+    filename(paths.roiPath), filename(paths.valuesPath), obj.roiName(key), ...
+    P.nSamples, describe_calibration(P), surface_note(surface));
 
 end
 
 function proceed = confirm_new_files(obj, paths)
 %CONFIRM_NEW_FILES Ask before adding files the dataset did not have before.
 % Rewriting a pair that already exists is the ordinary case and goes through
-% without a prompt. Creating one is different: it adds a section to what the
-% analysis pipeline will pick up, so it is confirmed by name first.
+% without a prompt. Creating one is different: it adds a profile the analysis
+% pipeline will pick up, so it is confirmed by name first.
 
 proceed = true;
 
@@ -128,19 +146,19 @@ proceed = string(choice) == "Create";
 
 end
 
-function paths = resolve_output_paths(row)
+function paths = resolve_output_paths(obj, row, key)
 %RESOLVE_OUTPUT_PATHS Decide which .roi and values file this edit rewrites.
-% An existing pair is rewritten where it already lives. A section that never
-% had either gets the names the line-measure macro would have written.
+% An ROI that already has either file keeps it where it already lives. One
+% that has neither gets the names the line-measure macro would have written
+% for it, so a file written here and a file written by Fiji are the same file.
 
 paths = struct( ...
     "roiPath", "", ...
     "valuesPath", "", ...
     "template", "", ...
-    "roiLabel", "", ...
+    "key", key, ...
     "isNewRoi", false, ...
-    "isNewValues", false, ...
-    "nOtherValues", 0);
+    "isNewValues", false);
 
 stem = string(row.Stem);
 folder = resolve_folder(row);
@@ -149,10 +167,13 @@ if folder == ""
     return
 end
 
-paths.roiPath = string(row.RoiPath);
+entry = obj.roiEntry(row, key);
+base = stem + "_proj" + key_suffix(key);
+
+paths.roiPath = entry.roiPath;
 
 if paths.roiPath == ""
-    paths.roiPath = fullfile(folder, stem + "_proj_roi.roi");
+    paths.roiPath = fullfile(folder, base + "_roi.roi");
     paths.isNewRoi = true;
 end
 
@@ -160,23 +181,30 @@ if isfile(paths.roiPath)
     paths.template = paths.roiPath;
 end
 
-valuesPaths = row.ValuesPaths{1};
-roiLabels = row.ROILabels{1};
+paths.valuesPath = entry.valuesPath;
 
-if isempty(valuesPaths)
-    paths.valuesPath = fullfile(folder, stem + "_proj_values.csv");
+if paths.valuesPath == ""
+    paths.valuesPath = fullfile(folder, base + "_values.csv");
     paths.isNewValues = true;
+end
+
+end
+
+function suffix = key_suffix(key)
+%KEY_SUFFIX The part of a sidecar filename that names which ROI it holds.
+% A section's first ROI carries no label, because that is what
+% MACRO_Batch_LineMeasure writes and what every dataset measured before a
+% section could hold more than one ROI already has on disk. Rewriting those
+% files under a new name would leave the originals behind as a second copy of
+% the same ROI, so A keeps the macro's name and the letters after it are
+% spelled out.
+
+if string(key) == "A"
+    suffix = "";
     return
 end
 
-% The first profile is the one the browser plots, so it is the one an edit
-% rewrites; any others are left alone and reported.
-paths.valuesPath = valuesPaths(1);
-paths.nOtherValues = numel(valuesPaths) - 1;
-
-if ~isempty(roiLabels)
-    paths.roiLabel = roiLabels(1);
-end
+suffix = "_" + string(key);
 
 end
 
@@ -206,12 +234,24 @@ end
 
 end
 
-function name = roi_name(geometry, paths)
-%ROI_NAME Keep the ROI's stored name, or take the one Fiji would have given it.
+function name = roi_name(obj, geometry, paths)
+%ROI_NAME Settle the name stored inside the .roi file, which is what Fiji's
+% ROI manager shows.
+%
+% A name already in the file is kept, because it may have been set in Fiji and
+% overwriting it is not this save's business. Otherwise the ROI is given what
+% the browser calls it, so a key that has been named after its region carries
+% that name into Fiji rather than only appearing here.
 
 name = string(geometry.name);
 
 if name ~= ""
+    return
+end
+
+name = obj.roiName(paths.key);
+
+if name ~= paths.key
     return
 end
 
@@ -238,6 +278,9 @@ end
 
 function [T, index] = adopt_paths(T, stem, paths)
 %ADOPT_PATHS Record the new files on one catalog row.
+% The ROI may be one the section did not have at all a moment ago, so it is
+% added to the section's ROI list when it is not already on it, and the two
+% path columns beside that list are filled in for it either way.
 
 index = [];
 
@@ -251,24 +294,48 @@ if isempty(index)
     return
 end
 
-T.RoiPath(index) = paths.roiPath;
+keys = string(T.RoiKeys{index});
+roiPaths = string(T.RoiPaths{index});
+valuesPaths = string(T.RoiValues{index});
 
-if ~paths.isNewValues
-    return
+slot = find(keys == paths.key, 1);
+
+if isempty(slot)
+    keys(end + 1, 1) = paths.key;
+    roiPaths(end + 1, 1) = "";
+    valuesPaths(end + 1, 1) = "";
+    slot = numel(keys);
 end
 
-valuesPaths = T.ValuesPaths{index};
-valuesPaths(end + 1, 1) = paths.valuesPath;
-T.ValuesPaths{index} = valuesPaths;
+roiPaths(slot) = paths.roiPath;
+valuesPaths(slot) = paths.valuesPath;
 
-roiLabels = T.ROILabels{index};
-roiLabels(end + 1, 1) = paths.roiLabel;
-T.ROILabels{index} = roiLabels;
+T.RoiKeys{index} = keys;
+T.RoiPaths{index} = roiPaths;
+T.RoiValues{index} = valuesPaths;
+T.NRois(index) = numel(keys);
+T.ROI(index) = join(keys(:)', ", ");
 
-T.NProfiles(index) = numel(valuesPaths);
+% The primary ROI path settles which folder a section belongs to, so a section
+% that had no .roi file at all now has one.
+if T.RoiPath(index) == ""
+    T.RoiPath(index) = paths.roiPath;
+end
 
-if T.Status(index) == "image only"
-    T.Status(index) = "image + profile";
+if paths.isNewValues
+    allValues = T.ValuesPaths{index};
+    allValues(end + 1, 1) = paths.valuesPath;
+    T.ValuesPaths{index} = allValues;
+
+    labels = T.ROILabels{index};
+    labels(end + 1, 1) = paths.key;
+    T.ROILabels{index} = labels;
+
+    T.NProfiles(index) = numel(allValues);
+
+    if T.Status(index) == "image only"
+        T.Status(index) = "image + profile";
+    end
 end
 
 end
@@ -276,7 +343,7 @@ end
 function refresh_table_row(obj, viewIndex)
 %REFRESH_TABLE_ROW Update the results table without disturbing the selection.
 % REFRESHCATALOGTABLE would reset the selection to the first row and end the
-% edit, so the two cells that can change here are written in place instead.
+% edit, so the cells that can change here are written in place instead.
 
 if isempty(viewIndex) || isempty(obj.CatalogTable) || ~isvalid(obj.CatalogTable)
     return
@@ -288,7 +355,7 @@ if ~istable(data) || height(data) < viewIndex
     return
 end
 
-data.Prof(viewIndex) = obj.View.NProfiles(viewIndex);
+data.ROIs(viewIndex) = obj.describeRoiList(obj.View(viewIndex, :));
 data.Status(viewIndex) = obj.View.Status(viewIndex);
 
 obj.CatalogTable.Data = data;
@@ -330,15 +397,18 @@ obj.Data.combined = [T; replacement];
 
 end
 
-function note = extra_values_note(paths)
-%EXTRA_VALUES_NOTE Say when other profiles for the section were left alone.
+function note = surface_note(surface)
+%SURFACE_NOTE Say what happened to the brain surface sidecar.
+% Written and removed are both worth a word, because neither is visible in the
+% two filenames the message already names and both change what the profile
+% plot can align on.
 
-note = "";
-
-if paths.nOtherValues > 0
-    note = sprintf(" %d other profile file(s) for this section were left unchanged.", ...
-        paths.nOtherValues);
+if surface.written
+    note = sprintf(" Brain surface at %.0f px written beside it.", surface.offset);
+    return
 end
+
+note = " No brain surface marked.";
 
 end
 

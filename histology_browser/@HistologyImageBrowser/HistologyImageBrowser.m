@@ -7,12 +7,19 @@ classdef HistologyImageBrowser < handle
     %
     % Loads a histology root folder with COMBINE_VALUES_CSV, catalogs every
     % image rendition found beside the values files, and provides filtered
-    % lookup plus single or multi-image display. The line ROI written by the
+    % lookup plus single or multi-image display. The line ROIs written by the
     % Fiji line-measure macro can be overlaid on each image, optionally shaded
     % by the intensities recorded in the matching *values.csv file.
     %
+    % A section may carry several line ROIs, one per region measured across
+    % it. Each is keyed by the letter in its filenames -- A, B, C, and so on,
+    % with the macro's unlabelled pair taken as A -- and each key can be given
+    % the region's own name, so a study that measures auditory and
+    % somatosensory cortex reads as ACx and S1 wherever an ROI is drawn,
+    % plotted, or listed. Those names persist between sessions.
+    %
     % See also COMBINE_VALUES_CSV, BUILD_HISTOLOGY_IMAGE_CATALOG,
-    % READ_IMAGEJ_ROI, LAUNCH_HISTOLOGY_BROWSER.
+    % HISTOLOGY_ROI_KEY, READ_IMAGEJ_ROI, LAUNCH_HISTOLOGY_BROWSER.
 
     properties
         Fig matlab.ui.Figure
@@ -29,6 +36,10 @@ classdef HistologyImageBrowser < handle
         FilenamePatternMenu matlab.ui.container.Menu
         PublishedSheetMenu matlab.ui.container.Menu
         ClearPublishedSheetMenu matlab.ui.container.Menu
+        SheetMenu matlab.ui.container.Menu
+        SheetConfigureMenu matlab.ui.container.Menu
+        SheetPrepareMenu matlab.ui.container.Menu
+        SheetClearMenu matlab.ui.container.Menu
         LoadMenu matlab.ui.container.Menu
         ExportWorkspaceMenu matlab.ui.container.Menu
 
@@ -48,6 +59,12 @@ classdef HistologyImageBrowser < handle
         AtlasExplorerMenu matlab.ui.container.Menu
         ReportBugMenu matlab.ui.container.Menu
         RequestFeatureMenu matlab.ui.container.Menu
+
+        AtlasPlateField matlab.ui.control.EditField
+        SetAtlasPlateButton matlab.ui.control.Button
+        MeasuredButton matlab.ui.control.Button
+        ClearMeasuredButton matlab.ui.control.Button
+        ReviewLabel matlab.ui.control.Label
 
         TrackerLinkLabel matlab.ui.control.Hyperlink
         SearchField matlab.ui.control.EditField
@@ -85,12 +102,23 @@ classdef HistologyImageBrowser < handle
         ProfileScopeDropDown matlab.ui.control.DropDown
         ProfileDistanceDropDown matlab.ui.control.DropDown
 
+        RoiSelectDropDown matlab.ui.control.DropDown
+        AddRoiButton matlab.ui.control.Button
+        RoiNamesButton matlab.ui.control.Button
+        RoiListLabel matlab.ui.control.Label
+
         EditRoiButton matlab.ui.control.StateButton
         RoiWidthField matlab.ui.control.NumericEditField
         DrawRoiButton matlab.ui.control.Button
         SaveRoiButton matlab.ui.control.Button
         RevertRoiButton matlab.ui.control.Button
         RoiEditLabel matlab.ui.control.Label
+
+        ShowSurfaceCheck matlab.ui.control.CheckBox
+        MarkSurfaceButton matlab.ui.control.Button
+        DetectSurfaceButton matlab.ui.control.Button
+        ClearSurfaceButton matlab.ui.control.Button
+        SurfaceLabel matlab.ui.control.Label
 
         NewFigureButton matlab.ui.control.Button
         ExportButton matlab.ui.control.Button
@@ -125,11 +153,29 @@ classdef HistologyImageBrowser < handle
         % has configured catalogs exactly as it always did.
         FilenamePattern string = ""
 
+        % The tracker can come from three places, and ONLOADDATA reads them in
+        % the order they are declared here: the Sheets API first, then the
+        % published copy, then the CSV. The order runs from the most current
+        % and most capable source to the one that asks least of the machine it
+        % runs on, so a browser configured with several uses the best of them
+        % and the others stay set as fallbacks rather than having to be cleared.
+
+        % The tracker read from the Google Sheet it is maintained in rather
+        % than from an export of it. What the browser shows is what the sheet
+        % says now rather than what it said when somebody last exported, and
+        % this is the only source REVIEW can write back to.
+        SheetUrl string = ""        % Spreadsheet URL or ID.
+        SheetTab string = "Sections"
+        SheetCredentials string = "" % Service account JSON key file.
+        Tracker = []                % SECTIONTRACKER once one has been built.
+
         % The same tracker, downloaded from the published copy of the sheet it
         % is maintained in rather than from an export somebody made by hand.
         % Used in place of the CSV when set, so a load picks up whatever the
-        % sheet said the last time Google republished it.
+        % sheet said the last time Google republished it. Needs no credentials,
+        % and is read only.
         PublishedUrl string = ""
+
 
         Data struct = struct()      % Structured output from COMBINE_VALUES_CSV.
         Catalog table = table()     % One row per image stem.
@@ -169,6 +215,18 @@ classdef HistologyImageBrowser < handle
         ColormapStains string = strings(0, 1)
         ColormapChoices string = strings(0, 1)
 
+        % What each ROI key is called on screen, kept as parallel lists for
+        % the same reason the colormaps are. A section's ROIs are keyed by the
+        % letters A, B, C ... in the filenames of their .roi and values.csv
+        % sidecars, and those letters say nothing about what was measured, so
+        % a key can be given the region's own name -- A is ACx, B is S1 -- and
+        % the overlay, the legend, and the catalog then use it. The names
+        % belong to the study rather than to one sitting with the browser, so
+        % they are kept between sessions. A key with no name here shows as
+        % itself.
+        RoiNameKeys string = strings(0, 1)
+        RoiNameLabels string = strings(0, 1)
+
         % Color behind the image tiles. Set from the panel's own default when
         % the UI is built, so an untouched app looks exactly as it always did.
         ImageBackground double = [0.96 0.96 0.96]
@@ -195,11 +253,38 @@ classdef HistologyImageBrowser < handle
         StatusLevel string = "info" % Severity of the message now on the status bar.
         StatusHistory string = strings(0, 1)
 
+        % Which of the selected section's ROIs the edit controls act on. The
+        % key is kept rather than an index into the section's list, so
+        % stepping through sections stays on the same region -- ACx after ACx
+        % -- instead of landing on whichever ROI each section happens to list
+        % first.
+        ActiveRoiKey string = ""
+
         RoiEditStem string = ""     % Stem being edited; empty when idle.
+        RoiEditKey string = ""      % Which ROI of that stem is being edited.
+
+        % Section the ROI controls act on, chosen by clicking its tile. Empty
+        % means nobody has chosen and the browser picks the first selected row,
+        % which is what an untouched view does and what one whose target has
+        % left the selection falls back to. ACTIVEROISTEM is the reader, and it
+        % validates against what is on screen, so a stale stem here can never
+        % point the buttons at a section nobody can see.
+        %
+        % Which section, only. Which of that section's ROIs is ACTIVEROIKEY,
+        % chosen from the ROI dropdown rather than by clicking.
+        RoiTargetStem string = ""
         RoiEditGeom struct = struct()   % Unsaved x1, y1, x2, y2, strokeWidth, name.
         RoiEditDirty logical = false    % True when the edit differs from the file.
         RoiPreview struct = struct()    % Profile measured from the unsaved geometry.
         RoiEditor = []              % images.roi.Line drawn on the edited tile.
+
+        % images.roi.Point marking the brain surface on the edited line, and
+        % true while it is the thing being dragged. The point is constrained to
+        % the line rather than free in the image: a surface off the line has no
+        % depth along the profile, which is the only thing the mark is for, so
+        % ONSURFACEEDITCHANGED projects every position back onto it.
+        SurfaceEditor = []
+        SurfaceEditDragging logical = false
 
         % True between the first move of a drag and the mouse coming back up.
         % The shading under the band is measured data, and data measured from a
@@ -207,11 +292,22 @@ classdef HistologyImageBrowser < handle
         % drag ends.
         RoiEditDragging logical = false
 
-        % Stem whose ROI was written to disk in this session. It drives the
-        % green "saved" aesthetic on the tile, which outlives the edit session
-        % so leaving edit mode does not erase the confirmation, and is cleared
-        % as soon as the selection moves on or the line is touched again.
+        % True while DRAWLINE or DRAWPOINT is waiting for the mouse. Both are
+        % after a click on one particular tile, and a click that wandered onto
+        % another one must not retarget the ROI controls in the middle of them:
+        % that would close the very edit the line or mark is being placed into,
+        % and could raise an unsaved-changes dialog underneath a placement that
+        % is still running. ATTACHCONTEXTMENU's click handler is the reader.
+        RoiPlacing logical = false
+
+        % Stem and ROI written to disk in this session. They drive the green
+        % "saved" aesthetic on the tile, which outlives the edit session so
+        % leaving edit mode does not erase the confirmation, and is cleared as
+        % soon as the selection moves on or the line is touched again. The key
+        % is carried too, so a section holding several ROIs marks the one that
+        % was actually written rather than all of them.
         RoiSavedStem string = ""
+        RoiSavedKey string = ""
 
         MeasureImage = []           % Full resolution page profiles are measured from.
         MeasureKey string = ""      % Image path the cached page came from.
@@ -241,6 +337,12 @@ classdef HistologyImageBrowser < handle
         % every keystroke, so the head of a large catalog stands in for it and
         % the count is reported beside the table.
         MaxPatternPreviewNames = 200
+
+        % Keys the naming dialog always offers, whether or not a section uses
+        % them yet, so the regions a study measures can be named once at the
+        % start rather than one at a time as each is first drawn. Any further
+        % key a dataset turns out to hold is offered alongside them.
+        DefaultRoiKeys = ["A", "B", "C", "D", "E", "F"]
 
         % Status severities, and the lamp glyph each one shows.
         StatusLevels = ["info", "busy", "success", "warning", "error"]
@@ -279,10 +381,18 @@ classdef HistologyImageBrowser < handle
         % The same for the distance axis, which is normalized per trace
         % whatever the scope says: a line's own start and its own length are
         % the only things "from line start" and "percent of line" can mean.
-        ProfileDistanceNames = ["As measured", "From line start", "Percent of line"]
-        ProfileDistanceCodes = ["none", "start", "percent"]
+        %
+        % "From brain surface" is the one that needs a mark to mean anything.
+        % A trace whose section has none falls back to its own line start,
+        % which is what the distance axis already meant for it, and
+        % RENDERPROFILEPLOT says how many did -- so an unmarked section reads
+        % as unaligned rather than as aligned at a surface nobody found.
+        ProfileDistanceNames = ["As measured", "From line start", ...
+            "Percent of line", "From brain surface"]
+        ProfileDistanceCodes = ["none", "start", "percent", "surface"]
         ProfileDistanceLabels = ["distance along line (\mum)", ...
-            "distance from line start (\mum)", "distance along line (% of length)"]
+            "distance from line start (\mum)", "distance along line (% of length)", ...
+            "depth from brain surface (\mum)"]
 
         % Background presets for the image panel, and their stored codes.
         % Light gray is the shade a uipanel uses by default, so an untouched
@@ -326,24 +436,40 @@ classdef HistologyImageBrowser < handle
         CatalogColumnFields = ["SubjectID", "SectionID", "Hemisphere", "Stain", ...
             "AtlasPlate", "NProfiles", "Variants", "Status", "Stem", "SampleID", ...
             "Protocol", "Series", "ZPlane", "DateCode", "ImageNumber", "ROI", ...
-            "NVariants", "NameParsed", "InTracker", "Content", "Slide", "SliceID", ...
-            "ImageDate", "LaserPower", "Notes", "ProcessingID", "Folder"]
+            "NVariants", "NameParsed", "InTracker", "Measured", "Content", ...
+            "Slide", "SliceID", "ImageDate", "LaserPower", "Notes", ...
+            "ProcessingID", "Folder"]
         CatalogColumnHeadings = ["Subject", "Section", "Hemi", "Stain", ...
             "Plate", "Prof", "Images", "Status", "Stem", "Sample", ...
             "Protocol", "Series", "ZPlane", "Date", "ImageNum", "ROI", ...
-            "NImages", "Parsed", "Tracked", "Content", "Slide", "Slice", ...
-            "Acquired", "Laser", "Notes", "Processing", "Folder"]
+            "NImages", "Parsed", "Tracked", "Meas", "Content", ...
+            "Slide", "Slice", "Acquired", "Laser", "Notes", ...
+            "Processing", "Folder"]
         CatalogColumnWidths = ["70", "60", "45", "70", ...
             "45", "40", "auto", "auto", "220", "70", ...
             "70", "55", "55", "70", "60", "90", ...
-            "45", "50", "55", "90", "50", "55", ...
-            "80", "55", "auto", "80", "240"]
+            "45", "50", "55", "40", "90", ...
+            "50", "55", "80", "55", "auto", ...
+            "80", "240"]
 
-        % The arrangement an app nobody has configured opens with, which is
-        % exactly the eight columns the table showed before it could be
-        % rearranged, so an existing user sees no change until they ask for one.
+        % The arrangement an app nobody has configured opens with: the eight
+        % columns the table showed before it could be rearranged, plus ROI.
+        %
+        % ROI is the one addition. A section can carry several lines now, one
+        % per region measured across it, and which regions those are is the
+        % first thing anyone working through a stack needs to see; leaving it
+        % out would have hidden the whole point of the ROI keys behind Arrange
+        % Columns. NProfiles stays beside it rather than being replaced by it:
+        % the two disagree whenever a line has been drawn but not yet measured,
+        % and that gap is worth seeing.
         DefaultCatalogColumns = ["SubjectID", "SectionID", "Hemisphere", "Stain", ...
-            "AtlasPlate", "NProfiles", "Variants", "Status"]
+            "AtlasPlate", "NProfiles", "ROI", "Variants", "Status"]
+
+        % Catalog columns the section tracker is the only source of. Named
+        % when a load has to go ahead without the tracker, so what came up
+        % blank is said once rather than discovered a column at a time.
+        TrackerColumns = ["AtlasPlate", "Content", "Slide", "SliceID", ...
+            "ImageDate", "LaserPower", "Notes", "ProcessingID"]
 
         % Variable the display table carries each row's section stem in, drawn
         % at zero width. It is what maps a displayed row back to a catalog row
@@ -360,6 +486,9 @@ classdef HistologyImageBrowser < handle
                 rootPath (1,1) string = ""
                 options.metadataCSV (1,1) string = ""
                 options.publishedUrl (1,1) string = ""
+                options.sheetUrl (1,1) string = ""
+                options.sheetTab (1,1) string = ""
+                options.sheetCredentials (1,1) string = ""
             end
 
             obj.ImageCache = containers.Map("KeyType", "char", "ValueType", "any");
@@ -382,6 +511,21 @@ classdef HistologyImageBrowser < handle
             % changing what the next one opens on.
             if options.publishedUrl ~= ""
                 obj.PublishedUrl = options.publishedUrl;
+            end
+
+            if options.sheetUrl ~= ""
+                obj.SheetUrl = options.sheetUrl;
+                obj.Tracker = [];
+            end
+
+            if options.sheetTab ~= ""
+                obj.SheetTab = options.sheetTab;
+                obj.Tracker = [];
+            end
+
+            if options.sheetCredentials ~= ""
+                obj.SheetCredentials = options.sheetCredentials;
+                obj.Tracker = [];
             end
 
             obj.refreshDatasetMenu();
@@ -417,11 +561,17 @@ classdef HistologyImageBrowser < handle
 
         buildViewPanel(obj, parent)     % Build the image tiles and profile axes.
 
+        buildReviewPanel(obj, parent)   % Build the controls that write to the tracker.
+
         buildStatusBar(obj, parent)     % Build the status strip along the bottom.
 
         applyViewLayout(obj)            % Place the image and profile panels per the layout choice.
 
         onLoadData(obj)                 % Run COMBINE_VALUES_CSV and build the catalog.
+
+        onConfigureSheet(obj)           % Point the browser at a Google Sheet tracker.
+
+        onPrepareSheet(obj)             % Add the columns a review write needs.
 
         onEditFilenamePattern(obj)      % Edit the filename pattern, with a live preview.
 
@@ -443,13 +593,25 @@ classdef HistologyImageBrowser < handle
 
         onArrangeColumns(obj)           % Choose which columns show, and in what order.
 
+        refreshReviewColumns(obj)       % Rewrite just the review columns, in place.
+
         onSelectionChanged(obj)         % Handle a table selection change.
+
+        target = reviewTarget(obj)      % Tracker rows the review controls would write to.
+
+        updateReviewControls(obj)       % Enable the review controls that apply now.
+
+        onSetAtlasPlate(obj)            % Write the atlas plate for the selection.
+
+        onSetMeasured(obj, measured)    % Mark or unmark the selection as measured.
+
+        ok = writeReview(obj, uids, updates, description)  % Send one review edit to the tracker.
 
         renderSelection(obj)            % Draw the selected images and profiles.
 
-        drawImageTile(obj, ax, row, tileColor)  % Draw one image with its overlay.
+        drawImageTile(obj, ax, row, tileColor, isActive)  % Draw one image with its overlay.
 
-        drawRoiOverlay(obj, ax, row, tileColor) % Draw the line ROI and sampling band.
+        drawRoiOverlay(obj, ax, row, tileColor) % Draw every line ROI and sampling band.
 
         refreshOverlays(obj)            % Redraw every tile's overlay, keeping the images.
 
@@ -465,13 +627,25 @@ classdef HistologyImageBrowser < handle
 
         [img, imageSize, reason] = loadDisplayImage(obj, imagePath, page)  % Load and cache one image.
 
-        P = readProfile(obj, row)       % Read profile data for one catalog row.
+        P = readProfile(obj, row, key)  % Read one ROI's profile for a catalog row.
 
-        R = roiForRow(obj, row)         % Line ROI to draw for a row, edited or on disk.
+        R = roiForRow(obj, row, key)    % One line ROI of a row, edited or on disk.
 
-        geometry = initialRoiGeometry(obj, row)  % Geometry an edit session starts from.
+        geometry = initialRoiGeometry(obj, row, key)  % Geometry an edit session starts from.
 
-        onToggleEditRoi(obj)            % Enter or leave ROI editing.
+        onAddRoi(obj)                   % Start a new ROI on the selected section.
+
+        onRoiSelectionChanged(obj)      % Take a new active ROI from the dropdown.
+
+        syncRoiSelector(obj)            % Offer the selected section's ROIs.
+
+        onEditRoiNames(obj)             % Rename the ROI keys A, B, C ...
+
+        onToggleEditRoi(obj, key)       % Enter or leave ROI editing.
+
+        targeted = setRoiTarget(obj, stem)  % Point the ROI controls at one drawn tile.
+
+        markRoiTarget(obj)              % Move the ROI target mark to the right tile.
 
         proceed = exitRoiEdit(obj, askWhenDirty) % Leave editing, offering to save first.
 
@@ -485,9 +659,23 @@ classdef HistologyImageBrowser < handle
 
         onDrawRoi(obj)                  % Draw a new line ROI on the image.
 
+        onMarkSurface(obj)              % Click on the image to place the surface mark.
+
+        onDetectSurface(obj)            % Find the surface from the profile, and mark it.
+
+        onClearSurface(obj)             % Take the surface mark off the edited line.
+
+        found = detectSurface(obj, options)  % Locate the surface under the edited line.
+
+        attachSurfaceEditor(obj, ax, row)    % Put the draggable surface mark on the tile.
+
+        onSurfaceEditChanged(obj, position, isFinal)  % Take a dragged surface position.
+
         imagePath = measureImagePath(obj, row)  % Image a profile is measured from.
 
         refreshRoiOverlay(obj)          % Redraw just the edited tile's overlay.
+
+        refreshRoiEdit(obj, stem)       % Redraw what an ROI edit changed, and nothing else.
 
         updateRoiPreview(obj)           % Remeasure the profile under the unsaved ROI.
 
@@ -639,6 +827,42 @@ classdef HistologyImageBrowser < handle
             obj.setStatus("Published sheet cleared. Load again to drop its annotations.");
         end
 
+        function onClearSheet(obj)
+            % Stop reading the tracker from the sheet, without touching it.
+            if obj.SheetUrl == ""
+                return
+            end
+
+            obj.SheetUrl = "";
+            obj.Tracker = [];
+            obj.refreshDatasetMenu();
+            obj.savePreferences();
+            obj.setStatus("Sheet tracker cleared. The sheet itself was not changed.");
+        end
+
+        function tracker = sheetTracker(obj)
+            % The tracker object for the configured sheet, built on demand.
+            % Held between loads so a sitting spends one token request rather
+            % than one per read.
+
+            if obj.SheetUrl == ""
+                tracker = [];
+                return
+            end
+
+            needsNew = isempty(obj.Tracker) || ~isvalid(obj.Tracker) ...
+                || obj.Tracker.SpreadsheetId ~= gsheet.spreadsheetId(obj.SheetUrl) ...
+                || obj.Tracker.SheetName ~= obj.SheetTab ...
+                || obj.Tracker.CredentialsPath ~= obj.SheetCredentials;
+
+            if needsNew
+                obj.Tracker = SectionTracker(obj.SheetUrl, obj.SheetCredentials, ...
+                    sheetName = obj.SheetTab);
+            end
+
+            tracker = obj.Tracker;
+        end
+
         function refreshDatasetMenu(obj)
             % Show the current selections on the Dataset menu and in the title.
             % The paths used to sit in edit fields, so the menu labels and the
@@ -664,6 +888,12 @@ classdef HistologyImageBrowser < handle
             obj.ClearPublishedSheetMenu.Enable = ...
                 matlab.lang.OnOffSwitchState(obj.PublishedUrl ~= "");
 
+            obj.refreshSheetMenu();
+
+            % Configuring or clearing the sheet changes whether reviewing is
+            % possible at all, which is the panel's whole enabled state.
+            obj.updateReviewControls();
+
             obj.refreshTrackerLink();
 
             if obj.RootPath == ""
@@ -675,15 +905,20 @@ classdef HistologyImageBrowser < handle
 
         function refreshTrackerLink(obj)
             % Show, above the search field, a link to whichever tracker source
-            % is in play: the published sheet takes priority over a local CSV,
-            % matching the choice ONLOADDATA makes. Hidden when neither is set,
-            % since there is nothing to link to.
+            % is in play: the sheet read over the API first, then the published
+            % copy, then a local CSV, matching the order ONLOADDATA reads them
+            % in. Hidden when none is set, since there is nothing to link to.
 
             if isempty(obj.TrackerLinkLabel) || ~isvalid(obj.TrackerLinkLabel)
                 return
             end
 
-            if obj.PublishedUrl ~= ""
+            if obj.SheetUrl ~= ""
+                obj.TrackerLinkLabel.Text = "Tracker: Google Sheet, " ...
+                    + obj.SheetTab + " tab";
+                obj.TrackerLinkLabel.Tooltip = "Open the sheet in your browser.";
+                obj.TrackerLinkLabel.Visible = "on";
+            elseif obj.PublishedUrl ~= ""
                 obj.TrackerLinkLabel.Text = "Tracker: published sheet " ...
                     + HistologyImageBrowser.publishedSheetLabel(obj.PublishedUrl);
                 obj.TrackerLinkLabel.Tooltip = "Open the published sheet in your browser.";
@@ -701,8 +936,17 @@ classdef HistologyImageBrowser < handle
 
         function onOpenTrackerLink(obj)
             % Open whichever tracker source the link above the search field is
-            % currently showing: the published sheet in a browser, or the local
-            % tracker CSV in whatever application handles CSVs.
+            % currently showing: either sheet in a browser, or the local tracker
+            % CSV in whatever application handles CSVs.
+            %
+            % The order matches REFRESHTRACKERLINK, which in turn matches the
+            % one ONLOADDATA reads them in, so the link always opens the source
+            % the catalog on screen was actually annotated from.
+
+            if obj.SheetUrl ~= ""
+                obj.openExternalLink(obj.sheetEditUrl(), "the tracker sheet");
+                return
+            end
 
             if obj.PublishedUrl ~= ""
                 obj.openExternalLink(obj.PublishedUrl, "the published sheet");
@@ -727,6 +971,51 @@ classdef HistologyImageBrowser < handle
             else
                 system("xdg-open """ + obj.MetadataPath + """ &");
             end
+        end
+
+        function url = sheetEditUrl(obj)
+            % A browsable address for the configured sheet. SheetUrl accepts a
+            % bare spreadsheet ID as well as a pasted edit URL, and an ID on its
+            % own is not something a browser can open, so one is built back up
+            % into the canonical address. A reference neither form recognizes is
+            % handed over as typed rather than refused here, which leaves the
+            % browser to report it.
+
+            url = strtrim(obj.SheetUrl);
+
+            if startsWith(lower(url), "http")
+                return
+            end
+
+            try
+                url = "https://docs.google.com/spreadsheets/d/" ...
+                    + gsheet.spreadsheetId(url) + "/edit";
+            catch
+            end
+        end
+
+        function refreshSheetMenu(obj)
+            % Label the sheet submenu with what it is pointed at, and offer the
+            % actions that only mean something once it is.
+
+            if isempty(obj.SheetMenu) || ~isvalid(obj.SheetMenu)
+                return
+            end
+
+            configured = obj.SheetUrl ~= "";
+
+            if configured
+                obj.SheetMenu.Text = "Google Sheet Tracker:  " + obj.SheetTab;
+            else
+                obj.SheetMenu.Text = "Google Sheet Tracker:  (none)";
+            end
+
+            % Preparing the sheet writes to it, which needs a key file even
+            % though naming the spreadsheet does not.
+            readyToWrite = configured && obj.SheetCredentials ~= "";
+
+            obj.SheetPrepareMenu.Enable = matlab.lang.OnOffSwitchState(readyToWrite);
+            obj.SheetClearMenu.Enable = matlab.lang.OnOffSwitchState(configured);
         end
 
         function onResetFilters(obj)
@@ -1258,6 +1547,37 @@ classdef HistologyImageBrowser < handle
             tf = obj.profileLayout() ~= "only";
         end
 
+        function onSurfaceOverlayChanged(obj)
+            % Redraw after the brain surface switch, which is the one overlay
+            % option drawn in two places.
+            %
+            % Every other overlay is a graphic on a tile, so ONDISPLAY-
+            % OPTIONCHANGED's cheap path -- REFRESHOVERLAYS, which replaces the
+            % tagged objects on each tile and leaves the pictures standing --
+            % is the whole redraw they need. The surface marks are also ruled
+            % across the profile plot, and nothing REFRESHOVERLAYS does reaches
+            % that, so the plot is redrawn here as well.
+            %
+            % Here rather than inside REFRESHOVERLAYS, because that runs for
+            % every overlay switch and the other four have nothing to say about
+            % the plot: redrawing it there would make a sampling band toggle
+            % reread every selected section's profile to change nothing.
+
+            obj.onDisplayOptionChanged();
+
+            if ~obj.showProfile()
+                return
+            end
+
+            % A change of settings large enough to have gone down
+            % ONDISPLAYOPTIONCHANGED's expensive path has already redrawn the
+            % plot, and this redraws it a second time. That costs one wasted
+            % redraw in a case a click on this checkbox cannot produce, and the
+            % alternative is a second copy of the render-key comparison here to
+            % detect it.
+            obj.renderProfilePlot();
+        end
+
         function onProfileOptionChanged(obj)
             % Redraw the profile plot after a normalization choice.
             %
@@ -1337,6 +1657,180 @@ classdef HistologyImageBrowser < handle
             tf = any(string(rows.Stem) == obj.RoiEditStem);
         end
 
+        function tf = isEditingRoi(obj, row, key)
+            % True when this row's named ROI is the one being edited.
+            % Only one ROI of one section is ever open at a time, so this is
+            % what tells the overlay which line on a tile carries the handles
+            % and which are simply drawn.
+            tf = obj.isEditingRow(row) && string(key) == obj.RoiEditKey;
+        end
+
+        function keys = roiKeysForRow(obj, row)
+            % Every ROI one section holds, in the order they are offered.
+            %
+            % An ROI being added is included before anything of it exists on
+            % disk, because until it is saved the edit session is the only
+            % place it lives, and it still has to be drawn and named.
+
+            keys = strings(0, 1);
+
+            if height(row) ~= 1
+                return
+            end
+
+            if ismember("RoiKeys", string(row.Properties.VariableNames))
+                keys = string(row.RoiKeys{1});
+                keys = keys(:);
+            end
+
+            if obj.RoiEditKey ~= "" && obj.isEditingRow(row) ...
+                    && ~ismember(obj.RoiEditKey, keys)
+                keys(end + 1, 1) = obj.RoiEditKey;
+            end
+        end
+
+        function E = roiEntry(obj, row, key)
+            % The two sidecars of one ROI, either of which may be absent.
+            %
+            % Returns
+            %   E: Struct with fields key, name, roiPath, and valuesPath. The
+            %      paths are "" when that file has not been written yet.
+
+            E = struct( ...
+                "key", string(key), ...
+                "name", obj.roiName(key), ...
+                "roiPath", "", ...
+                "valuesPath", "");
+
+            if height(row) ~= 1
+                return
+            end
+
+            varNames = string(row.Properties.VariableNames);
+
+            if ~all(ismember(["RoiKeys", "RoiPaths", "RoiValues"], varNames))
+                return
+            end
+
+            index = find(string(row.RoiKeys{1}) == E.key, 1);
+
+            if isempty(index)
+                return
+            end
+
+            roiPaths = string(row.RoiPaths{1});
+            valuesPaths = string(row.RoiValues{1});
+
+            if index <= numel(roiPaths)
+                E.roiPath = roiPaths(index);
+            end
+
+            if index <= numel(valuesPaths)
+                E.valuesPath = valuesPaths(index);
+            end
+        end
+
+        function key = activeRoiKey(obj, row)
+            % Which ROI of a section the edit controls act on right now.
+            %
+            % The key last chosen wins when the section has it, so moving
+            % between sections stays on one region. Otherwise the section's
+            % first ROI is taken, and a section with no ROI at all answers "A"
+            % so that drawing on it has somewhere to put the result.
+
+            keys = obj.roiKeysForRow(row);
+
+            if obj.ActiveRoiKey ~= "" && ismember(obj.ActiveRoiKey, keys)
+                key = obj.ActiveRoiKey;
+                return
+            end
+
+            if isempty(keys)
+                key = "A";
+                return
+            end
+
+            key = keys(1);
+        end
+
+        function name = roiName(obj, key)
+            % What one ROI key is called on screen, which is the key itself
+            % until somebody names it.
+
+            name = string(key);
+
+            index = find(obj.RoiNameKeys == name, 1);
+
+            if isempty(index) || obj.RoiNameLabels(index) == ""
+                return
+            end
+
+            name = obj.RoiNameLabels(index);
+        end
+
+        function setRoiName(obj, key, name)
+            % Name one ROI key, or clear the name by passing "".
+            % Clearing removes the pair outright rather than storing a blank,
+            % so the naming dialog and the saved preference hold only names
+            % somebody actually chose.
+
+            key = strtrim(string(key));
+            name = strtrim(string(name));
+
+            if key == ""
+                return
+            end
+
+            index = find(obj.RoiNameKeys == key, 1);
+
+            if name == "" || name == key
+                if ~isempty(index)
+                    obj.RoiNameKeys(index) = [];
+                    obj.RoiNameLabels(index) = [];
+                end
+
+                return
+            end
+
+            if isempty(index)
+                obj.RoiNameKeys(end + 1, 1) = key;
+                obj.RoiNameLabels(end + 1, 1) = name;
+                return
+            end
+
+            obj.RoiNameLabels(index) = name;
+        end
+
+        function text = describeRoiList(obj, row)
+            % Name the ROIs one section holds, for the panel and the table.
+
+            keys = obj.roiKeysForRow(row);
+
+            if isempty(keys)
+                text = "";
+                return
+            end
+
+            names = arrayfun(@(k) obj.roiName(k), keys);
+            text = join(names, ", ");
+        end
+
+        function text = roiListText(obj, rows)
+            % DESCRIBEROILIST down a whole view, for the Sections table.
+            %
+            % CATALOGDISPLAYTABLE is static, so that APPLYFILTERS can build a
+            % table for a view it has not adopted yet, and what an ROI key is
+            % called is a setting of this browser rather than anything in the
+            % catalog. This is where the two meet: the names are rendered here
+            % and handed over already drawn.
+
+            text = strings(height(rows), 1);
+
+            for iRow = 1:height(rows)
+                text(iRow) = obj.describeRoiList(rows(iRow, :));
+            end
+        end
+
         function pixelSize = roiEditPixelSize(obj)
             % Pixel size of the image the edited profile is measured from.
             % NaN when the image carries no calibration, in which case
@@ -1386,15 +1880,63 @@ classdef HistologyImageBrowser < handle
             text = text + sprintf(" (%.0f um)", width * pixelSize);
         end
 
-        function row = editedRow(obj)
-            % Return the row being edited, or an empty table when idle.
-            row = obj.View([], :);
+        function text = describeSurface(obj, R)
+            % Say where the brain surface mark sits on a line, in the units
+            % anyone reading the tile can check it in.
+            %
+            % Pixels because that is what the mark is stored in and what the
+            % overlay is drawn in, microns beside them wherever the page is
+            % calibrated, and a percentage of the line because that is the one
+            % of the three that can be compared between two sections whose
+            % lines are different lengths.
+            %
+            % Parameters
+            %   R: Struct with x1, y1, x2, y2 and surface -- ROIFORROW's return
+            %      or the ROI edit geometry, which carry the same fields.
 
-            if obj.RoiEditStem == "" || height(obj.View) == 0
+            text = "not marked";
+
+            if ~isfield(R, "surface") || ~isscalar(R.surface) || ~isfinite(R.surface)
                 return
             end
 
-            index = find(string(obj.View.Stem) == obj.RoiEditStem, 1);
+            text = sprintf("at %.0f px", R.surface);
+
+            pixelSize = obj.roiEditPixelSize();
+
+            if isfinite(pixelSize) && pixelSize > 0
+                % Spelled "um" rather than with the micron sign, which does not
+                % survive every console and font this text is shown in.
+                text = text + sprintf(" (%.0f um)", R.surface * pixelSize);
+            end
+
+            lineLength = hypot(double(R.x2) - double(R.x1), double(R.y2) - double(R.y1));
+
+            if isfinite(lineLength) && lineLength > 0
+                text = text + sprintf(", %.0f%% along the line", ...
+                    100 * R.surface / lineLength);
+            end
+        end
+
+        function row = editedRow(obj)
+            % Return the row being edited, or an empty table when idle.
+            row = obj.rowForStem(obj.RoiEditStem);
+        end
+
+        function row = rowForStem(obj, stem)
+            % Row of the filtered view a section stem names, or an empty table.
+            %
+            % The view rather than the catalog, because a tile is only ever
+            % drawn from a row that is in the view, and every other reader of
+            % a row -- the overlay, the profile, the save -- looks there too.
+
+            row = obj.View([], :);
+
+            if stem == "" || height(obj.View) == 0
+                return
+            end
+
+            index = find(string(obj.View.Stem) == stem, 1);
 
             if isempty(index)
                 return
@@ -1403,17 +1945,119 @@ classdef HistologyImageBrowser < handle
             row = obj.View(index, :);
         end
 
-        function onOpenFolder(obj)
-            % Reveal the folder holding the first selected image.
+        function ax = tileAxes(obj, stem)
+            % Tile currently showing one section, or [] when it is not drawn.
+            %
+            % The stem DRAWIMAGETILE stamps on each axes is what picks the
+            % right tile out of several: FINDOBJ returns them newest first, so
+            % taking the first would land on the last section of the selection
+            % rather than on the one being asked for.
+
+            ax = [];
+
+            if stem == "" || isempty(obj.ImagePanel) || ~isvalid(obj.ImagePanel)
+                return
+            end
+
+            candidates = findobj(obj.ImagePanel, Type = "axes");
+
+            for iAxes = 1:numel(candidates)
+                if HistologyImageBrowser.tileStem(candidates(iAxes)) == stem
+                    ax = candidates(iAxes);
+                    return
+                end
+            end
+        end
+
+        function stem = activeRoiStem(obj)
+            % Section the ROI controls act on, or "" when none is selected.
+            %
+            % An edit already open owns the line whichever tile it sits on.
+            % Otherwise the tile the user last clicked takes it, and failing
+            % that the first drawn tile does. ONTOGGLEEDITROI, ONDRAWROI and
+            % ONOPENFOLDER all ask here rather than each reaching for the first
+            % selected row, which is what lets the tile say which section is
+            % next before a button is pressed instead of the user finding out
+            % by pressing one.
+            %
+            % The answer is always a section that is drawn, never merely one
+            % that is selected: a stem beyond the Max tiles cap, or one left
+            % over from a selection that has moved on, is ignored rather than
+            % named. That makes ROITARGETSTEM self-healing, so nothing has to
+            % remember to clear it.
+
+            stem = obj.RoiEditStem;
+
+            if stem ~= ""
+                return
+            end
+
+            stems = obj.drawnStems();
+
+            if isempty(stems)
+                return
+            end
+
+            if obj.RoiTargetStem ~= "" && any(stems == obj.RoiTargetStem)
+                stem = obj.RoiTargetStem;
+                return
+            end
+
+            stem = stems(1);
+        end
+
+        function stems = drawnStems(obj)
+            % Sections RENDERSELECTION would draw a tile for, in tile order.
+            %
+            % The selection truncated to the Max tiles cap, which is the same
+            % arithmetic RENDERSELECTION and ONOPENINFIGURE do. Read off the
+            % table rather than off the tiles themselves, so it answers the
+            % same way in a layout that draws no tiles at all -- the ROI hint
+            % has to name a section there too.
+
+            stems = strings(0, 1);
+
             rows = obj.selectedRows();
 
             if isempty(rows) || height(rows) == 0
+                return
+            end
+
+            nDrawn = min(height(rows), obj.maxTiles());
+
+            stems = string(rows.Stem(1:nDrawn));
+        end
+
+        function n = maxTiles(obj)
+            % Most tiles the view will draw at once, as a whole number.
+            % One while the field is still being built, so a caller running
+            % before the panel exists sees the cap it always had a floor of.
+
+            n = 1;
+
+            if isempty(obj.MaxTilesField) || ~isvalid(obj.MaxTilesField)
+                return
+            end
+
+            n = max(1, round(obj.MaxTilesField.Value));
+        end
+
+        function onOpenFolder(obj)
+            % Reveal the folder holding the image of the marked section.
+            %
+            % Through ACTIVEROISTEM rather than off the first selected row, so
+            % a right-click on the sixth tile opens the sixth section's folder.
+            % With nothing clicked the two are the same section anyway.
+
+            row = obj.rowForStem(obj.activeRoiStem());
+
+            if height(row) ~= 1
                 obj.setWarning("Select an image first.");
                 uialert(obj.Fig, "Select an image first.", "Nothing Selected");
                 return
             end
 
-            folder = rows.Folder(1);
+            folder = row.Folder(1);
 
             if folder == "" || ~isfolder(folder)
                 obj.setError("Folder is missing for this entry: %s", folder);
@@ -1555,13 +2199,71 @@ classdef HistologyImageBrowser < handle
 
         style = roiStateStyle(state, tileColor)  % Aesthetics for one ROI save state.
 
+        function point = surfacePoint(R)
+            % Image coordinates of the brain surface mark on a line ROI, or []
+            % when the line carries no mark.
+            %
+            % The mark is stored as a distance from the line's start rather
+            % than as a point, because that is what survives the far end of the
+            % line being dragged. Everything that draws it -- the tick on the
+            % tile, the draggable handle, the exported columns -- turns it back
+            % into a point here rather than each doing the arithmetic itself.
+            %
+            % Parameters
+            %   R: Struct with x1, y1, x2, y2 and surface, as ROIFORROW and the
+            %      ROI edit geometry both carry.
+
+            point = [];
+
+            if ~isfield(R, "surface") || ~isscalar(R.surface) || ~isfinite(R.surface)
+                return
+            end
+
+            delta = [double(R.x2) - double(R.x1), double(R.y2) - double(R.y1)];
+            lineLength = hypot(delta(1), delta(2));
+
+            if ~isfinite(lineLength) || lineLength <= 0
+                return
+            end
+
+            % Clamped rather than refused, so a mark left over from a longer
+            % line lands on the end of the shorter one instead of floating off
+            % past it. The stroke says the line is unsaved either way.
+            offset = min(max(double(R.surface), 0), lineLength);
+
+            point = [double(R.x1), double(R.y1)] + offset * delta / lineLength;
+        end
+
+        function offset = projectOntoLine(R, point)
+            % Distance from a line's start to the foot of a point's
+            % perpendicular, clamped to the line. This is what turns a click or
+            % a drag anywhere near the line into a surface offset, so the mark
+            % can never end up somewhere the profile was not measured.
+            %
+            % Returns NaN for a line with no length, which has no offsets.
+
+            offset = NaN;
+
+            delta = [double(R.x2) - double(R.x1), double(R.y2) - double(R.y1)];
+            lineLength = hypot(delta(1), delta(2));
+
+            if ~isfinite(lineLength) || lineLength <= 0
+                return
+            end
+
+            unit = delta / lineLength;
+            fromStart = [double(point(1)) - double(R.x1), double(point(2)) - double(R.y1)];
+
+            offset = min(max(dot(fromStart, unit), 0), lineLength);
+        end
+
         [tf, message] = checkFilenamePattern(pattern)  % Judge a candidate pattern.
 
         pattern = tokenListPattern(delimiter, names)   % Compile a token list into one.
 
         T = filenamePatternPreview(names, pattern)     % What a pattern extracts, tabulated.
 
-        [display, widths] = catalogDisplayTable(rows, columns)  % Table the Sections widget shows.
+        [display, widths] = catalogDisplayTable(rows, columns, options)  % Table the Sections widget shows.
 
         idx = catalogSortOrder(display, heading, direction)     % Order one column sort gives.
 
@@ -1582,6 +2284,46 @@ classdef HistologyImageBrowser < handle
             stem = string(ax.UserData.Stem);
         end
 
+        function colors = tileColors(n)
+            % One distinguishable color per tile, all legible on a dark image.
+            %
+            % A tile's color is the only thing tying a picture to its trace in
+            % the profile plot, so the three places that draw them --
+            % RENDERSELECTION, RENDERPROFILEPLOT and ONOPENINFIGURE -- all come
+            % here instead of each calling LINES or TURBO for itself.
+            %
+            % Both of those maps run dark at their ends: LINES opens on a navy
+            % and TURBO on a near-black violet. That color is not only the
+            % frame; it strokes the ROI across the section and now titles the
+            % tile from inside it, and sections are usually near-black
+            % fluorescence, so a navy line on one is not a line anyone can see.
+            % Hue is what identifies a tile, so hue is the one thing left
+            % alone: every color is lifted to at least MINVALUE and has its
+            % saturation capped, which keeps the set as separable as it was
+            % while none of it can sink into the background.
+
+            arguments
+                n (1,1) double
+            end
+
+            n = max(round(n), 1);
+
+            if n <= 7
+                colors = lines(n);
+            else
+                colors = turbo(n);
+            end
+
+            minValue = 0.78;
+            maxSaturation = 0.85;
+
+            hsv = rgb2hsv(colors);
+            hsv(:, 2) = min(hsv(:, 2), maxSaturation);
+            hsv(:, 3) = max(hsv(:, 3), minValue);
+
+            colors = hsv2rgb(hsv);
+        end
+
         function color = tileColor(ax, fallback)
             % Color a tile's frame and overlay were drawn in.
             % An axes drawn before the stamp existed, or one that is not a
@@ -1590,7 +2332,7 @@ classdef HistologyImageBrowser < handle
 
             arguments
                 ax
-                fallback (1,3) double = lines(1)
+                fallback (1,3) double = HistologyImageBrowser.tileColors(1)
             end
 
             color = fallback;
@@ -1607,12 +2349,104 @@ classdef HistologyImageBrowser < handle
             end
         end
 
+        function markTile(ax, isActive)
+            % Say on one tile whether it is the section the ROI controls act
+            % on, without redrawing anything else about it.
+            %
+            % The whole mark is here rather than split between DRAWIMAGETILE
+            % and MARKROITARGET, because the two have to agree exactly: a tile
+            % drawn active and a tile marked active later must be the same
+            % picture, or moving the target would leave two tiles looking
+            % subtly different from each other and from the panel.
+            %
+            % Two channels carry it. The frame weight is the one thing
+            % readable from across a grid of twelve sections and the one that
+            % survives the figure being printed in grey; the label states it in
+            % words for anyone who cannot tell two stroke widths apart. The
+            % active label inverts its plate -- the tile's own color filled in,
+            % with dark text on it -- which reads at a glance and does not
+            % depend on remembering which of two colors means what.
+            %
+            % Parameters
+            %   isActive: True for the tile the ROI controls act on.
+            %
+            % See also DRAWIMAGETILE, MARKROITARGET, ACTIVEROISTEM.
+
+            arguments
+                ax
+                isActive (1,1) logical
+            end
+
+            if isempty(ax) || ~isvalid(ax)
+                return
+            end
+
+            if isActive
+                ax.LineWidth = 3;
+            else
+                ax.LineWidth = 1.5;
+            end
+
+            label = findobj(ax, Tag = "tileTitle");
+
+            if numel(label) ~= 1
+                return
+            end
+
+            % PLACE_TITLE keeps the unmarked wording here, because the marked
+            % wording cannot be turned back into it by trimming a suffix
+            % without this code and that code sharing a literal.
+            base = string(label.UserData);
+
+            if ~isscalar(base) || ismissing(base) || strlength(base) == 0
+                % A label from somewhere that did not record its plain wording.
+                % Rewriting it would risk stacking one suffix on another, so the
+                % frame weight set above carries the mark by itself.
+                return
+            end
+
+            if isActive
+                label.String = base + "  (ROI target)";
+                label.BackgroundColor = HistologyImageBrowser.tileColor(ax);
+                label.Color = [0.06 0.06 0.06];
+                label.FontWeight = "bold";
+                return
+            end
+
+            label.String = base;
+            label.BackgroundColor = [0.09 0.09 0.09];
+            label.Color = HistologyImageBrowser.tileColor(ax);
+            label.FontWeight = "normal";
+        end
+
         function root = repositoryRoot()
             % Folder the app was loaded from, which is the git checkout when
             % there is one. Methods live one level down, in the class folder,
             % so the root is two steps up from this file.
 
             root = string(fileparts(fileparts(mfilename("fullpath"))));
+        end
+
+        function key = nextRoiKey(usedKeys)
+            % Name the next ROI a section gains: the first letter it is not
+            % already using. Letters rather than numbers, because the label
+            % goes into a filename beside the section's own name, where "_B_"
+            % cannot be mistaken for part of the section, slide, or z index
+            % that surround it.
+
+            usedKeys = string(usedKeys(:));
+            letters = string(char((double('A'):double('Z'))'));
+
+            free = letters(~ismember(letters, usedKeys));
+
+            if isempty(free)
+                % Twenty-six lines across one section is far past what the
+                % study measures, so this only has to be unique, not pretty.
+                key = "R" + string(numel(usedKeys) + 1);
+                return
+            end
+
+            key = free(1);
         end
 
         function label = shortcutLabel(binding)
@@ -1689,6 +2523,20 @@ classdef HistologyImageBrowser < handle
             else
                 label = path;
             end
+        end
+
+        function marks = measuredMarks(measured)
+            % Render the measured flag as a column that stays narrow: a tick
+            % for a section that has been measured and a blank for one that has
+            % not. Shared by CATALOGDISPLAYTABLE, which draws the column on a
+            % full refresh, and REFRESHREVIEWCOLUMNS, which rewrites it in
+            % place after a review is written to the tracker, so the two cannot
+            % render the same flag differently.
+
+            measured = logical(measured(:));
+
+            marks = strings(numel(measured), 1);
+            marks(measured) = char(10003);
         end
 
         function label = publishedSheetLabel(url)

@@ -25,6 +25,15 @@ selectedStems = obj.selectedRows();
 if obj.RoiSavedStem ~= "" && ~(height(selectedStems) > 0 ...
         && any(string(selectedStems.Stem) == obj.RoiSavedStem))
     obj.RoiSavedStem = "";
+    obj.RoiSavedKey = "";
+end
+
+% The tile the user picked for the ROI controls is a mark they put on something
+% now off screen, not a property of the section, so it is dropped rather than
+% left to reappear if the same run of sections is selected again later.
+% ACTIVEROISTEM would ignore it either way; this is so it cannot come back.
+if obj.RoiTargetStem ~= "" && ~any(obj.drawnStems() == obj.RoiTargetStem)
+    obj.RoiTargetStem = "";
 end
 
 % An ROI edit belongs to one section, so moving off it ends the edit. The
@@ -40,12 +49,30 @@ end
 
 refresh_channel_choices(obj);
 
+% The ROI the controls point at is settled before the redraw, so the dropdown
+% and the tile agree from the first frame. ACTIVEROIKEY keeps the region last
+% chosen when the new section also has it, so stepping down a series stays on
+% one region rather than jumping to whichever ROI each section lists first.
+if height(selectedStems) == 1
+    obj.ActiveRoiKey = obj.activeRoiKey(selectedStems(1, :));
+end
+
+obj.updateRoiEditControls();
+
 % The colormap that reads well for one stain rarely reads well for another,
 % so the section now selected comes back in the map its stain was last shown
 % in. Set before the redraw, so the tiles are drawn once.
 obj.applyStainColormap();
 
+% The review panel reads the selection's plate and measured state, so it is
+% told before the redraw rather than left showing the section just left.
+obj.updateReviewControls();
+
 obj.renderSelection();
+
+% The hint names the section the ROI buttons will act on, and the selection
+% just moved it.
+obj.updateRoiEditControls();
 
 warn_if_edit_off_screen(obj);
 

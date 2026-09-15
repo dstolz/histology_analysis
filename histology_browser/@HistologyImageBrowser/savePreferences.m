@@ -9,6 +9,12 @@ setpref(group, "LastMetadataPath", obj.MetadataPath);
 % The published URL is a link to a document, not a secret: anyone who has it
 % can read the published tab, which is what publishing it means.
 setpref(group, "PublishedUrl", obj.PublishedUrl);
+
+% Where the tracker is, not what is in it. The key file is named rather than
+% read, so nothing secret is written to the preference store.
+setpref(group, "SheetUrl", obj.SheetUrl);
+setpref(group, "SheetTab", obj.SheetTab);
+setpref(group, "SheetCredentials", obj.SheetCredentials);
 setpref(group, "Variant", obj.VariantDropDown.Value);
 setpref(group, "Colormap", obj.ColormapDropDown.Value);
 setpref(group, "LowPercentile", obj.LowPercentileField.Value);
@@ -18,6 +24,7 @@ setpref(group, "ShowRoi", obj.ShowRoiCheck.Value);
 setpref(group, "ShowBand", obj.ShowBandCheck.Value);
 setpref(group, "ShowBandGrid", obj.ShowBandGridCheck.Value);
 setpref(group, "ColorByIntensity", obj.ColorByIntensityCheck.Value);
+setpref(group, "ShowSurface", obj.ShowSurfaceCheck.Value);
 setpref(group, "ProfileLayout", obj.ProfileLayoutDropDown.Value);
 setpref(group, "ProfileSize", obj.ProfileSizeField.Value);
 setpref(group, "ProfileNorm", obj.ProfileNormDropDown.Value);
@@ -49,6 +56,14 @@ setpref(group, "ColormapChoices", obj.ColormapChoices);
 setpref(group, "CatalogColumns", obj.CatalogColumns);
 setpref(group, "CatalogSortColumn", obj.CatalogSortColumn);
 setpref(group, "CatalogSortDirection", obj.CatalogSortDirection);
+
+% What each ROI key is called is a property of the study rather than of one
+% sitting, and of the whole dataset rather than of one section, so naming A
+% after auditory cortex once should hold for every section measured after it
+% and for every session that follows. Written as two string arrays, for the
+% same reason the colormaps are.
+setpref(group, "RoiNameKeys", obj.RoiNameKeys);
+setpref(group, "RoiNameLabels", obj.RoiNameLabels);
 
 save_figure_geometry(obj, group);
 
