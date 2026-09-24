@@ -5,7 +5,10 @@ cortex straightening and profile extraction, crop labeling, the histology sectio
 and the ECM staining analysis app.
 
 Extracted from [`helper_fnc`](https://github.com/dstolz/helper_fnc) so these functions can
-be used without pulling in that repository's general-purpose utilities.
+be used without pulling in that repository's general-purpose utilities. A handful of
+`helper_fnc` functions that several of the root-level tools still call directly
+(`colorcet`, `use_fig`, `use_fig_tiledlayout`, `titlef`, `ylabelf`, `parfor_progress`) are
+vendored in [tools/](tools/) so the repository works standalone.
 
 **Documentation:** the [wiki](https://github.com/dstolz/histology_analysis/wiki) has a getting
 started guide, a tour of the browser, recipes for common tasks, and troubleshooting. Its source
