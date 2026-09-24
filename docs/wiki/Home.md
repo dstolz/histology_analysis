@@ -10,12 +10,11 @@ ECM staining across experimental groups. R handles the statistics.
 
 | Component | What it's for | Start here |
 |---|---|---|
-| **Histology Image Browser** | Catalog every section image under a folder. Filter by subject, hemisphere, stain and atlas plate. See each section with its Fiji line ROI and intensity profile. Edit ROIs, mark the brain surface, and record review status in the section tracker. | [Histology Browser](Histology-Browser) |
+| **Histology Image Browser** | Catalog every section image under a folder. Filter by subject, hemisphere, stain and atlas plate. See each section with its line ROI and intensity profile. Edit ROIs, mark the brain surface, and record review status in the section tracker. | [Histology Browser](Histology-Browser) |
 | **Section tracker** | The browser joins your lab's section tracker (a Google Sheet or a CSV) onto the catalog. It can also write the atlas plate and "Measured" back to the tracker. | [Section Tracker](Section-Tracker) |
 | **ECM Analysis app** | Take the exported profiles and align them to the cortical surface. Then smooth, normalize, tile, filter and compare groups interactively, and export figures, data and reproducible code. | [ECM Analysis](ECM-Analysis) |
 | **R statistics** | `ecm_analysis.R` fits mixed-effects models to the exported profiles and writes an HTML report. | [ECM Analysis § Statistics in R](ECM-Analysis#statistics-in-r) |
 | **Image tools** | Standalone utilities: CZI metadata extraction, interactive rotation, overlay and threshold tools, cortex straightening, and a crop labeller. | [Image Processing Tools](Image-Processing-Tools) |
-| **Fiji macro** | `MACRO_Batch_LineMeasure.ijm` walks a folder of images. You draw a line on each section and it saves the ROI and its profile. | [Data Layout § The Fiji macro](Data-Layout-and-File-Formats#the-fiji-macro) |
 
 ## Where to go next
 
@@ -31,18 +30,16 @@ ECM staining across experimental groups. R handles the statistics.
 
 1. **Acquire and export.** Each section is imaged (Zeiss `.czi`). Projections (`_proj.tif`) and
    optional mid-plane (`_mid`) and composite (`_composite`) renditions are exported beside it.
-2. **Measure in Fiji.** Run `MACRO_Batch_LineMeasure.ijm` over the folder. On each image you draw
-   one line across cortex. It writes `<image>_roi.roi` and `<image>_values.csv` next to the image.
-3. **Review in MATLAB.** `launch_histology_browser("D:/MyHistology/", ...)` catalogs everything
-   and joins it with the section tracker. Here you can:
+2. **Measure and review in MATLAB.** `launch_histology_browser("D:/MyHistology/", ...)` catalogs
+   everything and joins it with the section tracker. Here you can:
+   - draw, redraw or add line ROIs;
    - check each line;
-   - redraw or add ROIs;
    - mark the brain surface;
    - set the atlas plate;
    - tick sections off as measured.
-4. **Export.** Select sections and choose **Dataset > Export Selection to Workspace**. You get
+3. **Export.** Select sections and choose **Dataset > Export Selection to Workspace**. You get
    a table with one row per ROI, and each row carries its profile.
-5. **Analyze.** Run `ecm_prepare_analysis_data` and then `launch_ecm_browser` to explore
+4. **Analyze.** Run `ecm_prepare_analysis_data` and then `launch_ecm_browser` to explore
    interactively. Or run `ecm_export_for_r` and then `ecm_analysis.R` for the statistics.
 
 ## About the pictures in this wiki

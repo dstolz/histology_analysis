@@ -1,7 +1,7 @@
 # Histology Browser
 
 `HistologyImageBrowser` catalogs every section image under a root folder. It shows each section
-with its Fiji line ROIs and their intensity profiles, and lets you correct ROIs, mark the brain
+with its line ROIs and their intensity profiles, and lets you correct ROIs, mark the brain
 surface, and record review status.
 
 ```matlab

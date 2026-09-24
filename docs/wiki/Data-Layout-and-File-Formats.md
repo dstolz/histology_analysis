@@ -13,8 +13,8 @@ For each acquisition, the browser recognizes:
 | `<stem>_proj.tif` | your export | Projection. This is the default rendition and the one profiles are measured from. |
 | `<stem>_mid.tif` | your export | Mid-plane rendition (optional). |
 | `<stem>_composite.png` | your export | Composite rendition (optional). |
-| `<stem>_proj_roi.roi` | Fiji macro or browser | The line ROI, in ImageJ's binary `.roi` format. |
-| `<stem>_proj_values.csv` | Fiji macro or browser | The intensity profile measured along that line. |
+| `<stem>_proj_roi.roi` | browser | The line ROI, in ImageJ's binary `.roi` format. |
+| `<stem>_proj_values.csv` | browser | The intensity profile measured along that line. |
 | `<stem>_proj_roi_surface.json` | browser | Where the brain surface sits on that line (optional). |
 
 Any of the three exported renditions can be `.tif`, `.tiff` or `.png`; the scan looks for all
@@ -80,8 +80,7 @@ tokens become catalog columns: `SubjectID`, `SampleID`, `SectionID`, `Hemisphere
 previewed, but not cataloged.
 
 The `_proj`, `_mid`, `_composite`, `_roi` and `_values` suffixes are stripped before your pattern
-runs, and you can't change them. The Fiji macro writes them, and rendition discovery depends on
-them.
+runs, and you can't change them. Rendition discovery depends on them.
 
 From a script:
 
@@ -105,10 +104,9 @@ tied together by a label in their filenames:
   unchanged.
 - **Keys are letters.** To give them meaningful names (A = `ACx`, B = `S1`), use **Name ROIs...**
   in the browser. Names are stored as a MATLAB preference, so no file is renamed.
-- **Mismatched macro names are paired automatically.** When the macro runs with a region-specific
-  suffix, it writes `_proj_roi.roi` beside `_proj_ACxvalues.csv`. An unlabelled `.roi` that has
-  no profile of its own is paired with a profile that has no `.roi` of its own. So that section
-  reads as one ROI keyed `ACx`.
+- **Mismatched names are paired automatically.** An unlabelled `.roi` that has no profile of its
+  own is paired with a profile that has no `.roi` of its own. So `_proj_roi.roi` beside
+  `_proj_ACxvalues.csv` reads as one ROI keyed `ACx`.
 
 ## `*values.csv`: the profile
 
@@ -118,9 +116,8 @@ distance_pixel_index,intensity
 ...
 ```
 
-This is one row per sample along the line. In files written by the Fiji macro, the first column
-is in **calibrated units** (µm) when the image is calibrated, despite its name.
-The browser's `write_values_csv` writes the same header.
+This is one row per sample along the line. The first column is in **calibrated units** (µm) when
+the image is calibrated, despite its name. The browser's `write_values_csv` writes this header.
 
 ## `*_roi_surface.json`: the brain surface mark
 
@@ -143,34 +140,6 @@ This file is written by the browser when you **Save ROI** with a surface mark on
 - Clearing a mark **deletes** the file rather than writing an empty one.
 
 *(The numeric values above are placeholders showing the shape of the file.)*
-
-## The Fiji macro
-
-`histology_browser/fiji/MACRO_Batch_LineMeasure.ijm` runs in Fiji, not MATLAB. Open it in Fiji
-(**Plugins > Macros > Run...**) and it will:
-
-1. **Ask for the parent directory.** Fiji remembers the last one.
-2. **Ask for the file pattern.** The default is `*_proj.tif`. Matching is recursive and
-   case-insensitive.
-3. **Ask for the line width in µm.** The default is `994`. For uncalibrated images the number is
-   used as pixels, with a warning.
-4. **Ask for the values file suffix.** The default is `_values`.
-5. **Ask whether to skip images whose values CSV already exists.**
-
-Then, for each image:
-
-1. It opens the image and selects channel 1.
-2. It asks **"Process this file?"**. Answer No to skip.
-3. It waits while you **draw a straight line** across cortex, then click **OK**.
-4. It writes `<image base>_roi.roi` and `<image base><suffix>.csv` beside the image, then closes
-   all images.
-
-Things to know:
-
-- **It writes one ROI per image.** Add further ROIs (B, C, …) in the browser with **Add ROI**.
-- **It closes every open image** (`close("*")`) after each file, including unrelated ones.
-- **It needs you at the keyboard.** It uses dialogs, so it can't run headless, and
-  `runImageJMacro` can't drive it.
 
 ## The section tracker
 

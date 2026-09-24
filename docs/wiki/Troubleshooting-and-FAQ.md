@@ -133,9 +133,6 @@ These are documented here so they don't surprise you. They are all confirmed in 
     read unset.
 - **`histologyLabeller`**: the `contrastLim` property and its Shift-key adjustments have no
   visible effect, because the line applying it is commented out.
-- **`runImageJMacro`**: the `input=...,output=...` argument contains double quotes and is
-  itself wrapped in double quotes on the command line. Test it with your paths before relying
-  on it.
 - **`addpath_nogit`**: it skips any folder whose path contains `.git`, including `.github`.
 
 ## Reporting a problem

@@ -34,13 +34,12 @@ the folder that *contains* `@HistologyImageBrowser`, not the class folder itself
 | Image Processing Toolbox | Drawing and dragging ROIs, placing the brain surface mark, display downsampling in the browser; most of the [Image Processing Tools](Image-Processing-Tools) | Without it, the browser still opens, catalogs, displays and plots. Only ROI drawing and editing and surface placement are disabled. |
 | [Bio-Formats for MATLAB](https://www.openmicroscopy.org/bio-formats/downloads/) (`bfmatlab`) | Showing raw `.czi` in the browser; `extract_czi_metadata`, `parseBfTiff`, `straighten_cortex*` | Optional for the browser. It finds `bfmatlab` automatically in any of these places: on the path, inside or beside this checkout, in `userpath`, or at the folder named by the `BFMATLAB_PATH` environment variable. |
 | Statistics and Machine Learning Toolbox | The ECM app's **bootstrap 95%** error band | Optional. Without it that band is silently left out. |
-| Fiji / ImageJ | Running `MACRO_Batch_LineMeasure.ijm` | Measuring happens in Fiji, not MATLAB. |
 | R, with `readr dplyr tidyr ggplot2 scales lme4 lmerTest emmeans` | `ECM_Analysis/ecm_analysis.R` | `splines` ships with base R. The script stops with an `install.packages(...)` line if anything is missing. |
 
 ## 4. Five-minute tour, no data needed
 
 The browser's test suite includes a generator for a small **synthetic dataset**: two subjects,
-both hemispheres, two stains, plates 28–46, calibrated projections with Fiji ROI and profile
+both hemispheres, two stains, plates 28–46, calibrated projections with ROI and profile
 sidecars, and a section tracker CSV. Three sections are deliberately unfinished. It is
 deterministic and about 220 KB.
 
@@ -81,7 +80,7 @@ launch_histology_browser("D:/GM6001_HISTOLOGY/", ...
     metadataCSV = "D:/GM6001_HISTOLOGY/Trackers - Sections.csv")
 ```
 
-The browser expects the folder layout that the Fiji macro produces; see
+For the folder layout the browser expects, see
 [Data Layout and File Formats](Data-Layout-and-File-Formats). For the Google Sheet options, see
 [Section Tracker](Section-Tracker).
 
