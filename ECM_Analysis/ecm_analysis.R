@@ -27,6 +27,9 @@
 #       ECM Projects - GM6001 - profiles.csv   110762 rows, one per sample
 #       ECM Projects - GM6001 - sections.csv       85 rows, one per section
 #   check_flat_csv() below refuses a flattened export if one turns up anyway.
+#   The profiles file also carries SurfaceDistance, each section's brain surface
+#   as marked in the histology browser, on the Distance axis. Depth is measured
+#   from it; this script never looks for the surface itself.
 #
 # DESIGN
 #   10 subjects x 2 hemispheres, 3-5 sections each (85 total), atlas plates
@@ -100,6 +103,11 @@ check_flat_csv <- function(path) {
   if (!all(c("Distance", "Intensity") %in% hdr)) {
     stop(basename(path), " has no Distance/Intensity columns; it is not the ",
          "long profile export.\nRe-export with ecm_export_for_r().")
+  }
+  if (!"SurfaceDistance" %in% hdr) {
+    stop(basename(path), " has no SurfaceDistance column, so it carries no ",
+         "brain surface to align on.\nRe-export with the current ",
+         "ecm_export_for_r(), which writes the surface marked in the browser.")
   }
   invisible(TRUE)
 }
@@ -271,6 +279,8 @@ prof <- read_csv(
     PixelSize         = col_double(),
     RoiWidth          = col_double(),
     RoiLength         = col_double(),
+    SurfaceDistance   = col_double(),
+    SurfaceSource     = col_character(),
     NSamples          = col_integer(),
     SampleIndex       = col_integer(),
     Distance          = col_double(),
@@ -310,35 +320,39 @@ sections <- read_csv(sections_csv, col_types = cols(.default = col_guess()),
 # 2b. Surface alignment ------------------------------------------------------
 
 # Distance is microns along the line ROI, and the ROI is drawn from OUTSIDE the
-# section inward -- so every profile opens on a few hundred microns of
-# background at intensity ~0, and raw distance is not depth. Sections differ in
-# how much background they carry, so they have to be aligned on the tissue edge
-# before any of them are averaged together.
+# section inward -- so every profile opens on background, and raw distance is
+# not depth. Sections differ in how much background they carry, so they have to
+# be aligned on the tissue edge before any of them are averaged together.
 #
-# This is the "threshold" rule from ecm_prepare_analysis_data.m and uses the
-# same defaults: the surface is the LAST sample below SURFACE_THRESHOLD inside
-# the first SURFACE_SEARCH microns, i.e. the last background sample before the
-# tissue starts. Change these here and in the MATLAB call together, or the two
-# pipelines will disagree.
-SURFACE_THRESHOLD <- 1     # intensity counted as background
-SURFACE_SEARCH    <- 500   # um from the start of the profile to search within
+# The edge is the brain surface marked in the histology browser (detected there,
+# or placed by hand), which ecm_export_for_r writes as
+# SurfaceDistance on the same axis as Distance -- the same number
+# ecm_prepare_analysis_data aligns on. It is read here as data; nothing in this
+# script looks for the surface. A section with no mark has no depth axis, so it
+# is left out of everything below and listed in the QC.
+
+surf <- prof |>
+  distinct(section_id, SubjectID, Hemisphere, SectionID,
+           surface_um = SurfaceDistance, SurfaceSource)
+
+# One surface per section. More than one means several ROIs share a Stem, and
+# their samples would be pooled into one profile.
+multi <- surf |> count(section_id) |> filter(n > 1)
+if (nrow(multi)) {
+  stop("These sections carry more than one SurfaceDistance, most likely ",
+       "several ROIs under one Stem:\n  ",
+       paste(multi$section_id, collapse = "\n  "))
+}
+
+unmarked <- surf |> filter(is.na(surface_um))
+surf     <- surf |> filter(!is.na(surface_um))
 
 prof <- prof |>
-  group_by(section_id) |>
-  arrange(distance_um, .by_group = TRUE) |>
-  mutate(
-    surface_um = {
-      w <- which(distance_um - first(distance_um) <= SURFACE_SEARCH &
-                   intensity < SURFACE_THRESHOLD)
-      # No sub-threshold sample means no detectable edge: fall back to the
-      # first sample, which is the MATLAB "first" fallback.
-      if (length(w)) distance_um[max(w)] else first(distance_um)
-    },
-    depth_um = distance_um - surface_um
-  ) |>
-  ungroup()
-
-surf <- prof |> distinct(section_id, surface_um)
+  filter(!is.na(SurfaceDistance)) |>
+  arrange(section_id, distance_um) |>
+  mutate(section_id = droplevels(section_id),
+         surface_um = SurfaceDistance,
+         depth_um   = distance_um - surface_um)
 
 # Everything downstream is on aligned depth; the pre-surface samples are
 # background and are dropped.
@@ -355,7 +369,8 @@ sec("Data, alignment and QC",
 stat("Import and depth range",
      paste0("Sample, section and subject counts after import, and the span of ",
             "aligned depth and raw intensity. Depth is measured from the ",
-            "detected pial surface, so it starts at 0 by construction."),
+            "pial surface marked in the histology browser, so it starts at 0 ",
+            "by construction. Sections without a mark are not counted here."),
      {
        cat(sprintf("%d samples across %d sections, %d subjects\n",
                    nrow(prof), nlevels(prof$section_id), nlevels(prof$SubjectID)))
@@ -364,15 +379,29 @@ stat("Import and depth range",
                    min(prof$intensity), max(prof$intensity)))
      })
 
-stat("Surface offsets",
-     paste0("How much background each ROI carried before the tissue edge (the ",
-            "last sample below intensity ", SURFACE_THRESHOLD, " within the ",
-            "first ", SURFACE_SEARCH, " um). More than a handful of sections ",
-            "at 0 means the edge rule is failing and profiles are being ",
-            "averaged misaligned."),
-     cat(sprintf("median %.0f um, range %.0f-%.0f um, %d of %d at 0\n",
-                 median(surf$surface_um), min(surf$surface_um),
-                 max(surf$surface_um), sum(surf$surface_um == 0), nrow(surf))))
+stat("Surface marks",
+     paste0("Where each section's pial surface came from and how much ",
+            "background its ROI carried before it. The surface is the mark ",
+            "placed in the histology browser (auto: detected there; manual: ",
+            "placed or adjusted by hand). Sections without a mark are left out ",
+            "of every depth-aligned result and listed here. A surface at 0 ",
+            "means the ROI starts on tissue, or the mark belongs on another ",
+            "point of the line; check those in the browser."),
+     {
+       cat(sprintf("%d of %d sections aligned on a surface mark\n",
+                   nrow(surf), nrow(surf) + nrow(unmarked)))
+       print(surf |> count(SurfaceSource))
+       if (nrow(surf)) {
+         cat(sprintf("surface at median %.0f um, range %.0f-%.0f um, %d at 0\n",
+                     median(surf$surface_um), min(surf$surface_um),
+                     max(surf$surface_um), sum(surf$surface_um == 0)))
+       }
+       if (nrow(unmarked)) {
+         cat("\nNo surface mark, excluded:\n")
+         print(unmarked |> select(section_id, SubjectID, Hemisphere, SectionID),
+               n = Inf)
+       }
+     })
 
 stat("Sections per Treatment x Hemisphere",
      paste0("The design, and the confound: each trained animal contributes ",
@@ -675,7 +704,7 @@ if (nrow(binned_deep)) {
 }
 
 # 5b. Every section as its own trace, so section-to-section spread and any
-#     mis-detected surface show up instead of hiding inside the mean.
+#     misplaced surface mark shows up instead of hiding inside the mean.
 p2 <- ggplot(binned, aes(depth_bin, intensity, group = section_id,
                          color = SubjectID)) +
   geom_line(alpha = 0.65, linewidth = 0.4) +
@@ -690,8 +719,8 @@ p2 <- ggplot(binned, aes(depth_bin, intensity, group = section_id,
 fig("p2", p2, "Every section, colored by subject",
     paste0("The spread behind Figure 1. Lines of one color clustering together ",
            "is the subject-level variance the models absorb; a trace that ",
-           "starts high at depth 0 is a missed surface detection and should be ",
-           "checked against the offsets reported above."))
+           "starts high at depth 0 has its surface mark placed too deep and ",
+           "should be checked in the browser against the marks reported above."))
 
 # 5c. The dose-distance question: does the effect fall off with distance from
 #     the cannula plate? Trained animals only, since controls have no cannula.
