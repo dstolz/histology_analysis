@@ -3004,6 +3004,33 @@ check_tiles_carry_menu(app, menu);
 check_click_moves_roi_target(app);
 check_context_targets_clicked_tile(app, menu);
 check_context_item_writes_panel(app, menu);
+check_stranded_menu_is_rebuilt(app);
+
+end
+
+function check_stranded_menu_is_rebuilt(app)
+%CHECK_STRANDED_MENU_IS_REBUILT A menu found in another figure is replaced.
+% MATLAB refuses to hand an object a menu from a different figure, and it
+% errors rather than declining, so a menu that had come to belong elsewhere
+% used to fail every redraw after it. The next redraw has to build a fresh one
+% in the app figure instead.
+
+other = figure(Visible = "off");
+closeOther = onCleanup(@() close(other));
+
+stranded = app.TileContextMenu;
+stranded.Parent = other;
+
+app.onSelectionChanged();
+
+menu = app.TileContextMenu;
+
+assert(isvalid(menu) && isequal(menu.Parent, app.Fig), ...
+    "The redraw kept a context menu that belongs to another figure");
+assert(~isvalid(stranded), "The stranded context menu was left behind");
+
+check_tiles_carry_menu(app, menu);
+check_profile_carries_menu(app);
 
 end
 

@@ -53,7 +53,12 @@ if ~isequal(ancestor(ax, "figure"), obj.Fig)
     return
 end
 
-if isempty(obj.TileContextMenu) || ~isvalid(obj.TileContextMenu)
+% A menu that has ended up belonging to some other figure is treated as one
+% that was never built. MATLAB refuses to hand such a menu to anything drawn
+% here, and it refuses loudly enough to stop the redraw, so leaving it in
+% place would break every selection change from then on, not just this one.
+if ~menus_are_usable(obj)
+    discard_menus(obj);
     obj.buildPlotContextMenus();
 end
 
@@ -101,6 +106,13 @@ if isprop(target, "Tag") && ismember(string(target.Tag), ["roiEditor", "surfaceE
     return
 end
 
+% MATLAB will only hand an object a menu from its own figure, and it errors
+% rather than declining. One stray object is not worth the tile it is on, so
+% it goes without the menu and the rest of the walk carries on.
+if ~isequal(ancestor(target, "figure"), ancestor(menu, "figure"))
+    return
+end
+
 target.ContextMenu = menu;
 
 if isempty(clicked) || ~isprop(target, "ButtonDownFcn")
@@ -108,6 +120,33 @@ if isempty(clicked) || ~isprop(target, "ButtonDownFcn")
 end
 
 target.ButtonDownFcn = clicked;
+
+end
+
+function tf = menus_are_usable(obj)
+%MENUS_ARE_USABLE True when both plot menus exist and belong to the app figure.
+% Checked as a pair because BUILDPLOTCONTEXTMENUS only ever builds them as one.
+
+menus = {obj.TileContextMenu, obj.ProfileContextMenu};
+
+tf = all(cellfun(@(menu) ~isempty(menu) && isvalid(menu) ...
+    && isequal(ancestor(menu, "figure"), obj.Fig), menus));
+
+end
+
+function discard_menus(obj)
+%DISCARD_MENUS Delete whichever of the plot menus survive, before a rebuild.
+% Deleted rather than dropped, so a menu stranded in another figure does not
+% linger there. Their entries in DISPLAYMIRRORS become invalid handles, which
+% SYNCDISPLAYMENU already skips.
+
+menus = {obj.TileContextMenu, obj.ProfileContextMenu};
+
+for iMenu = 1:numel(menus)
+    if ~isempty(menus{iMenu}) && isvalid(menus{iMenu})
+        delete(menus{iMenu});
+    end
+end
 
 end
 
