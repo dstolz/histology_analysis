@@ -43,15 +43,18 @@ For each profile, this:
 6. finds the peak;
 7. interpolates everything onto a common depth grid.
 
-> **Surface detection is independent of the browser's mark.** `ecm_prepare_analysis_data` detects
-> the surface again from each profile, using `surfaceMode`. It does **not** read the
-> `SurfaceOffset` column that the browser export carries.
+> **The browser's surface mark is used where there is one.** `ecm_prepare_analysis_data` reads
+> the `SurfaceOffset` and `RoiLength` columns of the browser export and places the mark on the
+> profile's distance axis (`ecm_surface_distance`). Only a section with no mark has its surface
+> detected with `surfaceMode`. `A.peaks.SurfaceMethod` says which happened for each section.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `fileVar` | first of `Stem`, `ImagePath`, `Filename`, `SourceFilePath`, `FilePath` | What identifies one profile |
 | `groupVars` | `["SubjectID","AtlasPlate","Hemisphere"]` | Grouping for `A.grouped` |
 | `keepVars` | `"all"` | Section columns copied onto each sample |
+| `surfaceMarks` | `"prefer"` | `prefer`: align on the browser's mark, and detect with `surfaceMode` only where there is none. `only`: align on the mark, and hand unmarked sections to `surfaceFallback`. `ignore`: detect every surface. |
+| `surfaceMarkVar` / `lineLengthVar` | `"SurfaceOffset"` / `"RoiLength"` | Where the mark and the line length are read from. Without `RoiLength`, the length between `RoiX1..RoiY2` is used. |
 | `surfaceMode` | `"threshold"` | `threshold`: the last raw sample below `surfaceThreshold` in the search window. `fraction`: the first smoothed sample at or above min + thr·range. `gradient`: the steepest rise. `none`: no surface is detected. |
 | `surfaceThreshold` | `1` | An intensity (for `threshold`) or a 0–1 fraction (for `fraction`) |
 | `surfaceSearch` | `[0 500]` | Search window, measured from the first sample, in distance units |
@@ -66,7 +69,7 @@ For each profile, this:
 **What comes back in `A`:**
 
 - `A.aligned`: one row per sample.
-- `A.peaks`: one row per section, with `SurfaceDistance`, `SurfaceFound`, `PeakX`, `PeakY`.
+- `A.peaks`: one row per section, with `SurfaceDistance`, `SurfaceFound`, `SurfaceMethod`, `PeakX`, `PeakY`.
 - `A.grouped`: group × depth means.
 - `A.grid`: depth × section matrices.
 - `A.diagnostics`: per-profile `ok`, `skipped` or `error`, with a message. **Check this when
@@ -176,6 +179,10 @@ This writes two flat CSVs from the first table in the `.mat` file:
 - `ECM Projects - GM6001 - profiles.csv`: one row per sample.
 - `ECM Projects - GM6001 - sections.csv`: one row per section.
 
+Both carry `SurfaceDistance`: the browser's surface mark on the `Distance` axis, placed the same
+way `ecm_prepare_analysis_data` places it. It is `NaN` for a section with no mark. A table with
+no `SurfaceOffset` column is refused, because R would have nothing to align on.
+
 **These file names are fixed**, whatever your project is called.
 
 `ecm_analysis.R` then fits, among others:
@@ -188,9 +195,10 @@ This writes two flat CSVs from the first table in the `.mat` file:
 It writes `R_figures/ECM_GM6001_report.html` plus PNG figures.
 
 > **The R script is project-specific.** It hard-codes `DATA_DIR <- "D:/GM6001_HISTOLOGY"` and the
-> GM6001 file names and treatment levels (`Vehicle`, `GM6001`, `Control L`, `Control R`). Its
-> alignment and smoothing constants are set independently of the MATLAB call:
-> - `SURFACE_THRESHOLD`, `SURFACE_SEARCH`;
+> GM6001 file names and treatment levels (`Vehicle`, `GM6001`, `Control L`, `Control R`). It
+> aligns on `SurfaceDistance` and does not detect the surface; sections without a mark are left
+> out and listed in the report's QC. Its smoothing constants are set independently of the MATLAB
+> call:
 > - a 25-sample moving average;
 > - 25 µm bins.
 >

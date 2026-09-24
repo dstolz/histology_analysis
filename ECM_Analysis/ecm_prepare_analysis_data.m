@@ -559,20 +559,10 @@ end
 
 function [surfaceDistance, note] = marked_surface(T, row, d, vars)
 %MARKED_SURFACE Put the browser's surface mark onto the profile's distance axis.
-% The mark is stored in pixels along the line from its start. The profile
-% spans that line by construction, so the mark lands at the same fraction of
-% the profile's span that it sits at along the line -- the conversion
-% HistologyImageBrowser.readProfile uses to draw it -- whether or not the image
-% carries a calibration. NaN when the section has no mark.
-
-surfaceDistance = NaN;
-note = "";
+% ECM_SURFACE_DISTANCE does the placing, so ECM_EXPORT_FOR_R hands R the same
+% number for this section. NaN when the section has no mark.
 
 offset = double(T.(vars.surfaceMark)(row));
-
-if ~isscalar(offset) || ~isfinite(offset)
-    return
-end
 
 if vars.lineLength ~= ""
     lineLength = double(T.(vars.lineLength)(row));
@@ -582,16 +572,13 @@ else
         double(T.(e(4))(row)) - double(T.(e(2))(row)));
 end
 
-span = d(end) - d(1);
+[surfaceDistance, hasMark] = ecm_surface_distance(offset, lineLength, d);
 
-if offset < 0 || ~isscalar(lineLength) || ~isfinite(lineLength) || lineLength <= 0 ...
-        || ~isfinite(span) || span <= 0
+note = "";
+
+if hasMark && ~isfinite(surfaceDistance)
     note = "Surface mark could not be placed on this profile.";
-    return
 end
-
-fraction = min(max(offset / lineLength, 0), 1);
-surfaceDistance = d(1) + fraction * span;
 
 end
 
