@@ -28,6 +28,14 @@ if publishedUrl ~= "" && contains(publishedUrl, "/spreadsheets/d/e/")
     obj.PublishedUrl = publishedUrl;
 end
 
+% A launcher that has since gone is dropped, so the next Open in Fiji searches
+% for it again rather than failing on a path that no longer exists.
+fijiPath = read_pref(group, "FijiPath", "");
+
+if fijiPath ~= "" && isfile(fijiPath)
+    obj.FijiPath = fijiPath;
+end
+
 apply_sheet_settings(obj, group);
 
 apply_dropdown(obj.VariantDropDown, read_pref(group, "Variant", ""));

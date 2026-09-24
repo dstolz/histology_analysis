@@ -598,6 +598,7 @@ rendered from it, so a shortcut cannot be advertised in one place and bound in a
 | `Ctrl+Shift+D` / `Ctrl+Shift+P` | Hide or show the data column / the display row |
 | `Ctrl+H` | Hide or show both together |
 | `Ctrl+O` | Redraw the view in a normal figure |
+| `Ctrl+Shift+O` | Open the marked section's image and ROIs in Fiji |
 | `Ctrl+P` | Export the view to an image file |
 | `Ctrl+Shift+F` | Open the folder holding the marked section's image |
 | `F1` | Show the shortcut list |
@@ -690,9 +691,9 @@ only from bare axes.
 
 A tile's menu names the section it came up on at the top, then offers the rendition, the
 channel, the colormap, the panel background, the four overlay switches, **Edit ROI**,
-**Draw Line**, **Open Containing Folder**, **Open in Figure** and **Export View**. The three
-per-tile items act on the tile that was actually right-clicked rather than on the first
-selected row: they point the ROI controls at that section — the same thing a plain left-click
+**Draw Line**, **Open Containing Folder**, **Open in Fiji**, **Open in Figure** and **Export
+View**. The four per-tile items act on the tile that was actually right-clicked rather than on
+the first selected row: they point the ROI controls at that section — the same thing a plain left-click
 on the tile does — and then run the same action the button and the keyboard shortcut run.
 The selection is left alone, so the other sections stay on screen; an earlier version narrowed
 the selection to the clicked row instead, which blew that tile up to full screen in the act of

@@ -152,6 +152,16 @@ build_roi_edit_row(obj, grid);
 build_surface_row(obj, grid);
 build_profile_row(obj, grid);
 
+% On the profile row, whose right end is free, under the other way out of the
+% window. It acts on the marked section alone, as Open Folder does, because
+% Fiji opens images one window each and a selection of twelve would be twelve.
+obj.FijiButton = uibutton(grid, "push", ...
+    Text = "Open in Fiji", ...
+    ButtonPushedFcn = @(~,~) obj.onOpenInFiji());
+place(obj.FijiButton, 6, 13);
+obj.FijiButton.Tooltip = "Open the marked section's image in Fiji, " ...
+    + "with its saved line ROIs as an overlay." + obj.shortcutHint("openInFiji");
+
 end
 
 function build_surface_row(obj, grid)

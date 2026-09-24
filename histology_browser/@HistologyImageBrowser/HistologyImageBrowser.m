@@ -121,6 +121,7 @@ classdef HistologyImageBrowser < handle
         SurfaceLabel matlab.ui.control.Label
 
         NewFigureButton matlab.ui.control.Button
+        FijiButton matlab.ui.control.Button
         ExportButton matlab.ui.control.Button
         OpenFolderButton matlab.ui.control.Button
 
@@ -175,6 +176,10 @@ classdef HistologyImageBrowser < handle
         % sheet said the last time Google republished it. Needs no credentials,
         % and is read only.
         PublishedUrl string = ""
+
+        % Fiji launcher ONOPENINFIJI starts, found or chosen on first use and
+        % remembered, or "" until then.
+        FijiPath string = ""
 
 
         Data struct = struct()      % Structured output from COMBINE_VALUES_CSV.
@@ -696,6 +701,8 @@ classdef HistologyImageBrowser < handle
         onExportWorkspace(obj, variableName)  % Export the selection to a base workspace table.
 
         onOpenInFigure(obj)             % Redraw the current selection in a normal figure.
+
+        onOpenInFiji(obj)               % Open the marked section's image and ROIs in Fiji.
 
         loadPreferences(obj)            % Restore saved paths and display settings.
 

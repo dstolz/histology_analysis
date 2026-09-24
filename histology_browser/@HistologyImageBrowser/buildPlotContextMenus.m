@@ -65,6 +65,8 @@ tileToggle.MenuSelectedFcn = @(~,~) edit_clicked_roi(obj);
 item(obj, obj.TileContextMenu, "Draw Line", "drawRoi", @() draw_clicked_roi(obj));
 item(obj, obj.TileContextMenu, "Open Containing Folder", "openFolder", ...
     @() open_clicked_folder(obj));
+item(obj, obj.TileContextMenu, "Open in Fiji", "openInFiji", ...
+    @() open_clicked_in_fiji(obj));
 
 % -- Output ---------------------------------------------------------------
 item(obj, obj.TileContextMenu, "Open in Figure", "openInFigure", ...
@@ -293,6 +295,17 @@ if ~target_clicked_tile(obj)
 end
 
 obj.runShortcut("openFolder");
+
+end
+
+function open_clicked_in_fiji(obj)
+%OPEN_CLICKED_IN_FIJI Open the section under the pointer in Fiji.
+
+if ~target_clicked_tile(obj)
+    return
+end
+
+obj.runShortcut("openInFiji");
 
 end
 

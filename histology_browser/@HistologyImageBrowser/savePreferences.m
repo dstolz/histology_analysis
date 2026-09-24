@@ -9,6 +9,7 @@ setpref(group, "LastMetadataPath", obj.MetadataPath);
 % The published URL is a link to a document, not a secret: anyone who has it
 % can read the published tab, which is what publishing it means.
 setpref(group, "PublishedUrl", obj.PublishedUrl);
+setpref(group, "FijiPath", obj.FijiPath);
 
 % Where the tracker is, not what is in it. The key file is named rather than
 % read, so nothing secret is written to the preference store.

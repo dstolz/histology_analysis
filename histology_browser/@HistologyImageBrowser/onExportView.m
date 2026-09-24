@@ -11,12 +11,14 @@ if isempty(source) || ~isvalid(source)
     return
 end
 
+% uiputfile needs char vectors in the filter cell; string scalars break its
+% extension handling.
 filters = { ...
-    "*.png", "PNG image (*.png)"; ...
-    "*.tif", "TIFF image (*.tif)"; ...
-    "*.pdf", "PDF document (*.pdf)"};
+    '*.png', 'PNG image (*.png)'; ...
+    '*.tif', 'TIFF image (*.tif)'; ...
+    '*.pdf', 'PDF document (*.pdf)'};
 
-[fileName, folderName] = uiputfile(filters, "Export current view", "histology_view.png");
+[fileName, folderName] = uiputfile(filters, 'Export current view', 'histology_view.png');
 
 if isequal(fileName, 0)
     return

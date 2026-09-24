@@ -103,6 +103,9 @@ switch action
     case "openInFigure"
         obj.onOpenInFigure();
 
+    case "openInFiji"
+        obj.onOpenInFiji();
+
     case "exportView"
         obj.onExportView();
 
