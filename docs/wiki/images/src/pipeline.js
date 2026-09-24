@@ -5,7 +5,7 @@ const W = 1100, H = 560;
 out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Segoe UI, Helvetica, Arial, sans-serif">`);
 out.push(`<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#4b5563"/></marker></defs>`);
 out.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
-const pal = { fiji: ['#fff4e6', '#e8590c'], browser: ['#e7f5ff', '#1c7ed6'], ecm: ['#ebfbee', '#2f9e44'], data: ['#f8f9fa', '#868e96'], r: ['#f3f0ff', '#7048e8'] };
+const pal = { browser: ['#e7f5ff', '#1c7ed6'], ecm: ['#ebfbee', '#2f9e44'], data: ['#f8f9fa', '#868e96'], r: ['#f3f0ff', '#7048e8'] };
 const box = (x, y, w, h, kind, title, lines) => {
   const [f, s] = pal[kind];
   out.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${f}" stroke="${s}" stroke-width="1.6"${kind === 'data' ? ' stroke-dasharray="5 3"' : ''}/>`);
@@ -18,10 +18,8 @@ const arrow = (x1, y1, x2, y2, label, o = {}) => {
 };
 // Row 1
 box(20, 30, 190, 80, 'data', 'Zeiss acquisition', ['`.czi`', '+ exported `_proj` `_mid` `_composite`']);
-box(270, 30, 230, 80, 'fiji', 'Fiji line measure', ['`MACRO_Batch_LineMeasure.ijm`', 'draw one line per section']);
 box(560, 30, 230, 80, 'data', 'Sidecars beside each image', ['`<stem>_proj_roi.roi`', '`<stem>_proj_values.csv`']);
 box(850, 30, 230, 80, 'data', 'Section tracker', ['Google Sheet (API or published)', 'or a CSV export']);
-arrow(210, 70, 268, 70); arrow(500, 70, 558, 70);
 // Row 2 browser
 box(290, 170, 520, 120, 'browser', 'HistologyImageBrowser', ['catalog • filter • view tiles and profiles', 'edit / draw / add line ROIs • mark brain surface', 'review: atlas plate + Measured (Sheets API only)', '`launch_histology_browser(root, ...)`']);
 arrow(675, 110, 600, 168, 'read', { dx: 22 });

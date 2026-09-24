@@ -5,7 +5,7 @@ Step-by-step instructions for common tasks. Each recipe assumes the repository i
 
 **Browsing and reviewing**
 - [Try everything without real data](#try-everything-without-real-data)
-- [Measure a new batch in Fiji and review it](#measure-a-new-batch-in-fiji-and-review-it)
+- [Measure a new batch and review it](#measure-a-new-batch-and-review-it)
 - [Compare profiles for one stain across a subject's sections](#compare-profiles-for-one-stain-across-a-subjects-sections)
 - [Fix a badly drawn line](#fix-a-badly-drawn-line)
 - [Measure a second region on the same section](#measure-a-second-region-on-the-same-section)
@@ -43,25 +43,18 @@ experiment freely.
 
 ---
 
-## Measure a new batch in Fiji and review it
+## Measure a new batch and review it
 
 1. **Export projections.** Make sure each section has a `<stem>_proj.tif` in the data folder.
-2. **Run the macro in Fiji.** Open Fiji and choose **Plugins > Macros > Run...**, then pick
-   `histology_browser/fiji/MACRO_Batch_LineMeasure.ijm`. Then:
-   1. Choose the folder, and keep the `*_proj.tif` pattern.
-   2. Set the line width in µm and the values suffix.
-   3. Answer **Yes** to *skip files whose values CSV already exists*. Only new images will be
-      shown.
-   4. For each image, draw one straight line from outside the brain inward across cortex, and
-      click **OK**.
-
-   > **Close unrelated images first.** The macro closes all open images after each file.
-3. **Open the browser on the folder:**
+2. **Open the browser on the folder:**
    ```matlab
    launch_histology_browser("D:/MyHistology/", metadataCSV = "D:/MyHistology/Trackers - Sections.csv")
    ```
-4. **Review each line.** Set **Sort by** to `Status` and step through with **Ctrl+Down**. For each
-   section:
+3. **Draw a line on each section.** Set **Sort by** to `Status` and step through with
+   **Ctrl+Down**. On a section with no line yet, press **Ctrl+E** (Edit ROI); a new line is
+   placed across the image. Drag it into place, or draw it with **Ctrl+D**, then press
+   **Ctrl+S** (Save ROI).
+4. **Review each line.** For each section:
    - check that the line crosses the region you meant;
    - check the **surface (auto)** tick, if you've run **Detect**.
 

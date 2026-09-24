@@ -5,10 +5,6 @@
 <text x="115" y="50" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1f2937">Zeiss acquisition</text>
 <text x="115" y="68" text-anchor="middle" font-size="10.5" fill="#374151" font-family="Consolas, Menlo, monospace">.czi</text>
 <text x="115" y="83" text-anchor="middle" font-size="10.5" fill="#374151">+ exported _proj _mid _composite</text>
-<rect x="270" y="30" width="230" height="80" rx="8" fill="#fff4e6" stroke="#e8590c" stroke-width="1.6"/>
-<text x="385" y="50" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1f2937">Fiji line measure</text>
-<text x="385" y="68" text-anchor="middle" font-size="10.5" fill="#374151" font-family="Consolas, Menlo, monospace">MACRO_Batch_LineMeasure.ijm</text>
-<text x="385" y="83" text-anchor="middle" font-size="10.5" fill="#374151">draw one line per section</text>
 <rect x="560" y="30" width="230" height="80" rx="8" fill="#f8f9fa" stroke="#868e96" stroke-width="1.6" stroke-dasharray="5 3"/>
 <text x="675" y="50" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1f2937">Sidecars beside each image</text>
 <text x="675" y="68" text-anchor="middle" font-size="10.5" fill="#374151" font-family="Consolas, Menlo, monospace">&lt;stem&gt;_proj_roi.roi</text>
@@ -17,8 +13,6 @@
 <text x="965" y="50" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1f2937">Section tracker</text>
 <text x="965" y="68" text-anchor="middle" font-size="10.5" fill="#374151">Google Sheet (API or published)</text>
 <text x="965" y="83" text-anchor="middle" font-size="10.5" fill="#374151">or a CSV export</text>
-<path d="M210 70 L268 70" stroke="#4b5563" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
-<path d="M500 70 L558 70" stroke="#4b5563" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
 <rect x="290" y="170" width="520" height="120" rx="8" fill="#e7f5ff" stroke="#1c7ed6" stroke-width="1.6"/>
 <text x="550" y="190" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1f2937">HistologyImageBrowser</text>
 <text x="550" y="208" text-anchor="middle" font-size="10.5" fill="#374151">catalog • filter • view tiles and profiles</text>

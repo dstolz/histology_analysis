@@ -23,7 +23,6 @@ browser and are independent of it.
 | [`parabola_offset`](#parabola_offset) | function | Curve Fitting Toolbox | Offset curves parallel to a fitted polynomial |
 | [`straighten_cortex`, `straighten_cortex2`](#straighten_cortex-and-straighten_cortex2) | pipelines | many; see below | Older interactive cortex straightening pipelines |
 | [`parseBfTiff`](#parsebftiff) | function | Bio-Formats | Read an OME-TIFF's planes and metadata |
-| [`runImageJMacro`](#runimagejmacro) | function | Fiji | Run a headless Fiji macro |
 | `addpath_nogit` | function | — | Add a folder tree to the path, skipping `.git` |
 
 IPT = Image Processing Toolbox.
@@ -233,13 +232,3 @@ for known issues.
 
 Note the output order: `xy_res` is **third** and `nChannels` fourth. The function's help text
 lists them the other way round. Every plane (Z × C × T) is counted as a channel.
-
-## runImageJMacro
-
-```matlab
-[status, out] = runImageJMacro("C:/Fiji.app/ImageJ-win64.exe", "macro.ijm", "in.tif", "D:/out");
-```
-
-This runs Fiji headless with `input=` and `output=` parameters, and raises
-`runImageJMacro:ImageJFailed` on a non-zero exit. The macro must declare `input` and `output`
-script parameters, so this **can't** run `MACRO_Batch_LineMeasure.ijm`, which is interactive.
