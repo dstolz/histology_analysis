@@ -7,6 +7,10 @@ and the ECM staining analysis app.
 Extracted from [`helper_fnc`](https://github.com/dstolz/helper_fnc) so these functions can
 be used without pulling in that repository's general-purpose utilities.
 
+**Documentation:** the [wiki](https://github.com/dstolz/histology_analysis/wiki) has a getting
+started guide, a tour of the browser, recipes for common tasks, and troubleshooting. Its source
+is in [docs/wiki/](docs/wiki/) and is published to the wiki by `.github/workflows/wiki.yml`.
+
 ## Quick start
 
 ```matlab
