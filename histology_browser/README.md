@@ -521,6 +521,10 @@ found.
 **Export to Workspace** carries the mark out beside the geometry, as `SurfaceOffset` along
 the line, the `SurfaceX`/`SurfaceY` it lands on, and `SurfaceSource` saying whether it was
 detected or placed by hand. That is what an alignment done at the command line works from.
+`ecm_prepare_analysis_data` aligns each profile on that mark by default and falls back to
+detecting the surface only for sections with none (`surfaceMarks = "prefer"`); `"only"` skips
+detection entirely, and `"ignore"` restores detection for every section. Its `A.peaks` and
+`A.diagnostics` record in `SurfaceMethod` how each surface was placed.
 
 ## Normalizing the profile plot
 

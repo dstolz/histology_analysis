@@ -36,14 +36,32 @@ function A = ecm_prepare_analysis_data(T, options)
 %       distance_pixel_index, distance_um, Distance_um.
 %   options.intensityVar: Intensity variable, resolved the same way from
 %       Intensity, intensity, Mean, mean, intensity_raw.
-%   options.surfaceMode: How the cortical surface is found in each profile.
+%   options.surfaceMarks: Whether the brain surface marked in the histology
+%       browser is used. The browser exports it as SurfaceOffset, pixels along
+%       the line from its start, beside RoiLength; it is placed on the
+%       profile's distance axis as the same fraction of the profile's span that
+%       it is of the line, which is how the browser's own plot places it.
+%       prefer -- align a marked profile on its mark and find the surface of an
+%           unmarked one with surfaceMode.
+%       only -- align a marked profile on its mark and hand an unmarked one to
+%           surfaceFallback without detecting anything.
+%       ignore -- find every surface with surfaceMode, marks or not.
+%       A mark is taken as placed: surfaceSearch does not apply to it.
+%   options.surfaceMarkVar: Variable holding the mark's offset along the line.
+%       "" resolves to SurfaceOffset.
+%   options.lineLengthVar: Variable holding the line's length in the unit of
+%       the offset. "" resolves to RoiLength, and to the length between RoiX1,
+%       RoiY1, RoiX2, RoiY2 when there is none.
+%   options.surfaceMode: How the cortical surface is found in a profile that
+%       is not aligned on a surface mark.
 %       threshold -- last sample below surfaceThreshold, i.e. the last
 %           background sample before the tissue starts (the line ROI is drawn
 %           from off-section inward, so these profiles open on zeros).
 %       fraction -- first sample reaching surfaceThreshold of the profile's own
 %           range within the search window, for profiles with no true zero.
 %       gradient -- steepest rise of the smoothed profile in the window.
-%       none -- no alignment; aligned distance is the measured distance.
+%       none -- no alignment, marks included; aligned distance is the
+%           measured distance.
 %   options.surfaceThreshold: Intensity for threshold mode, or a 0-1 fraction
 %       of the searched range for fraction mode.
 %   options.surfaceSearch: [min max] distance window the surface is looked for
@@ -76,13 +94,16 @@ function A = ecm_prepare_analysis_data(T, options)
 %        keepVars, file_id, distance, aligned_distance, depth_bin,
 %        intensity_raw, and intensity_smoothed.
 %      - peaks: One row per processed section: the section variables of
-%        keepVars, file_id, surface distance, peak, and sample count.
+%        keepVars, file_id, surface distance, how the surface was placed
+%        (SurfaceMethod: mark, threshold, fraction, gradient, fallback, or
+%        none), peak, and sample count.
 %      - grouped: Mean, error, and n per group and depth bin.
 %      - grid: Struct holding a common depth axis (depth) with every section
 %        interpolated onto it (raw, smoothed, one column per section) and the
 %        matching section rows (files), so profiles of unequal length can be
 %        compared column-wise without re-interpolating.
-%      - diagnostics: One row per input section with its status and message.
+%      - diagnostics: One row per input section with its status, message, and
+%        SurfaceMethod.
 %      - vars: The variable names and layout that were resolved.
 %      - options, groupVars: The resolved settings.
 %
@@ -96,6 +117,9 @@ arguments
     options.profileVar (1,1) string = ""
     options.distanceVar (1,1) string = ""
     options.intensityVar (1,1) string = ""
+    options.surfaceMarks (1,1) string {mustBeMember(options.surfaceMarks,["prefer","only","ignore"])} = "prefer"
+    options.surfaceMarkVar (1,1) string = ""
+    options.lineLengthVar (1,1) string = ""
     options.surfaceMode (1,1) string {mustBeMember(options.surfaceMode,["threshold","fraction","gradient","none"])} = "threshold"
     options.surfaceThreshold (1,1) double {mustBeNonnegative,mustBeFinite} = 1
     options.surfaceSearch (1,2) double = [0 500]
@@ -131,7 +155,7 @@ nFiles = numel(fileGroups);
 pointTables = cell(nFiles, 1);
 peakRows = cell(nFiles, 1);
 diagRows = repmat(struct("FileIndex", 0, "FileID", "", "Status", "pending", ...
-    "Message", "", "NSamples", 0, "SurfaceFound", false), nFiles, 1);
+    "Message", "", "NSamples", 0, "SurfaceFound", false, "SurfaceMethod", ""), nFiles, 1);
 
 for iFile = 1:nFiles
     rowIdx = fileGroups{iFile};
@@ -163,12 +187,20 @@ for iFile = 1:nFiles
 
         ySmooth = smooth_profile(d, y, options);
 
-        [surfaceDistance, surfaceFound] = find_surface(d, y, ySmooth, options);
+        [surfaceDistance, surfaceFound, surfaceMethod, surfaceNote] = ...
+            locate_surface(T, rowIdx, d, y, ySmooth, vars, options);
         diagRows(iFile).SurfaceFound = surfaceFound;
+        diagRows(iFile).SurfaceMethod = surfaceMethod;
+        diagRows(iFile).Message = surfaceNote;
 
         if ~surfaceFound && options.surfaceFallback == "skip"
             diagRows(iFile).Status = "skipped";
-            diagRows(iFile).Message = "No surface found in the search window.";
+            if options.surfaceMarks == "only"
+                diagRows(iFile).Message = surfaceNote;
+            else
+                diagRows(iFile).Message = strtrim(surfaceNote + " No surface found in the search window.");
+            end
+
             report_status(options.verbose, 1, " ... no surface found");
             continue
         end
@@ -223,6 +255,7 @@ for iFile = 1:nFiles
         peak.file_id = filename_hash(thisId);
         peak.SurfaceDistance = surfaceDistance;
         peak.SurfaceFound = surfaceFound;
+        peak.SurfaceMethod = surfaceMethod;
         peak.PeakX = peakX;
         peak.PeakY = peakY;
         peak.NPoints = numel(alignedD);
@@ -230,7 +263,11 @@ for iFile = 1:nFiles
 
         diagRows(iFile).Status = "ok";
         diagRows(iFile).NSamples = numel(alignedD);
-        report_status(options.verbose, 0, "");
+        if strlength(surfaceNote) > 0
+            report_status(options.verbose, 1, " ... " + surfaceNote);
+        else
+            report_status(options.verbose, 0, "");
+        end
 
     catch ME
         diagRows(iFile).Status = "error";
@@ -272,6 +309,13 @@ A.diagnostics = struct2table(diagRows);
 if options.verbose
     fprintf("Prepared %d of %d profiles (%d samples).\n", ...
         sum(processed), nFiles, height(alignedTable));
+
+    if ~isempty(peakTable)
+        [placedBy, ~, iMethod] = unique(peakTable.SurfaceMethod);
+        counts = accumarray(iMethod, 1);
+        fprintf("Surface placed by: %s.\n", ...
+            strjoin(placedBy + " " + string(counts), ", "));
+    end
 end
 
 end
@@ -317,6 +361,44 @@ if vars.distance == "" || vars.intensity == ""
     error("ecm_prepare_analysis_data:NoSampleVars", ...
         "No distance and intensity variables were found in the %s layout. Set distanceVar and intensityVar.", ...
         vars.layout)
+end
+
+% The surface mark is a section-level value in either layout: one column of T
+% beside the line it was placed on.
+vars.surfaceMark = resolve_variable_name(options.surfaceMarkVar, "SurfaceOffset", available, "surface mark");
+vars.lineLength = resolve_variable_name(options.lineLengthVar, "RoiLength", available, "line length");
+
+endpointVars = ["RoiX1", "RoiY1", "RoiX2", "RoiY2"];
+
+if vars.lineLength == "" && all(ismember(endpointVars, available))
+    vars.lineEndpoints = endpointVars;
+else
+    vars.lineEndpoints = strings(1, 0);
+end
+
+if options.surfaceMarks == "ignore" || options.surfaceMode == "none"
+    return
+end
+
+if vars.surfaceMark == ""
+    if options.surfaceMarks == "only"
+        error("ecm_prepare_analysis_data:NoSurfaceMarks", ...
+            "surfaceMarks is ""only"" but no surface mark variable was found. Set surfaceMarkVar.")
+    end
+
+    warning("ecm_prepare_analysis_data:NoSurfaceMarks", ...
+        "No surface mark variable was found, so every surface is found with surfaceMode ""%s"".", ...
+        options.surfaceMode)
+    return
+end
+
+% The mark is an offset along the line, so the line's length is what places it
+% on the profile. Without it a mark cannot be used, and dropping marks the user
+% placed would be the silent failure this is here to prevent.
+if vars.lineLength == "" && isempty(vars.lineEndpoints)
+    error("ecm_prepare_analysis_data:NoLineLength", ...
+        "Surface marks were found in ""%s"" but no line length to place them with. Set lineLengthVar, or surfaceMarks = ""ignore"".", ...
+        vars.surfaceMark)
 end
 
 end
@@ -427,6 +509,89 @@ if options.smoothingWindowUnit == "distance"
 end
 
 ySmooth = smoothdata(y, options.smoothingMethod, max(1, round(options.smoothingWindow)));
+
+end
+
+function [surfaceDistance, found, method, note] = locate_surface(T, rowIdx, d, y, ySmooth, vars, options)
+%LOCATE_SURFACE Place one profile's surface on a mark or by detection.
+% Returns the surface as a distance along the profile, whether it was found,
+% how it was placed, and a note for the diagnostics when a mark was there but
+% could not be used.
+
+note = "";
+
+if options.surfaceMode == "none"
+    surfaceDistance = 0;
+    found = true;
+    method = "none";
+    return
+end
+
+if options.surfaceMarks ~= "ignore" && vars.surfaceMark ~= ""
+    [surfaceDistance, note] = marked_surface(T, rowIdx(1), d, vars);
+
+    if isfinite(surfaceDistance)
+        found = true;
+        method = "mark";
+        return
+    end
+
+    if options.surfaceMarks == "only"
+        if note == ""
+            note = "No surface mark.";
+        end
+
+        [surfaceDistance, found] = surface_fallback(d, options);
+        method = "fallback";
+        return
+    end
+end
+
+[surfaceDistance, found] = find_surface(d, y, ySmooth, options);
+
+if found
+    method = options.surfaceMode;
+else
+    method = "fallback";
+end
+
+end
+
+function [surfaceDistance, note] = marked_surface(T, row, d, vars)
+%MARKED_SURFACE Put the browser's surface mark onto the profile's distance axis.
+% The mark is stored in pixels along the line from its start. The profile
+% spans that line by construction, so the mark lands at the same fraction of
+% the profile's span that it sits at along the line -- the conversion
+% HistologyImageBrowser.readProfile uses to draw it -- whether or not the image
+% carries a calibration. NaN when the section has no mark.
+
+surfaceDistance = NaN;
+note = "";
+
+offset = double(T.(vars.surfaceMark)(row));
+
+if ~isscalar(offset) || ~isfinite(offset)
+    return
+end
+
+if vars.lineLength ~= ""
+    lineLength = double(T.(vars.lineLength)(row));
+else
+    e = vars.lineEndpoints;
+    lineLength = hypot(double(T.(e(3))(row)) - double(T.(e(1))(row)), ...
+        double(T.(e(4))(row)) - double(T.(e(2))(row)));
+end
+
+span = d(end) - d(1);
+
+if offset < 0 || ~isscalar(lineLength) || ~isfinite(lineLength) || lineLength <= 0 ...
+        || ~isfinite(span) || span <= 0
+    note = "Surface mark could not be placed on this profile.";
+    return
+end
+
+fraction = min(max(offset / lineLength, 0), 1);
+surfaceDistance = d(1) + fraction * span;
 
 end
 
