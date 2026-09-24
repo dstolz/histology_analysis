@@ -175,9 +175,10 @@ surface is stored as **one number per ROI**: the distance along the line from it
 saved in `<roi>_surface.json` beside the `.roi` (see
 [File formats](Data-Layout-and-File-Formats#_roi_surfacejson-the-brain-surface-mark)).
 
-- **Detect** (Ctrl+B) finds the step from background into tissue. It smooths the trace, splits it
-  at Otsu's threshold, and walks in from the background end until the trace crosses and stays
-  across.
+- **Detect** (Ctrl+B) finds the step from background into tissue. Background is the slide, read
+  off the darkest part of the image. It walks in from the background end until the trace rises
+  clear of it and stays up, then marks the point halfway up that first climb, at the pia rather
+  than in the bright layers further in.
   - It **refuses** traces that only slope, lines that lie entirely in tissue, and lines with
     tissue at both ends.
   - It flags a weak step as low confidence.

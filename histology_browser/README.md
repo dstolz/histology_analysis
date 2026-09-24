@@ -291,6 +291,7 @@ Several other things stop a write rather than guessing:
 | `histology_roi_key.m` | Reduce a sidecar's filename label to the ROI key its section files it under. |
 | `read_imagej_roi.m` / `write_imagej_roi.m` | Decode and encode ImageJ's binary `.roi` format. |
 | `detect_brain_surface.m` | Find where a line profile steps out of background into tissue. |
+| `image_background.m` | The slide level of an image, read off its darkest regions, for `detect_brain_surface`. |
 | `read_surface_mark.m` / `write_surface_mark.m` / `surface_mark_path.m` | The brain surface sidecar beside a `.roi`. |
 | `measure_line_profile.m` | Measure a banded line profile from an image, matching the Fiji macro. |
 | `write_values_csv.m` | Write a measured profile back out in the macro's `*values.csv` format. |
@@ -318,9 +319,9 @@ Several other things stop a write rather than guessing:
 
 All five are guarded by `exist` checks, so without the toolbox the browser still opens,
 catalogs, displays, and plots — only ROI drawing/editing, placing a brain surface, and
-display downsampling are lost. `detect_brain_surface` is base MATLAB and needs none of it:
-its Otsu threshold is written out rather than taken from `graythresh`, so a surface can be
-found from a profile on a machine with no toolbox at all.
+display downsampling are lost. `detect_brain_surface` and `image_background` are base
+MATLAB and need none of it — the percentile is taken by sorting rather than from `prctile`
+— so a surface can be found from a profile on a machine with no toolbox at all.
 
 **Bio-Formats** (`bfmatlab`) is optional and needed only to display raw `.czi`; every other
 rendition reads through `imread`. It does not have to be on the MATLAB path — when it is not,
@@ -473,27 +474,39 @@ sidecar from a blank one. It is written or removed alongside the `.roi` and the
 
 ### Finding it automatically
 
-A line drawn across a section starts in background and steps up into tissue, and
-`detect_brain_surface` looks for that step: the trace is smoothed, split into background
-and tissue by Otsu's threshold, and walked in from whichever end is background until it
-crosses and stays across for a couple of percent of its length — which is what keeps a
-speck of debris in the background from taking the mark. The crossing is interpolated
-between the two samples that straddle it.
+A line drawn across a section starts on the slide, climbs sharply where the band reaches
+the pia — often to a bright rim that dips again just inside — and then rises slowly
+through the layers to the bright ones in the middle. The surface is the sharp climb, and
+`detect_brain_surface` finds it by measuring the trace against two levels:
 
-Otsu rather than a fixed threshold because nothing here is calibrated in absolute
-intensity: exposure, gain and stain vary between sections, and the only thing they share
-is that a profile crossing the edge of a section has a two-moded histogram. Which end is
-background is read off the trace rather than assumed, so a line drawn inward and one drawn
-outward both come out right.
+- **Background** is the slide, read off the image rather than the trace. `image_background`
+  averages the page in 16-pixel blocks and takes the median of the darkest 2% of them.
+  Blocks rather than pixels, because the darkest single pixels of a noisy slide are its low
+  tail, well under the level a band-averaged profile sits at. On a background-subtracted
+  projection it is 0.
+- **Tissue** is the bright end of the trace, its 99th percentile.
 
-Otsu will cut anything in two, though, including a trace that only slopes. So a crossing
-has to be shown to be an edge before it is believed: the run between a tenth and nine
-tenths of the step has to be under a quarter of the profile. A section edge crosses that in
-a few samples; a line lying entirely inside tissue that merely dims with depth takes most
-of its length to, and is refused. A line with tissue at both ends is refused for the same
-reason, and one whose two levels are within about three noise sigmas is marked but reported
-as low confidence, because a weak step is still the best estimate the trace supports and
-the marker is there to be dragged.
+The trace is walked in from whichever end comes down to background until it rises 5% of
+the way from one to the other and stays there for 2% of its length — which is what keeps
+a speck of debris on the slide from taking the mark. The mark goes **halfway up that
+climb**, halfway to the top of the rim within 3% of the line past it, interpolated between
+the two samples that straddle the level.
+
+That replaced an Otsu split of the trace, which put the mark on the slow rise instead:
+layer 1 is dim, the split fell between it and the bright layers, and the mark landed
+about 200 px inside the brain. Against 20 hand-placed marks the half-way point is a median
+9 px (≈15 µm) from where they were put, and never more than about 40 px, the worst being
+lines whose wide band meets a curved surface obliquely and climbs slowly.
+
+Measured against the slide, a line lying entirely inside tissue never comes down to
+background at either end, and is refused. A climb also has to be steep to be believed: at
+its steepest it must be on course to cover the whole background-to-tissue range within half
+the profile, so a trace that only slopes is refused too. When no image is at hand the
+background is taken from the darkest samples of the trace, which is right for a line
+started off the section; the steepness test is then what refuses one that was not. A
+climb within about three noise sigmas is marked but reported as low confidence, because a
+weak step is still the best estimate the trace supports and the marker is there to be
+dragged.
 
 This runs on its own **when a line is created** — drawn with **Draw Line**, or placed
 across the middle of a section that never had one — and on demand from **Detect**. It does

@@ -63,6 +63,7 @@ nFailed = nFailed + run_case("ImageJ ROI encoder", @check_roi_encoder);
 nFailed = nFailed + run_case("line profile measurement", @check_profile_measurement);
 nFailed = nFailed + run_case("profile normalization", @check_profile_normalization);
 nFailed = nFailed + run_case("brain surface detection", @check_surface_detection);
+nFailed = nFailed + run_case("image background level", @check_image_background);
 nFailed = nFailed + run_case("brain surface sidecar", @check_surface_mark_files);
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
 nFailed = nFailed + run_case("published sheet URLs", @check_published_url);
@@ -1197,6 +1198,86 @@ assert(~short.found, "A surface was found in a profile too short to hold one");
 % values file that anything on disk could have written.
 ragged = detect_brain_surface((1:10)', (1:5)');
 assert(~ragged.found, "Mismatched distance and intensity were not refused");
+
+% What a cortical line actually looks like: slide, a dim rim at the pia, and
+% then a slow climb to bright layers far inside. The mark belongs on the rim.
+% A split between the trace's two levels puts it on the climb instead, a few
+% hundred samples deep, which is the failure this shape is here to catch.
+nCortex = 1300;
+cortexEdge = 101;
+
+cortex = synthetic_cortex_profile(nCortex, cortexEdge);
+
+C = detect_brain_surface((0:nCortex - 1)', cortex, Background = 0);
+
+assert(C.found, "No surface was found on a cortical profile: %s", C.message);
+assert(C.backgroundSource == "caller", "The background passed in was not the one used");
+assert(abs(C.index - cortexEdge) <= 5, ...
+    "The cortical surface came back at sample %.1f rather than near %d, on the layers " + ...
+    "rather than at the pia", C.index, cortexEdge);
+
+% Measured against the slide, a line that never leaves tissue never comes down
+% to background at either end, however dim one end of it is.
+tissueOnly = cortex(cortexEdge + 50:end);
+indoors = detect_brain_surface((0:numel(tissueOnly) - 1)', tissueOnly, Background = 0);
+assert(~indoors.found, "A surface was found on a line lying wholly in tissue");
+assert(contains(indoors.message, "inside tissue"), ...
+    "A line lying in tissue was refused for the wrong reason: %s", indoors.message);
+
+end
+
+function check_image_background()
+%CHECK_IMAGE_BACKGROUND The slide level IMAGE_BACKGROUND reads off the darkest
+% part of an image.
+% The point of averaging blocks before picking the darkest is that a noisy
+% slide comes back at its mean, where a profile averaged across a band will sit,
+% rather than at the low tail its darkest single pixels are. The noise is a
+% fixed pattern rather than RANDN, so the check gives the same answer on every
+% machine and every run.
+
+[cols, rows] = meshgrid(1:400, 1:300);
+
+noise = 20 * sin(7.3 * rows + 3.1 * cols) .* cos(2.9 * rows - 5.7 * cols);
+
+img = 100 + noise;
+img(:, 151:end) = img(:, 151:end) + 400;
+
+level = image_background(img);
+
+assert(abs(level - 100) < 3, ...
+    "The slide came back at %.1f rather than near its mean of 100", level);
+assert(min(img(:)) < 90, "The noise pattern is too weak to test anything");
+
+% A background-subtracted page has a slide of zero, and must say so.
+subtracted = max(img - 100, 0);
+subtracted(:, 1:150) = 0;
+
+assert(image_background(subtracted) == 0, "A zero slide did not read as zero");
+
+% Colour planes are averaged, as MEASURE_LINE_PROFILE averages them.
+rgb = cat(3, img, img, img);
+assert(abs(image_background(rgb) - level) < 1e-9, "An RGB page read differently from its plane");
+
+% Smaller than one block is not an error.
+assert(image_background(magic(4)) == 1, "An image smaller than a block was not read pixel by pixel");
+
+end
+
+function intensity = synthetic_cortex_profile(nSamples, edgeSample)
+%SYNTHETIC_CORTEX_PROFILE A line from the slide across the pia into cortex.
+% Zero outside, as on a background-subtracted projection. Inside, a rim that
+% fades over a dozen samples on top of layers that start dim and brighten
+% slowly with depth, as far as the band reaches. The ripple is deterministic.
+
+index = (1:nSamples)';
+
+depth = index - edgeSample;
+inside = depth >= 0;
+
+intensity = zeros(nSamples, 1);
+intensity(inside) = 20 + 230 * min(depth(inside) / 600, 1) .^ 2 + 30 * exp(-depth(inside) / 12);
+
+intensity(inside) = intensity(inside) + 0.5 * sin(index(inside));
 
 end
 

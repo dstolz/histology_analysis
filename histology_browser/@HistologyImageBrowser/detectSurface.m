@@ -3,7 +3,8 @@ function found = detectSurface(obj, options)
 % The profile under the line is what the surface is read off, so this runs
 % after UPDATEROIPREVIEW rather than beside it: DETECT_BRAIN_SURFACE looks for
 % the step from background into tissue in the measured trace, and there is
-% nothing to look at until the trace exists.
+% nothing to look at until the trace exists. Background is the slide, read off
+% the darkest part of the page the trace was measured from.
 %
 % Called from two places with two different tempers. Creating a line -- drawing
 % one, or having one placed across the middle of a section that never had one
@@ -64,7 +65,7 @@ if ~P.hasData
     return
 end
 
-S = detect_brain_surface(P.distance, P.intensity);
+S = detect_brain_surface(P.distance, P.intensity, Background = measure_background(obj));
 
 if ~S.found
     if options.Announce
@@ -92,6 +93,25 @@ found = true;
 if options.Announce
     obj.setStatus("Marked the brain surface for %s %s. %s", ...
         obj.RoiEditStem, obj.describeSurface(geometry), confidence_note(S));
+end
+
+end
+
+function level = measure_background(obj)
+%MEASURE_BACKGROUND The slide level of the page the profile was measured from.
+% The darkest part of that page, so the step is measured against the slide the
+% section lies on rather than against the dimmest stretch of the trace, which
+% for a line drawn inside tissue is only dim tissue. The page is the one the
+% preview was just measured from and is already in memory. Without one, NaN
+% hands the choice back to DETECT_BRAIN_SURFACE, which reads the background off
+% the trace instead.
+
+level = NaN;
+
+M = obj.loadMeasureImage(obj.editedRow());
+
+if M.hasImage
+    level = image_background(M.img);
 end
 
 end
