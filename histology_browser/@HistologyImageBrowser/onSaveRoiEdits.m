@@ -18,6 +18,10 @@ function onSaveRoiEdits(obj)
 %
 % All three files are overwritten in place. Nothing is backed up, so a profile
 % is only ever as recoverable as the images it was measured from.
+%
+% Files that do not exist yet are created without asking. A new line is saved
+% the moment it is placed (see ONTOGGLEEDITROI and ONDRAWROI), so a prompt here
+% would stand between every added ROI and its data.
 
 row = obj.editedRow();
 
@@ -54,11 +58,6 @@ paths = resolve_output_paths(obj, row, key);
 
 if paths.roiPath == ""
     obj.setError("No folder to save into for %s.", row.Stem);
-    return
-end
-
-if ~confirm_new_files(obj, paths)
-    obj.setWarning("Save cancelled; no files were written.");
     return
 end
 
@@ -108,41 +107,6 @@ obj.refreshRoiEdit();
 obj.setSuccess("Saved %s and %s for ROI %s: %d samples, %s.%s", ...
     filename(paths.roiPath), filename(paths.valuesPath), obj.roiName(key), ...
     P.nSamples, describe_calibration(P), surface_note(surface));
-
-end
-
-function proceed = confirm_new_files(obj, paths)
-%CONFIRM_NEW_FILES Ask before adding files the dataset did not have before.
-% Rewriting a pair that already exists is the ordinary case and goes through
-% without a prompt. Creating one is different: it adds a profile the analysis
-% pipeline will pick up, so it is confirmed by name first.
-
-proceed = true;
-
-created = strings(0, 1);
-
-if paths.isNewRoi
-    created(end + 1, 1) = filename(paths.roiPath);
-end
-
-if paths.isNewValues
-    created(end + 1, 1) = filename(paths.valuesPath);
-end
-
-if isempty(created)
-    return
-end
-
-choice = uiconfirm(obj.Fig, ...
-    "These files do not exist yet and will be created in" + newline + ...
-    fileparts(paths.roiPath) + newline + newline + join(created, newline), ...
-    "Create New Files?", ...
-    Options = ["Create", "Cancel"], ...
-    DefaultOption = "Create", ...
-    CancelOption = "Cancel", ...
-    Icon = "question");
-
-proceed = string(choice) == "Create";
 
 end
 

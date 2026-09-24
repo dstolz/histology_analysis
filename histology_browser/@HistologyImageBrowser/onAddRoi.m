@@ -2,9 +2,9 @@ function onAddRoi(obj)
 %ONADDROI Give the selected section another line ROI and open it for editing.
 %
 % The new ROI takes the first letter the section is not already using, and is
-% placed clear of the lines already on it. Nothing is written until Save ROI,
-% so an ROI added by mistake costs nothing: leaving the edit without saving
-% leaves the section exactly as many ROIs as it had.
+% placed clear of the lines already on it. Its .roi and values files are
+% written as soon as the line is placed, so adding an ROI creates its data
+% without a separate Save; ONTOGGLEEDITROI does the writing.
 
 rows = obj.selectedRows();
 

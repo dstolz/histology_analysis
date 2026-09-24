@@ -280,6 +280,11 @@ classdef HistologyImageBrowser < handle
         RoiTargetStem string = ""
         RoiEditGeom struct = struct()   % Unsaved x1, y1, x2, y2, strokeWidth, name.
         RoiEditDirty logical = false    % True when the edit differs from the file.
+
+        % True when the ROI had no files when this edit session opened. Such a
+        % line is saved as soon as it is placed or drawn, so adding an ROI
+        % creates its data without a separate Save.
+        RoiEditCreated logical = false
         RoiPreview struct = struct()    % Profile measured from the unsaved geometry.
         RoiEditor = []              % images.roi.Line drawn on the edited tile.
 

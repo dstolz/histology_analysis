@@ -2,7 +2,9 @@ function onDrawRoi(obj)
 %ONDRAWROI Redraw the active line ROI by dragging across the image.
 % The line is created at the width in the Width field rather than at whatever
 % the previous ROI happened to use, so a section drawn today samples the same
-% band as one drawn last week. Nothing is written until Save ROI.
+% band as one drawn last week. A line redrawn over an ROI already on disk is not
+% written until Save ROI; one drawn for an ROI still being added is saved as it
+% lands.
 %
 % Several sections can be selected while this runs. The line goes to the tile
 % ACTIVEROISTEM names -- an edit already open owns it whichever tile it sits on,
@@ -37,13 +39,20 @@ end
 
 % Drawing is an edit like any other, so it goes through the same session:
 % the same preview, the same Save, the same prompt when leaving.
+% A section with no such ROI yet gets no line until one is dragged out, so if
+% the drag comes to nothing the session is closed again rather than left
+% holding a line that was never drawn.
+startedBlank = false;
+
 if ~obj.isEditingRow(row)
     obj.EditRoiButton.Value = true;
-    obj.onToggleEditRoi();
+    obj.onToggleEditRoi(Deferred = true);
 
     if obj.RoiEditStem == ""
         return
     end
+
+    startedBlank = obj.RoiEditCreated && ~obj.RoiEditDirty;
 end
 
 ax = drawing_axes(obj);
@@ -91,7 +100,7 @@ catch ME
     % first click, so it has to be put back whether or not a line was drawn.
     % A full redraw would also have overwritten the message just set with
     % "Showing N sections", which is not what happened here.
-    obj.refreshRoiEdit();
+    abandon_or_refresh(obj, startedBlank);
 
     return
 end
@@ -106,8 +115,8 @@ end
 clear placing
 
 if ~isequal(size(position), [2 2]) || hypot(diff(position(:, 1)), diff(position(:, 2))) < 1
+    abandon_or_refresh(obj, startedBlank);
     obj.setWarning("No line was drawn; the ROI is unchanged.");
-    obj.refreshRoiEdit();
 
     return
 end
@@ -136,13 +145,52 @@ obj.updateRoiPreview();
 % measures and there is nothing to read until it exists.
 detected = obj.detectSurface(Announce = false);
 
+drew = sprintf("Drew ROI %s as a %d px line over %.0f px.", ...
+    obj.roiName(obj.RoiEditKey), width, ...
+    hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1));
+
+% An ROI this session created is still being added, so the line drawn for it is
+% saved as it lands, the same as the line ONTOGGLEEDITROI placed for it. An ROI
+% that was already on disk keeps waiting for Save ROI, so that a line redrawn
+% over one does not replace the file until it is meant to.
+saved = false;
+
+if obj.RoiEditCreated
+    obj.onSaveRoiEdits();
+    saved = ~obj.RoiEditDirty;
+end
+
+if saved
+    obj.setSuccess("%s%s saved to disk.", drew, surface_note(obj, detected));
+    return
+end
+
 obj.updateRoiEditControls();
 obj.refreshRoiEdit();
 
-obj.setStatus("Drew ROI %s as a %d px line over %.0f px.%s Save ROI writes it to disk.", ...
-    obj.roiName(obj.RoiEditKey), width, ...
-    hypot(geometry.x2 - geometry.x1, geometry.y2 - geometry.y1), ...
-    surface_note(obj, detected));
+% A save that failed has already said why, and that is the message to leave up.
+if obj.RoiEditCreated
+    return
+end
+
+obj.setStatus("%s%s Save ROI writes it to disk.", drew, surface_note(obj, detected));
+
+end
+
+function abandon_or_refresh(obj, startedBlank)
+%ABANDON_OR_REFRESH Put the tile back after a drag that produced no line.
+% An edit this call opened only to draw into is closed again, since it has no
+% line to edit; otherwise the handles that were removed for the drag return.
+
+if startedBlank
+    stem = obj.RoiEditStem;
+    obj.exitRoiEdit(false);
+    obj.refreshRoiEdit(stem);
+
+    return
+end
+
+obj.refreshRoiEdit();
 
 end
 

@@ -79,6 +79,7 @@ obj.RoiEditStem = "";
 obj.RoiEditKey = "";
 obj.RoiEditGeom = struct();
 obj.RoiEditDirty = false;
+obj.RoiEditCreated = false;
 obj.RoiEditDragging = false;
 obj.RoiPreview = struct();
 

@@ -1,4 +1,4 @@
-function onToggleEditRoi(obj, key)
+function onToggleEditRoi(obj, key, options)
 %ONTOGGLEEDITROI Enter or leave line ROI editing for the targeted section.
 % An edit session belongs to exactly one ROI of exactly one section: the line
 % is dragged on the tile itself, so a drag has to belong to one image, and a
@@ -20,6 +20,10 @@ function onToggleEditRoi(obj, key)
 %   key: Which ROI to open. Defaults to the one the ROI dropdown is on, which
 %       is what a click on the button or its shortcut means. ONADDROI names a
 %       key the section does not have yet.
+%   Deferred: Open the session without placing, drawing or saving the line a
+%       section with no such ROI would be given. ONDRAWROI uses it, because the
+%       line is about to be dragged out by the user and showing an invented one
+%       first would put an ROI on screen (and on disk) nobody asked for.
 %
 % See also ACTIVEROISTEM, SETROITARGET, ATTACHROIEDITOR, ONDRAWROI, ONADDROI,
 % EXITROIEDIT.
@@ -27,6 +31,7 @@ function onToggleEditRoi(obj, key)
 arguments
     obj
     key (1,1) string = ""
+    options.Deferred (1,1) logical = false
 end
 
 if ~obj.EditRoiButton.Value
@@ -93,6 +98,7 @@ obj.RoiEditGeom = geometry;
 % A line that was just invented has nothing on disk to match, so it counts as
 % an unsaved change from the moment it appears.
 obj.RoiEditDirty = geometry.isNew;
+obj.RoiEditCreated = geometry.isNew;
 obj.RoiEditDragging = false;
 
 % A confirmation left over from another ROI would read as though this one had
@@ -115,22 +121,50 @@ obj.RoiWidthField.Value = geometry.strokeWidth;
 % existing ROI came off disk with whatever mark it has, and turning an edit
 % session that has changed nothing into an unsaved one just by opening it would
 % put an UNSAVED badge on a tile nobody has touched.
+%
+% A new line is then written straight away, so adding an ROI creates its .roi
+% and values files without a separate Save. Dragging it afterwards is an
+% ordinary unsaved edit like any other.
 detected = false;
+saved = false;
+
+% The invented line stays in the session only as a starting geometry for the
+% caller to overwrite: it is neither drawn nor written.
+if geometry.isNew && options.Deferred
+    obj.RoiEditDirty = false;
+    return
+end
 
 if geometry.isNew
     obj.updateRoiPreview();
     detected = obj.detectSurface(Announce = false, Overwrite = false);
+
+    obj.onSaveRoiEdits();
+    saved = ~obj.RoiEditDirty;
 end
 
-obj.updateRoiEditControls();
-
+% A save redraws the tile itself, so only a line it did not write needs it here.
 % Only the one tile taking the line changes, so the rest of the grid keeps the
 % pixels it already has rather than being read off disk again.
-obj.refreshRoiEdit();
+if ~saved
+    obj.updateRoiEditControls();
+    obj.refreshRoiEdit();
+end
 
-obj.setStatus("%s%s Drag its ends, then Save ROI.", ...
-    opening_note(row, numel(obj.drawnStems()), obj.roiName(key), geometry.isNew), ...
-    surface_note(obj, detected));
+% A save that failed has already said why, and that is the message to leave up.
+if geometry.isNew && ~saved
+    return
+end
+
+note = opening_note(row, numel(obj.drawnStems()), obj.roiName(key), geometry.isNew) ...
+    + surface_note(obj, detected);
+
+if saved
+    obj.setSuccess("%s Saved it to disk. Drag its ends, then Save ROI.", note);
+    return
+end
+
+obj.setStatus("%s Drag its ends, then Save ROI.", note);
 
 end
 

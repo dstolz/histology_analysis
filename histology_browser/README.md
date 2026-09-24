@@ -406,9 +406,14 @@ URL.
 ## Editing a line ROI
 
 **Edit ROI** puts a draggable line on the tile; **Draw Line** replaces it by dragging a new
-one at the width in the Width field. Nothing touches disk until **Save ROI**, which rewrites
-the `.roi` sidecar, remeasures the `*values.csv` beside it from the full resolution page,
-and writes or removes the brain surface mark.
+one at the width in the Width field. Changes to an ROI already on disk wait for **Save ROI**,
+which rewrites the `.roi` sidecar, remeasures the `*values.csv` beside it from the full
+resolution page, and writes or removes the brain surface mark.
+
+A **new** line is saved as soon as it is placed: **Add ROI**, **Edit ROI** on a section with
+no ROI yet, and **Draw Line** on an ROI still being added all create its `.roi`,
+`*values.csv` and surface mark on the spot, without a prompt. Dragging it afterwards is an
+ordinary unsaved edit.
 **Revert** goes back to the file. The stroke and the badge on the tile say where the line
 stands against its file — read from disk, edited but unsaved, or just written — so an unsaved
 edit is visible without the control panel in view, and leaving a section with unsaved changes
@@ -463,8 +468,8 @@ cannot turn up as a stray section.
 
 Clearing a mark deletes that file rather than writing an empty one, so a section either
 has a surface beside its ROI or does not, and nothing downstream has to tell an absent
-sidecar from a blank one. Nothing reaches disk until **Save ROI**, which writes or removes
-it alongside the `.roi` and the `*values.csv`.
+sidecar from a blank one. It is written or removed alongside the `.roi` and the
+`*values.csv`, whenever they are — on **Save ROI**, or as a new line is placed.
 
 ### Finding it automatically
 
