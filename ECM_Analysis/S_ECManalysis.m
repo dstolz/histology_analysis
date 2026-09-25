@@ -2,7 +2,7 @@
 
 startup
 
-addpath('C:\src\histology_analysis\histology_browser\')
+addpath('C:\src\histology_analysis')
 addpath_nogit('c:\src\bfmatlab')
 
 
