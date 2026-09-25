@@ -1,6 +1,7 @@
 function applySettings(obj, s)
     %APPLYSETTINGS Put every control on the panel into the state S describes.
-    % Color by, Tile by, and Filter by name fields that belong to
+    % Color by, Marker by, Line style by, Tile by, and Filter by name
+    % fields that belong to
     % whatever dataset was open when S was saved. Anything this
     % dataset does not also have is left as it was rather than
     % raising an error over a mismatch.
@@ -22,6 +23,16 @@ function applySettings(obj, s)
 
     if ismember(s.Group, string(obj.GroupDropDown.Items))
         obj.GroupDropDown.Value = s.Group;
+    end
+
+    % A configuration saved before there was a marker or line style to
+    % draw by says nothing about either, and leaves both where they are.
+    if isfield(s, "Marker") && ismember(s.Marker, string(obj.MarkerDropDown.Items))
+        obj.MarkerDropDown.Value = s.Marker;
+    end
+
+    if isfield(s, "LineStyle") && ismember(s.LineStyle, string(obj.LineStyleDropDown.Items))
+        obj.LineStyleDropDown.Value = s.LineStyle;
     end
 
     tile = s.Tile(ismember(s.Tile, string(obj.TileListBox.Items)));

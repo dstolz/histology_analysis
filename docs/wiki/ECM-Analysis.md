@@ -97,7 +97,7 @@ its settings.
 |---|---|
 | **Signal & scale** | **Signal**: `smoothed` or `raw`. **Normalize**: `none`, `z-score`, `min-max`, `peak = 1`, `area = 1`, `subtract baseline`, `% of baseline`. **Scope**: which sections share one normalization (`per section`, `per group`, `per group in plot`, `within plot`, `across plots`). **Ref. min / Ref. max**: the depth window the normalization is computed from. |
 | **Compare** | **Compare**: `none`, `difference`, `ratio`, `log2 ratio`, `% change`, `normalized difference`. **Compare by**: the field. **Reference**: a level, `(each vs. the rest)`, or `(every pair)`. **Pair within**: fields sections must share to be compared, such as subject and plate. |
-| **Plot** | **Show**: `sections`, `group mean`, `peak summary`, `metric summary`. **Metric**, for metric summary (see below). **Error band**: `sem`, `std`, `ci95`, `bootstrap 95%`, `none`. **Sections behind the mean**. **Color by**. **Depth min / max**. |
+| **Plot** | **Show**: `sections`, `group mean`, `peak summary`, `metric summary`. **Metric**, for metric summary (see below). **Error band**: `sem`, `std`, `ci95`, `bootstrap 95%`, `none`. **Sections behind the mean**. **Color by**. **Marker by** and **Line style by**: further fields whose values pick the marker or the line style within each color group; sections that differ on them are drawn and averaged apart, and a metric summary sets them side by side within the group's slot. **Depth min / max**. |
 | **Split** | **Tile by**: one or more fields, giving one tile per combination (up to 64). |
 | **Filter** | Pick a field, its values, and `keep` or `drop`, then combine conditions with `all (AND)` or `any (OR)`. The standing conditions are listed, with **Remove** and **Clear all**. |
 | **Layout** | Legend placement, tile spacing, padding, tick labels, **Link axes**, **Transpose axes**. |
@@ -119,7 +119,7 @@ its settings.
 | **Copy code** | The commands that rebuild this view, ready to paste into a script |
 | **To workspace** | The numbers behind the plot, as the variable `ECMview` |
 | **Pop out** | Redraw the view in an ordinary figure |
-| **Reset** | Restore the depth window, scale, comparison and filters. Color by and Tile by are left alone. |
+| **Reset** | Restore the depth window, scale, comparison and filters. Color by, Marker by, Line style by and Tile by are left alone. |
 
 The menus (**Plot**, **Data**, **Export options**) hold the same actions. They also let you save
 data as `wide`, `long` or `sections` CSVs and set the export resolution (150–1200 dpi) and
@@ -127,7 +127,10 @@ background.
 
 ### ③ Plot grid
 
-Right-click a curve or band to change that group's color or line style.
+Right-click a curve, point or band to change that group's color, line style or marker. With a
+**Marker by** or **Line style by** field set, the menu also offers each of that field's values, so
+which hemisphere is dashed is still your choice. The legend lists those values in gray under the
+color groups.
 
 ### ④ Status line
 
@@ -141,7 +144,8 @@ failed in preparation (see `A.diagnostics`).
   within the Ref. window, pooled over the sections in each Scope pool. Only sections that pass
   the filters count.
 - **Comparisons** first group sections into matches: sections that share the **Pair within**
-  fields, the tile, and the color. Within a match, each side is averaged across its sections at
+  fields, the tile, the color, the marker and the line style. Within a match, each side is
+  averaged across its sections at
   each depth, and then the operation is applied (for example `a - b`).
 - **Bootstrap 95%** resamples whole sections (2000 resamples, percentile CI). It needs the
   Statistics and Machine Learning Toolbox. Without it, the band is silently left out.
@@ -164,6 +168,11 @@ B.savePlot("figure.pdf");
 B.saveData("profiles.csv", Layout = "long");
 v = B.viewData();                                % struct: depth, values, sections, metric, ...
 B.setGroupStyle("Treatment", "GM6001", Color = [0.8 0.2 0.1], LineStyle = "--");
+
+B.MarkerDropDown.Value = "Hemisphere";          % Marker by
+B.LineStyleDropDown.Value = "Hemisphere";       % Line style by
+B.refresh();
+B.setGroupStyle("Hemisphere", "Right", Marker = "s", LineStyle = ":");
 ```
 
 After setting a control's `.Value` directly, call `B.refresh()`.

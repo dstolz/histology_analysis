@@ -1,19 +1,27 @@
-function h = drawGroup(obj, ax, x, Y, idx, cols, groupField, groupName, color, slot)
-    %DRAWGROUP Draw one group's sections into one tile.
-    % Only the first artist of a group carries a DisplayName, so the
-    % legend lists groups rather than every section in them.
+function h = drawGroup(obj, ax, x, Y, idx, cols, series)
+    %DRAWGROUP Draw one sub-group's sections into one tile.
+    % SERIES says what they are drawn as and where -- see SERIESOF: the
+    % group they belong to and its palette color, the marker and line
+    % style their values of the Marker by and Line style by fields hand
+    % them, and, for a metric summary, the group's slot on the axis and
+    % which of the group's sub-groups this is, so that two hemispheres of
+    % one subject sit side by side within its slot rather than on top of
+    % one another.
     %
-    % SLOT is the group's place along the x axis, counted from one over
-    % every group in the layout rather than over the ones this tile
-    % happens to hold. It is what the metric summary plots against, and
-    % taking it from the layout is what keeps a group over the same tick
-    % from tile to tile, whether or not its neighbors reached them.
+    % Nothing drawn here carries a legend entry: the legends are built
+    % from stand-ins by LEGENDFOR, so a sub-group drawn dashed does not
+    % put a dashed line beside its group's name, and a group is keyed
+    % once however many sub-groups it was drawn in.
     %
-    % Everything drawn is handed back and marked with the group it
-    % belongs to and the part it plays in it, which is what lets a
-    % color chosen later find its way to every tile at once.
+    % Everything drawn is handed back marked with the series it belongs
+    % to and the part it plays in it, which is what lets a color chosen
+    % later find its way to every tile at once.
 
-    sty = obj.effectiveStyle(groupField, groupName);
+    sty = obj.styleFor(series);
+
+    % A curve carries markers only when a field puts them on it; a point
+    % is a marker whether or not one does.
+    marked = series.MarkerField ~= obj.NoField;
 
     h = gobjects(1, 0);
     roles = strings(1, 0);
@@ -24,36 +32,36 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, groupField, groupName, color, s
             rows = idx(cols);
             h(end+1) = scatter(ax, obj.View.PeakX(rows), obj.View.PeakY(rows), 42, ...
                 sty.Color, "filled", ...
+                Marker = sty.Marker, ...
                 MarkerFaceAlpha = 0.7, ...
-                DisplayName = groupName);
+                HandleVisibility = "off");
             roles(end+1) = "marker";
 
         case "metric summary"
             v = section_metrics(x, Y(:, cols), string(obj.MetricDropDown.Value));
 
-            % One point per section at the group's own place on the
-            % axis, spread across the slot so that two sections of the
-            % same value do not land on top of one another. Spread by
-            % position in the group rather than at random, so that a
-            % redraw puts every point back where it was and a figure
-            % saved twice is the same figure twice.
-            at = slot + obj.MetricSpread * obj.MetricJitter * spread(numel(v));
+            % One point per section at the sub-group's own place on the
+            % axis, spread across it so that two sections of the same
+            % value do not land on top of one another. Spread by position
+            % in the sub-group rather than at random, so that a redraw
+            % puts every point back where it was and a figure saved twice
+            % is the same figure twice.
+            [center, half] = obj.dodge(series);
+            at = center + half * obj.MetricJitter * spread(numel(v));
 
             h(end+1) = scatter(ax, at, v, 42, ...
                 sty.Color, "filled", ...
+                Marker = sty.Marker, ...
                 MarkerFaceAlpha = 0.7, ...
-                DisplayName = groupName);
+                HandleVisibility = "off");
             roles(end+1) = "marker";
 
-            % The group's mean ruled through its points, with whatever
+            % The sub-group's mean ruled through its points, with whatever
             % the Error band control names drawn up and down from it.
-            % Both are drawn out of the legend: the points already carry
-            % the group's name, and a key listing it three times says
-            % nothing the first entry did not.
             [m, lo, hi] = obj.metricBand(v);
 
             if isfinite(lo) && isfinite(hi)
-                h(end+1) = line(ax, [slot slot], [lo hi], ...
+                h(end+1) = line(ax, [center center], [lo hi], ...
                     Color = sty.Color, ...
                     LineWidth = 1.5, ...
                     HandleVisibility = "off");
@@ -61,7 +69,7 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, groupField, groupName, color, s
             end
 
             if isfinite(m)
-                h(end+1) = line(ax, slot + obj.MetricSpread * [-1 1], [m m], ...
+                h(end+1) = line(ax, center + half * [-1 1], [m m], ...
                     Color = sty.Color, ...
                     LineWidth = 2, ...
                     HandleVisibility = "off");
@@ -70,13 +78,18 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, groupField, groupName, color, s
 
         case "sections"
             for iCol = 1:numel(cols)
-                h(end+1) = line(ax, x, Y(:, cols(iCol)), ...
+                y = Y(:, cols(iCol));
+
+                h(end+1) = line(ax, x, y, ...
                     Color = sty.Color, ...
                     LineStyle = sty.LineStyle, ...
                     LineWidth = 1, ...
-                    DisplayName = groupName, ...
-                    HandleVisibility = visibility(iCol == 1)); %#ok<AGROW>
+                    HandleVisibility = "off"); %#ok<AGROW>
                 roles(end+1) = "line"; %#ok<AGROW>
+
+                if marked
+                    obj.markCurve(h(end), sty, y);
+                end
             end
 
         case "group mean"
@@ -115,18 +128,23 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, groupField, groupName, color, s
                 Color = sty.Color, ...
                 LineStyle = sty.LineStyle, ...
                 LineWidth = 2, ...
-                DisplayName = sprintf("%s (n=%d)", groupName, numel(cols)));
+                HandleVisibility = "off");
             roles(end+1) = "line";
+
+            if marked
+                obj.markCurve(h(end), sty, m(n >= 1));
+            end
     end
 
-    obj.markStyled(h, roles, groupField, groupName, color);
+    obj.markStyled(h, roles, series);
 
 end
 
 function offsets = spread(n)
-%SPREAD Where each of N points sits across the width of one group's slot.
-% As a fraction of the half-width, so that one point sits on the group's
-% tick and any more of them fill the slot evenly out to its edges.
+%SPREAD Where each of N points sits across the width of one sub-group's share.
+% As a fraction of the half-width, so that one point sits on the
+% sub-group's center and any more of them fill the share evenly out to
+% its edges.
 
 if n < 2
     offsets = 0;

@@ -53,7 +53,11 @@ function draw(obj, parent)
     onMetric = string(obj.ShowDropDown.Value) == "metric summary";
 
     [tiles, tileOf, nCols] = obj.tiling(tileBy, idx);
-    [groups, groupOf] = obj.splitBy(groupField, idx);
+
+    % Which group each column is colored as, and the marker and line
+    % style it is drawn with inside that group.
+    split = obj.splitView(groupField, obj.aestheticFields(), idx);
+    groups = split.Groups;
 
     % Several fields tiled together can call for more axes than there is
     % screen to draw them in, so the ones past the cap are left off and
@@ -62,13 +66,10 @@ function draw(obj, parent)
     tiles = tiles(1:min(nWanted, obj.MaxTiles));
     nRows = ceil(tiles(end).Index / nCols);
 
-    colors = lines(max(numel(groups), 7));
-    obj.rememberDefaults(groupField, groups, colors);
-
     % One menu per group for the artists that draw it, and one listing
     % every group for the axes behind them, which is what a right-click
     % that misses a curve finds.
-    [axesMenu, groupMenus] = obj.buildStyleMenus(fig, groupField, groups);
+    [axesMenu, groupMenus] = obj.buildStyleMenus(fig, split);
 
     if isprop(parent, 'ContextMenu')
         parent.ContextMenu = axesMenu;
@@ -120,6 +121,11 @@ function draw(obj, parent)
     placement = string(obj.LegendDropDown.Value);
     firstAx = matlab.graphics.axis.Axes.empty;
 
+    % A key is worth drawing where there is more than one group to tell
+    % apart, or a marker or line style field whose values need naming.
+    keyed = numel(groups) > 1 || ...
+        split.MarkerField ~= obj.NoField || split.LineField ~= obj.NoField;
+
     % The axes each tile was drawn into, kept so that the pass over the
     % grid below can find them again by the cell they sit in.
     tileAx = gobjects(1, numel(tiles));
@@ -143,16 +149,30 @@ function draw(obj, parent)
         inTile = find(tileOf == tiles(iTile).Index);
 
         for iGroup = 1:numel(groups)
-            cols = inTile(groupOf(inTile) == groups(iGroup));
+            inGroup = inTile(split.GroupOf(inTile) == groups(iGroup));
 
-            if isempty(cols)
+            if isempty(inGroup)
                 continue
             end
 
-            artists = obj.drawGroup(ax, x, Y, idx, cols, ...
-                groupField, groups(iGroup), colors(iGroup, :), iGroup);
+            % One pass per sub-group the group holds anywhere in the
+            % layout, in the order the legend lists them, so that a
+            % sub-group missing from this tile leaves its place empty
+            % rather than shifting its neighbors into it.
+            subs = split.SubsOf{iGroup};
 
-            set(artists, 'ContextMenu', groupMenus(char(groups(iGroup))))
+            for iSub = 1:numel(subs)
+                cols = inGroup(split.SubOf(inGroup) == subs(iSub));
+
+                if isempty(cols)
+                    continue
+                end
+
+                series = obj.seriesOf(split, iGroup, subs(iSub), iSub, numel(subs));
+                artists = obj.drawGroup(ax, x, Y, idx, cols, series);
+
+                set(artists, 'ContextMenu', groupMenus(char(groups(iGroup))))
+            end
         end
 
         % Two or more fields name themselves on the edges of the
@@ -180,18 +200,19 @@ function draw(obj, parent)
             axis(ax, "tight")
         end
 
-        if placement == "per tile" && numel(groups) > 1
-            legend(ax, Interpreter = "none", Location = "best")
+        if placement == "per tile" && keyed
+            inScope = false(numel(idx), 1);
+            inScope(inTile) = true;
+            obj.legendFor(ax, split, inScope, placement);
         end
     end
 
     % One legend for the layout is built after the tiles rather than
     % inside the loop, because it stands for every group in view rather
     % than for the ones one tile happens to hold.
-    if ismember(placement, ["one at top", "one at right"]) && numel(groups) > 1
-        drawn = ismember(tileOf, [tiles.Index]);
-        obj.layoutLegend(firstAx, groupField, groups, colors, ...
-            groupOf(drawn), placement);
+    if ismember(placement, ["one at top", "one at right"]) && keyed
+        drawn = reshape(ismember(tileOf, [tiles.Index]), [], 1);
+        obj.legendFor(firstAx, split, drawn, placement);
     end
 
     if obj.LinkCheckBox.Value

@@ -90,8 +90,18 @@ function code = viewCommands(obj, options)
         code(end+1) = v + ".SectionsCheckBox.Value = false;";
     end
 
-    % The split the figure is made of, said whatever it is set to.
+    % The split the figure is made of, said whatever it is set to. The
+    % marker and line style fields are said only where they are set: a
+    % browser opens with neither, and most figures need neither.
     code(end+1) = v + ".GroupDropDown.Value = " + obj.textLiteral(s.Group) + ";";
+
+    if s.Marker ~= obj.NoField
+        code(end+1) = v + ".MarkerDropDown.Value = " + obj.textLiteral(s.Marker) + ";";
+    end
+
+    if s.LineStyle ~= obj.NoField
+        code(end+1) = v + ".LineStyleDropDown.Value = " + obj.textLiteral(s.LineStyle) + ";";
+    end
 
     tile = s.Tile(s.Tile ~= obj.NoField);
 
@@ -134,8 +144,8 @@ function code = viewCommands(obj, options)
     % is written out only where it has been changed.
     code = [code, obj.layoutCommands(s, v)];
 
-    % A color or a line style picked from a right-click menu is no part
-    % of the panel and so no part of a saved configuration, but it is
+    % A color, line style, or marker picked from a right-click menu is no
+    % part of the panel and so no part of a saved configuration, but it is
     % part of the figure, and this is the only way it leaves the browser.
     code = [code, obj.styleCommands(v)];
 

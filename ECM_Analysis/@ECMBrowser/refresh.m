@@ -38,6 +38,12 @@ function refresh(obj)
         obj.SectionsCheckBox.Enable = ...
             matlab.lang.OnOffSwitchState(show == "group mean");
 
+        % A line style has nothing to reach where the plot is points, so
+        % the field it would be drawn by goes quiet there; a marker is the
+        % point itself, so its field stays live throughout.
+        obj.LineStyleDropDown.Enable = ...
+            matlab.lang.OnOffSwitchState(ismember(show, ["sections", "group mean"]));
+
         onProfiles = matlab.lang.OnOffSwitchState(show ~= "peak summary");
         obj.SignalDropDown.Enable = onProfiles;
         obj.DepthMinField.Enable = onProfiles;

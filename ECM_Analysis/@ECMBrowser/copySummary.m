@@ -59,6 +59,20 @@ function copySummary(obj)
     end
 
     lines(end+1) = "  Color by: " + s.Group;
+
+    % Said as they are drawn rather than as they are set: a line style
+    % field is left in its control but reaches nothing while the plot is
+    % points, and a caption should not claim a split the figure lacks.
+    aesthetic = obj.aestheticFields();
+
+    if aesthetic(1) ~= obj.NoField
+        lines(end+1) = "  Marker by: " + aesthetic(1);
+    end
+
+    if aesthetic(2) ~= obj.NoField
+        lines(end+1) = "  Line style by: " + aesthetic(2);
+    end
+
     lines(end+1) = "  Tile by: " + strjoin(s.Tile, " x ");
     % One condition to a line, spelled out in full: a caption has room for
     % the values a panel had to abbreviate, and which sections a figure was

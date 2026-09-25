@@ -113,6 +113,24 @@ classdef ECMBrowser < handle
 %               Hemisphere colors by "Right - Left" rather than by Right and
 %               Left, and every other field carries whatever the sections
 %               behind a comparison agreed on, or "(mixed)" where they did not.
+%   Marker by   Field whose values pick the marker a section is drawn with,
+%               beside whatever it is colored by: the point itself in the two
+%               summaries, and a few markers along each curve where the
+%               profiles or their means are drawn. Sections of one color that
+%               differ on this field are drawn -- and averaged, and summarized
+%               -- apart, so a group mean colored by Treatment with markers by
+%               Hemisphere is one mean per treatment per hemisphere, and a
+%               metric summary sets the hemispheres side by side within each
+%               treatment's slot. A legend lists the values in gray under the
+%               groups, each in the marker it stands for.
+%   Line style by
+%               The same for the line style of a curve: solid, dashed, dotted,
+%               and dash-dot in turn, repeating past the fourth value. It
+%               reaches the profiles and the group means, which are the modes
+%               that draw curves; the two summaries draw points and leave it
+%               grayed out. A comparison is matched on both of these fields as
+%               it is on the color, so no comparison spans a marker or a line
+%               style either.
 %   Tile by     Fields whose values each get their own axes. Pick more than
 %               one -- plate and subject, say -- and every combination the
 %               sections actually hold gets an axes of its own: the last field
@@ -154,14 +172,18 @@ classdef ECMBrowser < handle
 %               them, and it follows a color or line style set from a
 %               right-click menu the same way the curves do.
 %
-% Right-click a curve, its error band, or the axes to change the color and
-% line style of a group. The change is made to the group rather than to the
-% artist under the cursor, so it lands on every tile at once, survives the
-% redraw the next control change forces, and reaches a figure POPOUT has
-% already put on screen. A curve's menu leads with its own group and keeps
-% the rest one level down; the axes menu offers every group evenly. A choice
-% is remembered against the field as well as the value, so a palette set up
-% under one Color by field is still there after a detour through another.
+% Right-click a curve, its error band, or the axes to change the color,
+% line style, and marker of a group. The change is made to the group rather
+% than to the artist under the cursor, so it lands on every tile at once,
+% survives the redraw the next control change forces, and reaches a figure
+% POPOUT has already put on screen. A curve's menu leads with its own group
+% and keeps the rest one level down; the axes menu offers every group evenly.
+% With a field on Marker by or Line style by, the menu offers that field's
+% values as well, so which hemisphere is the dashed one is still a choice,
+% and the groups' own line style or marker is grayed out meanwhile, the
+% field having taken it over. A choice is remembered against the field as
+% well as the value, so a palette set up under one Color by field is still
+% there after a detour through another.
 %
 % Fields are offered for grouping and tiling when they take between 2 and 25
 % distinct values, and as filters when they take up to 100. A section
@@ -246,6 +268,8 @@ classdef ECMBrowser < handle
         ErrorDropDown matlab.ui.control.DropDown
         SectionsCheckBox matlab.ui.control.CheckBox
         GroupDropDown matlab.ui.control.DropDown
+        MarkerDropDown matlab.ui.control.DropDown
+        LineStyleDropDown matlab.ui.control.DropDown
         TileListBox matlab.ui.control.ListBox
         FilterFieldDropDown matlab.ui.control.DropDown
         FilterValuesListBox matlab.ui.control.ListBox
@@ -401,6 +425,10 @@ classdef ECMBrowser < handle
         MetricSpread = 0.3
         MetricJitter = 0.75
 
+        % How much of its share of the slot a sub-group is ruled across
+        % when several share one -- the rest is air between neighbors.
+        MetricDodge = 0.8
+
         % The rescalings on offer, in the order they are listed: none, the
         % section's own spread, its range, its highest point, the area under
         % it, and two measured against the median of the reference band.
@@ -507,6 +535,22 @@ classdef ECMBrowser < handle
         MenuTag = "ECMBrowser:stylemenu"
         LineStyleNames = ["Solid", "Dashed", "Dotted", "Dash-dot"]
         LineStyleValues = ["-", "--", ":", "-."]
+
+        % The markers on offer, filled shapes first: what a group can be
+        % given from the menu, and the run a Marker by field hands its
+        % values in turn.
+        MarkerNames = ["Circle", "Square", "Triangle up", "Diamond", ...
+            "Triangle down", "Pentagram", "Hexagram", "Triangle right", ...
+            "Triangle left", "Asterisk", "Cross", "Plus"]
+        MarkerValues = ["o", "s", "^", "d", "v", "p", "h", ">", "<", "*", "x", "+"]
+
+        % What a legend draws the values of a Marker by or Line style by
+        % field in: a gray that is no group's color, so an entry standing
+        % for a shape is not read as standing for a group as well.
+        NeutralColor = [0.45 0.45 0.45]
+
+        % How many markers a curve carries when a field puts them on it.
+        CurveMarkers = 8
 
         % Where saved configurations live: MATLAB's own preferences, kept
         % between sessions without a file of their own to manage.
@@ -842,6 +886,16 @@ classdef ECMBrowser < handle
 
                     if string(obj.GroupDropDown.Value) ~= obj.NoField
                         parts(end+1) = "color " + string(obj.GroupDropDown.Value);
+                    end
+
+                    aesthetic = obj.aestheticFields();
+
+                    if aesthetic(1) ~= obj.NoField
+                        parts(end+1) = "marker " + aesthetic(1);
+                    end
+
+                    if aesthetic(2) ~= obj.NoField
+                        parts(end+1) = "line " + aesthetic(2);
                     end
 
                 case "split"
@@ -1441,11 +1495,15 @@ classdef ECMBrowser < handle
         % Build one tiled layout of the sections now in view.
         draw(obj, parent)
 
-        % Draw one group's sections into one tile.
-        h = drawGroup(obj, ax, x, Y, idx, cols, groupField, groupName, color, slot)
+        % How the columns in view are told apart: by color, marker, and
+        % line style.
+        split = splitView(obj, groupField, aesthetic, idx)
 
-        % One legend for the whole layout, outside every axes.
-        lgd = layoutLegend(obj, ax, groupField, groups, colors, groupOf, placement)
+        % Draw one sub-group's sections into one tile.
+        h = drawGroup(obj, ax, x, Y, idx, cols, series)
+
+        % The key to one tile or to the whole layout, drawn from stand-ins.
+        lgd = legendFor(obj, ax, split, inScope, placement)
 
         function label = legendEntry(obj, groupName, n)
             %LEGENDENTRY What one group is called in a legend for the whole layout.
@@ -1556,8 +1614,9 @@ classdef ECMBrowser < handle
             %MATCHFIELDS Every field a comparison has to agree on.
             % Pair within says what the reader asked to match on. What is
             % drawn asks for more: a comparison taken across two atlas plates
-            % has no plate to be tiled at, and one taken across two subjects
-            % no color to be drawn in -- there is no value of the field for
+            % has no plate to be tiled at, one taken across two subjects no
+            % color to be drawn in, and one taken across two hemispheres no
+            % marker or line style either -- there is no value of the field for
             % it to be placed at, only the several it was averaged over. So
             % the fields the plot is split on are matched on as well, and the
             % comparisons that exist are the ones the plot can place, rather
@@ -1568,7 +1627,7 @@ classdef ECMBrowser < handle
             % two sides of every comparison in different matches.
 
             fields = [obj.pairFields(), obj.tileFields(), ...
-                string(obj.GroupDropDown.Value)];
+                string(obj.GroupDropDown.Value), obj.aestheticFields()];
 
             fields = fields(fields ~= obj.NoField);
             fields = fields(fields ~= string(obj.CompareFieldDropDown.Value));
@@ -1734,6 +1793,23 @@ classdef ECMBrowser < handle
             selected = string(obj.TileListBox.Value);
             fields = obj.GroupFields(ismember(obj.GroupFields, selected));
             fields = reshape(fields, 1, []);
+
+        end
+
+        function fields = aestheticFields(obj)
+            %AESTHETICFIELDS The fields the markers and line styles are drawn by.
+            % Two fields, marker first: either is (none) when its control
+            % is, and the line style field is (none) as well in the two
+            % modes that draw points rather than curves. There is no line
+            % for it to reach there, and a split it cannot show would only
+            % pull the means apart for nothing.
+
+            fields = [string(obj.MarkerDropDown.Value), ...
+                string(obj.LineStyleDropDown.Value)];
+
+            if ismember(string(obj.ShowDropDown.Value), ["peak summary", "metric summary"])
+                fields(2) = obj.NoField;
+            end
 
         end
 
@@ -1981,7 +2057,7 @@ classdef ECMBrowser < handle
             end
 
             note = " | also matched on " + strjoin(added, ", ") + ...
-                ", so that no comparison spans a tile or a color";
+                ", so that no comparison spans a tile, a color, a marker, or a line style";
 
         end
 
@@ -2024,57 +2100,278 @@ classdef ECMBrowser < handle
 
         end
 
-        function rememberDefaults(obj, groupField, groups, colors)
-            %REMEMBERDEFAULTS Note the palette color each group started from.
-            % The menu needs it to open the color picker on the color actually
-            % on screen, and a reset needs it to have somewhere to go back to.
+        function sty = noStyle(~)
+            %NOSTYLE A style with nothing chosen: the shape every entry of
+            % STYLES and DEFAULTS takes, with an empty part for each of the
+            % three things a group can be given.
 
-            for k = 1:numel(groups)
-                obj.Defaults(obj.styleKey(groupField, groups(k))) = colors(k, :);
+            sty = struct(Color = [], LineStyle = "", Marker = "");
+
+        end
+
+        function tf = styleSet(~, value)
+            %STYLESET Whether one part of a style holds a choice.
+
+            tf = ~isempty(value) && (~isstring(value) || strlength(value) > 0);
+
+        end
+
+        function sty = overlay(obj, sty, chosen)
+            %OVERLAY STY with every part CHOSEN holds a choice for put over it.
+
+            parts = string(fieldnames(sty))';
+
+            for part = parts
+                if isfield(chosen, part) && obj.styleSet(chosen.(part))
+                    sty.(part) = chosen.(part);
+                end
+            end
+
+        end
+
+        function rememberDefaults(obj, field, levels, part, values)
+            %REMEMBERDEFAULTS Note what each value of a field is drawn as by default.
+            % The palette color a group started from, or the marker or line
+            % style a Marker by or Line style by field handed one of its
+            % values. The menu needs it to tick what is on screen and to open
+            % the color picker on the right color, and a reset needs it to
+            % have somewhere to go back to.
+
+            for k = 1:numel(levels)
+                key = obj.styleKey(field, levels(k));
+
+                if isKey(obj.Defaults, key)
+                    sty = obj.Defaults(key);
+                else
+                    sty = obj.noStyle();
+                end
+
+                if part == "Color"
+                    sty.Color = values(k, :);
+                else
+                    sty.(part) = values(k);
+                end
+
+                obj.Defaults(key) = sty;
+            end
+
+        end
+
+        function run = styleRun(obj, field, levels, part)
+            %STYLERUN What each value of a Marker by or Line style by field is drawn as.
+            % The markers or line styles on offer, handed out in turn and
+            % wrapping round past the last, then remembered as the values'
+            % defaults. With no field there is one value, drawn in the first
+            % of them -- a circle, or a solid line -- which is what every
+            % section took before there was a field to draw by.
+
+            if part == "Marker"
+                offered = obj.MarkerValues;
+            else
+                offered = obj.LineStyleValues;
+            end
+
+            run = offered(mod((1:numel(levels)) - 1, numel(offered)) + 1);
+            run = reshape(run, size(levels));
+
+            if field ~= obj.NoField
+                obj.rememberDefaults(field, levels, part, run);
             end
 
         end
 
         function sty = effectiveStyle(obj, field, level)
-            %EFFECTIVESTYLE What one group is drawn in: chosen, or the palette.
+            %EFFECTIVESTYLE What one group or value is drawn in: chosen, or its default.
 
             key = obj.styleKey(field, level);
 
-            sty = struct(Color = lines(1), LineStyle = "-");
+            sty = struct(Color = lines(1), LineStyle = "-", Marker = "o");
 
             if isKey(obj.Defaults, key)
-                sty.Color = obj.Defaults(key);
+                sty = obj.overlay(sty, obj.Defaults(key));
             end
 
-            if ~isKey(obj.Styles, key)
-                return
-            end
-
-            chosen = obj.Styles(key);
-
-            if ~isempty(chosen.Color)
-                sty.Color = chosen.Color;
-            end
-
-            if chosen.LineStyle ~= ""
-                sty.LineStyle = chosen.LineStyle;
+            if isKey(obj.Styles, key)
+                sty = obj.overlay(sty, obj.Styles(key));
             end
 
         end
 
-        function markStyled(obj, h, roles, field, level, color)
-            %MARKSTYLED Say which group an artist draws, and what part of it.
-            % The palette color is written onto the artist rather than looked
-            % up again later, so a popped-out figure keeps the colors it was
+        function sty = styleFor(obj, mark)
+            %STYLEFOR What an artist marked MARK is drawn in now.
+            % The defaults it was drawn with, under whatever has been chosen
+            % since for the group or value each part of it answers to. A part
+            % answering to nothing -- the marker of a curve no field put one
+            % on -- stays as it was drawn.
+
+            sty = struct(Color = mark.Color, LineStyle = mark.LineStyle, Marker = mark.Marker);
+
+            for part = ["Color", "LineStyle", "Marker"]
+                key = char(mark.Keys.(part));
+
+                if isempty(key) || ~isKey(obj.Styles, key)
+                    continue
+                end
+
+                chosen = obj.Styles(key);
+
+                if isfield(chosen, part) && obj.styleSet(chosen.(part))
+                    sty.(part) = chosen.(part);
+                end
+            end
+
+        end
+
+        function series = seriesOf(obj, split, iGroup, sub, position, nPositions)
+            %SERIESOF One sub-group of one group, as DRAWGROUP wants it described.
+            % What it is drawn as -- the group's palette color and the marker
+            % and line style its two values hand it -- and where: the group's
+            % slot on a metric summary's axis and which of the group's
+            % sub-groups it is, so that it can be set beside the others within
+            % the slot. KEYS names the group or value each part of the style
+            % answers to, which is where a choice made from a menu is looked
+            % up: the color follows the group, and the line style and marker
+            % follow the group too until a field is drawn by, and then follow
+            % the value of that field instead. A curve carries no marker until
+            % a field puts one on it, so a curve's marker answers to nothing.
+
+            nLines = numel(split.Lines);
+            iMarker = floor((sub - 1) / nLines) + 1;
+            iLine = mod(sub - 1, nLines) + 1;
+
+            group = split.Groups(iGroup);
+            groupKey = string(obj.styleKey(split.Field, group));
+
+            onPoints = ismember(string(obj.ShowDropDown.Value), ...
+                ["peak summary", "metric summary"]);
+
+            keys = struct(Color = groupKey, LineStyle = groupKey, Marker = "");
+
+            if onPoints
+                keys.Marker = groupKey;
+            end
+
+            if split.MarkerField ~= obj.NoField
+                keys.Marker = string(obj.styleKey(split.MarkerField, split.Markers(iMarker)));
+            end
+
+            if split.LineField ~= obj.NoField
+                keys.LineStyle = string(obj.styleKey(split.LineField, split.Lines(iLine)));
+            end
+
+            series = struct( ...
+                Field = split.Field, ...
+                Group = group, ...
+                Color = split.Colors(iGroup, :), ...
+                MarkerField = split.MarkerField, ...
+                MarkerLevel = split.Markers(iMarker), ...
+                Marker = split.MarkerStyles(iMarker), ...
+                LineField = split.LineField, ...
+                LineLevel = split.Lines(iLine), ...
+                LineStyle = split.LineStyles(iLine), ...
+                Slot = iGroup, ...
+                Position = position, ...
+                NPositions = nPositions, ...
+                Keys = keys);
+
+        end
+
+        function [center, half] = dodge(obj, series)
+            %DODGE Where one sub-group sits within its group's slot on a metric summary.
+            % The slot is METRICSPREAD to either side of the group's tick.
+            % One sub-group has the whole of it; several divide it between
+            % them, each centered in its share and ruled across most of it,
+            % the rest left as air so that neighbors do not run together.
+
+            share = obj.MetricSpread / series.NPositions;
+            center = series.Slot + share * (2 * series.Position - series.NPositions - 1);
+
+            if series.NPositions == 1
+                half = obj.MetricSpread;
+            else
+                half = obj.MetricDodge * share;
+            end
+
+        end
+
+        function markCurve(obj, h, sty, y)
+            %MARKCURVE Put a few of the sub-group's markers along one curve.
+            % Spaced evenly over the samples the curve holds, with the ends
+            % left off: a marker on the end of a curve reads as a point of
+            % its own. A curve too short to space them over gets none.
+
+            finite = find(isfinite(y));
+
+            if numel(finite) < 3
+                return
+            end
+
+            picks = round(linspace(1, numel(finite), obj.CurveMarkers + 2));
+            picks = unique(picks(2:end-1));
+
+            set(h, Marker = sty.Marker, MarkerIndices = finite(picks), ...
+                MarkerSize = 5, MarkerFaceColor = sty.Color);
+
+        end
+
+        function h = legendProxy(obj, ax, series, label, asPoint)
+            %LEGENDPROXY One legend entry, drawn at NaN and marked like a curve.
+            % A point where the plot is points, and a line -- carrying the
+            % series' marker where it has one -- where the plot is curves.
+
+            sty = obj.styleFor(series);
+
+            if asPoint
+                h = scatter(ax, NaN, NaN, 42, sty.Color, "filled", ...
+                    Marker = sty.Marker, ...
+                    MarkerFaceAlpha = 0.7, ...
+                    DisplayName = label);
+                role = "marker";
+            else
+                h = line(ax, NaN, NaN, ...
+                    Color = sty.Color, ...
+                    LineStyle = sty.LineStyle, ...
+                    LineWidth = 2, ...
+                    DisplayName = label);
+                role = "line";
+
+                if sty.Marker ~= "none"
+                    set(h, Marker = sty.Marker, MarkerSize = 5, ...
+                        MarkerFaceColor = sty.Color);
+                end
+            end
+
+            obj.markStyled(h, role, series);
+
+        end
+
+        function markStyled(obj, h, roles, series)
+            %MARKSTYLED Say which series an artist draws, and what part of it.
+            % The palette color, and the marker and line style the run handed
+            % the series, are written onto the artist rather than looked up
+            % again later, so a popped-out figure keeps the styles it was
             % drawn with even after the panel behind it has been regrouped.
 
             for k = 1:numel(h)
+                mark = series;
+                mark.Role = roles(k);
                 h(k).Tag = char(obj.StyleTag);
-                h(k).UserData = struct( ...
-                    Field = field, ...
-                    Group = level, ...
-                    Role = roles(k), ...
-                    Color = color);
+                h(k).UserData = mark;
+            end
+
+        end
+
+        function resetViewStyles(obj, split)
+            %RESETVIEWSTYLES Put every group and value on screen back to its default.
+            % The groups, and the values of whichever fields the markers and
+            % line styles are drawn by; a field not in view keeps what was
+            % set up under it.
+
+            fields = unique([split.Field, split.MarkerField, split.LineField]);
+            fields = fields(fields ~= obj.NoField);
+
+            for k = 1:numel(fields)
+                obj.resetGroupStyles(fields(k));
             end
 
         end
@@ -2107,63 +2404,115 @@ classdef ECMBrowser < handle
         % One artist, in whatever its group is drawn in now.
         repaint(obj, h)
 
-        function [axesMenu, groupMenus] = buildStyleMenus(obj, fig, groupField, groups)
+        function [axesMenu, groupMenus] = buildStyleMenus(obj, fig, split)
             %BUILDSTYLEMENUS One menu per group, and one for the axes behind them.
 
-            axesMenu = obj.buildStyleMenu(fig, groupField, groups, "");
+            axesMenu = obj.buildStyleMenu(fig, split, "");
             groupMenus = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
-            for k = 1:numel(groups)
-                groupMenus(char(groups(k))) = ...
-                    obj.buildStyleMenu(fig, groupField, groups, groups(k));
+            for k = 1:numel(split.Groups)
+                groupMenus(char(split.Groups(k))) = ...
+                    obj.buildStyleMenu(fig, split, split.Groups(k));
             end
 
         end
 
         % The menu behind one right-click.
-        cm = buildStyleMenu(obj, fig, groupField, groups, clicked)
+        cm = buildStyleMenu(obj, fig, split, clicked)
 
         function addStyleItems(obj, parent, groupField, level, prefix)
-            %ADDSTYLEITEMS The color, line style, and reset one group offers.
+            %ADDSTYLEITEMS The color, line style, marker, and reset one group offers.
             % PREFIX names the group in the items when they sit at the top of a
             % menu, and is empty when they sit under a submenu already carrying
-            % the name.
+            % the name. The line style and the marker are the group's to
+            % choose only while no field is drawn by them: once one is, they
+            % are that field's values' to choose, further down the menu, and
+            % are grayed out here.
+
+            aesthetic = obj.aestheticFields();
 
             uimenu(parent, Text = prefix + "Color...", ...
                 MenuSelectedFcn = @(~, ~) obj.pickColor(groupField, level));
 
-            styles = uimenu(parent, Text = prefix + "Line style");
+            styles = uimenu(parent, Text = prefix + "Line style", ...
+                Enable = matlab.lang.OnOffSwitchState(aesthetic(2) == obj.NoField));
+            obj.addPartItems(styles, groupField, level, "LineStyle");
 
-            for k = 1:numel(obj.LineStyleValues)
-                % Which style is ticked is settled when the menu opens rather
-                % than when it is built, so the tick is right however the style
-                % was last set.
-                uimenu(styles, Text = obj.LineStyleNames(k), ...
-                    UserData = struct(Field = groupField, Group = level, ...
-                        LineStyle = obj.LineStyleValues(k)), ...
-                    MenuSelectedFcn = @(src, ~) obj.setGroupStyle(groupField, level, ...
-                        LineStyle = src.UserData.LineStyle));
-            end
+            markers = uimenu(parent, Text = prefix + "Marker", ...
+                Enable = matlab.lang.OnOffSwitchState(aesthetic(1) == obj.NoField));
+            obj.addPartItems(markers, groupField, level, "Marker");
 
             uimenu(parent, Text = prefix + "Reset", Separator = "on", ...
                 MenuSelectedFcn = @(~, ~) obj.resetGroupStyles(groupField, level));
 
         end
 
+        function addPartItems(obj, parent, field, level, part)
+            %ADDPARTITEMS One item per line style or marker on offer.
+            % For one group, or for one value of the field the line styles
+            % or markers are drawn by. Which is ticked is settled when the
+            % menu opens rather than when it is built, so the tick is right
+            % however the style was last set.
+
+            if part == "Marker"
+                names = obj.MarkerNames;
+                values = obj.MarkerValues;
+            else
+                names = obj.LineStyleNames;
+                values = obj.LineStyleValues;
+            end
+
+            for k = 1:numel(values)
+                uimenu(parent, Text = names(k), ...
+                    UserData = struct(Field = field, Group = level, ...
+                        Part = part, Value = values(k)), ...
+                    MenuSelectedFcn = @(src, ~) obj.setGroupStyle(field, level, ...
+                        src.UserData.Part, src.UserData.Value));
+            end
+
+        end
+
+        function addRunItems(obj, parent, field, levels, part)
+            %ADDRUNITEMS The values of a field the markers or line styles are drawn by.
+            % Nothing is added while there is no such field. With one, its
+            % values go under a heading naming it, each offering the same
+            % choice a group does, and a reset for the field as a whole.
+
+            if field == obj.NoField
+                return
+            end
+
+            if part == "Marker"
+                heading = "Marker by " + field;
+            else
+                heading = "Line style by " + field;
+            end
+
+            top = uimenu(parent, Text = heading, Separator = "on");
+
+            for k = 1:numel(levels)
+                obj.addPartItems(uimenu(top, Text = levels(k)), field, levels(k), part);
+            end
+
+            uimenu(top, Text = "Reset", Separator = "on", ...
+                MenuSelectedFcn = @(~, ~) obj.resetGroupStyles(field));
+
+        end
+
         function syncStyleMenu(obj, cm)
-            %SYNCSTYLEMENU Tick the line style each group is currently drawn in.
+            %SYNCSTYLEMENU Tick the line style and marker each group and value is drawn in.
 
             items = findall(cm, 'Type', 'uimenu');
 
             for k = 1:numel(items)
                 mark = items(k).UserData;
 
-                if ~isstruct(mark) || ~isfield(mark, "LineStyle")
+                if ~isstruct(mark) || ~isfield(mark, "Part")
                     continue
                 end
 
                 sty = obj.effectiveStyle(mark.Field, mark.Group);
-                items(k).Checked = matlab.lang.OnOffSwitchState(sty.LineStyle == mark.LineStyle);
+                items(k).Checked = matlab.lang.OnOffSwitchState(sty.(mark.Part) == mark.Value);
             end
 
         end
@@ -2558,7 +2907,7 @@ classdef ECMBrowser < handle
         end
 
         function code = styleCommands(obj, v)
-            %STYLECOMMANDS The colors and line styles picked by hand.
+            %STYLECOMMANDS The colors, line styles, and markers picked by hand.
             % Kept apart from the panel, and so from a saved configuration,
             % but part of the figure all the same: these are the only way a
             % palette settled on by right-clicking leaves the browser.
@@ -2576,6 +2925,10 @@ classdef ECMBrowser < handle
 
                 if chosen.LineStyle ~= ""
                     args = args + ", LineStyle = " + obj.textLiteral(chosen.LineStyle);
+                end
+
+                if isfield(chosen, "Marker") && chosen.Marker ~= ""
+                    args = args + ", Marker = " + obj.textLiteral(chosen.Marker);
                 end
 
                 if args == ""

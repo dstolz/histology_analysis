@@ -20,6 +20,14 @@ function label = describeSettings(obj, s)
         label = label + " by " + s.Group;
     end
 
+    if isfield(s, "Marker") && s.Marker ~= obj.NoField
+        label = label + ", marker " + s.Marker;
+    end
+
+    if isfield(s, "LineStyle") && s.LineStyle ~= obj.NoField
+        label = label + ", line style " + s.LineStyle;
+    end
+
     tile = s.Tile(s.Tile ~= obj.NoField);
 
     if ~isempty(tile)

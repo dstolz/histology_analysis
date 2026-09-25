@@ -79,10 +79,27 @@ function labelLayout(obj, t, groupField, tileFields, nTiles, edgeLabels)
         ylabel(t, with_formula(valueLabel, formula), Interpreter = "none")
     end
 
-    if groupField == obj.NoField
+    % The title says what tells the curves apart: the color, and the
+    % marker and line style where a field is drawn by them.
+    named = strings(1, 0);
+    aesthetic = obj.aestheticFields();
+
+    if groupField ~= obj.NoField
+        named(end+1) = "colored by " + groupField;
+    end
+
+    if aesthetic(1) ~= obj.NoField
+        named(end+1) = "marker by " + aesthetic(1);
+    end
+
+    if aesthetic(2) ~= obj.NoField
+        named(end+1) = "line style by " + aesthetic(2);
+    end
+
+    if isempty(named)
         title(t, "all sections")
     else
-        title(t, "colored by " + groupField, Interpreter = "none")
+        title(t, strjoin(named, ", "), Interpreter = "none")
     end
 
     if ~edgeLabels && nTiles > 1 && ~isempty(tileFields)
