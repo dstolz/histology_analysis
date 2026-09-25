@@ -60,12 +60,6 @@ classdef HistologyImageBrowser < handle
         ReportBugMenu matlab.ui.container.Menu
         RequestFeatureMenu matlab.ui.container.Menu
 
-        AtlasPlateField matlab.ui.control.EditField
-        SetAtlasPlateButton matlab.ui.control.Button
-        MeasuredButton matlab.ui.control.Button
-        ClearMeasuredButton matlab.ui.control.Button
-        ReviewLabel matlab.ui.control.Label
-
         TrackerLinkLabel matlab.ui.control.Hyperlink
         SearchField matlab.ui.control.EditField
         SubjectList matlab.ui.control.ListBox
@@ -571,8 +565,6 @@ classdef HistologyImageBrowser < handle
 
         buildViewPanel(obj, parent)     % Build the image tiles and profile axes.
 
-        buildReviewPanel(obj, parent)   % Build the controls that write to the tracker.
-
         buildStatusBar(obj, parent)     % Build the status strip along the bottom.
 
         applyViewLayout(obj)            % Place the image and profile panels per the layout choice.
@@ -607,11 +599,7 @@ classdef HistologyImageBrowser < handle
 
         onSelectionChanged(obj)         % Handle a table selection change.
 
-        target = reviewTarget(obj)      % Tracker rows the review controls would write to.
-
-        updateReviewControls(obj)       % Enable the review controls that apply now.
-
-        onSetAtlasPlate(obj)            % Write the atlas plate for the selection.
+        target = reviewTarget(obj)      % Tracker rows a review write would reach.
 
         onSetMeasured(obj, measured)    % Mark or unmark the selection as measured.
 
@@ -901,10 +889,6 @@ classdef HistologyImageBrowser < handle
                 matlab.lang.OnOffSwitchState(obj.PublishedUrl ~= "");
 
             obj.refreshSheetMenu();
-
-            % Configuring or clearing the sheet changes whether reviewing is
-            % possible at all, which is the panel's whole enabled state.
-            obj.updateReviewControls();
 
             obj.refreshTrackerLink();
 

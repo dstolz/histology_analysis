@@ -14,7 +14,7 @@ Step-by-step instructions for common tasks. Each recipe assumes the repository i
 
 **Section tracker**
 - [Connect the Google Sheet without credentials](#connect-the-google-sheet-without-credentials)
-- [Set atlas plates and mark sections measured](#set-atlas-plates-and-mark-sections-measured)
+- [Mark sections measured](#mark-sections-measured)
 - [Use your own filename convention](#use-your-own-filename-convention)
 
 **Getting results out**
@@ -157,7 +157,7 @@ publishing.
 
 ---
 
-## Set atlas plates and mark sections measured
+## Mark sections measured
 
 This needs the **Sheets API** tracker with a key that has **Editor** access. Setup is on
 [Section Tracker](Section-Tracker#option-c-reading-and-writing-over-the-sheets-api).
@@ -165,9 +165,7 @@ This needs the **Sheets API** tracker with a key that has **Editor** access. Set
 1. Once per spreadsheet, choose **Dataset > Google Sheet Tracker > Prepare Sheet for Writing...**
    and confirm. This adds the `Row UID`, `Last Updated` and `Measured` columns.
 2. Select the sections. A run from one slide can be selected together.
-3. Type the plate number in **Atlas plate** and press **Enter** or **Set**.
-4. Click **Mark Measured**, or press **Ctrl+M**. Pressing Ctrl+M again once everything selected is
-   marked clears them.
+3. Press **Ctrl+M**. Pressing it again once everything selected is marked clears them.
 
 The catalog updates in place, and the selection stays where it was.
 

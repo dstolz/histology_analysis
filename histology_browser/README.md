@@ -203,27 +203,18 @@ it.
 
 ### Reviewing sections
 
-The **Review** panel under the catalog table writes two things to the tracker for
-whatever is selected: the atlas plate number, and the measured flag. Both act on the
-whole selection, so a stack of sections from one slide can be marked in one go.
-
-- **Atlas plate** shows the selection's own number, and writes it on Enter or **Set**.
-  A selection whose plates disagree shows a blank field rather than one of them.
-  Clearing the field empties the cell, after a confirmation.
-- **Mark Measured** / **Clear** set and unset the flag. Two buttons rather than one
-  checkbox, because a selection can be part measured and a checkbox has no honest way
-  to show that.
-- **Ctrl+M** toggles: it marks until everything selected is marked, and only then starts
-  clearing, so it is safe to press repeatedly down a stack.
+**Ctrl+M** writes the measured flag to the tracker for whatever is selected. It acts on
+the whole selection, so a stack of sections from one slide can be marked in one go, and
+it toggles: it marks until everything selected is marked, and only then starts clearing,
+so it is safe to press repeatedly down a stack.
 
 The `Meas` column in the catalog table shows a tick for measured sections, so what is
 still outstanding is visible while working. A successful write updates the table in
 place without moving the selection.
 
-Sections the tracker has no row for are skipped rather than refusing the whole write,
-and the panel says how many before the button is pressed. The panel stays disabled,
-naming the reason, when there is no sheet, no key file, no selection, or when the rows
-have no `Row UID` yet.
+Sections the tracker has no row for are skipped rather than refusing the whole write.
+When nothing selected can be written to, the status bar names the reason instead: no
+sheet, no key file, no selection, or rows with no `Row UID` yet.
 
 Rows are found by `Row UID`, which the catalog carries across during the join. That
 matters because the read-side join tolerates a tracker entry being a *prefix* of an
@@ -376,10 +367,9 @@ set, the sheet is preferred over the published copy, and the published copy over
 `View` collapses the data column and the display row, separately or together, to give the
 image tiles the window.
 
-Under the catalog table, the **Review** panel writes the atlas plate number and the
-measured flag for the selected sections back to the tracker's sheet — see
-[Reviewing sections](#reviewing-sections). It needs the Sheets API route; the CSV and the
-published sheet are both read-only.
+**Ctrl+M** writes the measured flag for the selected sections back to the tracker's
+sheet — see [Reviewing sections](#reviewing-sections). It needs the Sheets API route; the
+CSV and the published sheet are both read-only.
 
 `Display` mirrors every control in the Display panel, so collapsing the display row costs
 reach rather than capability. The panel keeps the state; each menu item writes to the control

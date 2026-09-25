@@ -72,7 +72,7 @@ nFailed = nFailed + run_case("published sheet settings", @check_published_settin
 nFailed = nFailed + run_case("tracker table joins without a CSV", @check_metadata_table_option);
 nFailed = nFailed + run_case("sheet tracker settings", @check_sheet_settings);
 nFailed = nFailed + run_case("review writes to the tracker", @check_review_writes);
-nFailed = nFailed + run_case("review controls follow the selection", @check_review_controls);
+nFailed = nFailed + run_case("review target follows the selection", @check_review_target);
 
 % With nothing to point at, the catalog and GUI checks run against a dataset
 % generated for this run rather than being skipped, so the browser is covered
@@ -496,7 +496,7 @@ end
 
 function check_review_writes()
 %CHECK_REVIEW_WRITES Marking a section reaches the sheet and the table.
-% The whole point of the review panel is that one click changes two things: the
+% The whole point of a review write is that it changes two things: the
 % tracker, and what the person doing the reviewing is looking at. A write that
 % reached the sheet but left the table showing the old value would look like it
 % had not worked.
@@ -525,22 +525,6 @@ assert(~any(app.View.Measured([1 3])), "Sections that were not selected were mar
 assert(isequal(app.CatalogTable.Selection, 2), ...
     "The selection moved when the table was refreshed");
 
-app.AtlasPlateField.Value = '42';
-app.onSetAtlasPlate();
-
-grid = state("grid");
-assert(strtrim(grid(row, 7)) == "42", "The plate number did not reach the sheet");
-assert(app.View.AtlasPlate(2) == 42, "The catalog kept the old plate number");
-assert(app.CatalogTable.Data.Plate(2) == 42, "The table kept the old plate number");
-
-% A plate number is a number; a cell holding anything else would break the
-% filters and the sort that read this column.
-app.AtlasPlateField.Value = 'thirty';
-app.onSetAtlasPlate();
-
-grid = state("grid");
-assert(strtrim(grid(row, 7)) == "42", "A plate number that is not a number was written");
-
 % Several sections at once is the ordinary case for a stack from one slide.
 app.CatalogTable.Selection = [1 3];
 app.onSelectionChanged();
@@ -564,45 +548,42 @@ assert(all(app.View.Measured(1:3)), "The toggle did not mark an unmeasured selec
 
 end
 
-function check_review_controls()
-%CHECK_REVIEW_CONTROLS The panel shows the selection's own state.
+function check_review_target()
+%CHECK_REVIEW_TARGET A review write reaches the sections it can, and says why not.
 
 [app, state, cleanup] = review_fixture(); %#ok<ASGLU>
 
 app.CatalogTable.Selection = 3;
 app.onSelectionChanged();
 
-assert(app.MeasuredButton.Enable == "on", "Reviewing was not offered for a tracker row");
-assert(string(app.AtlasPlateField.Value) == "30", ...
-    "The field shows '%s' rather than the section's own plate", app.AtlasPlateField.Value);
-assert(contains(app.ReviewLabel.Text, "None measured"), ...
-    "The label does not say how much is done: %s", app.ReviewLabel.Text);
-
-% Rows 2 and 3 carry different plate numbers. Showing one of them would mean a
-% field reading 20 that overwrites 30 the moment somebody presses Enter.
-app.CatalogTable.Selection = [2 3];
-app.onSelectionChanged();
-assert(string(app.AtlasPlateField.Value) == "", ...
-    "A selection whose plates disagree showed one of them: '%s'", app.AtlasPlateField.Value);
+target = app.reviewTarget();
+assert(target.writable, "Reviewing was not offered for a tracker row");
+assert(isequal(target.writableRows, 3), "The write would not reach the selected section");
 
 % The fourth fixture row has no tracker identifier, standing for a section the
 % tracker has no row for.
 app.CatalogTable.Selection = 4;
 app.onSelectionChanged();
 
-assert(app.MeasuredButton.Enable == "off", ...
-    "Reviewing was offered for a section with no tracker row");
-assert(contains(app.ReviewLabel.Text, "no row in the tracker"), ...
-    "The label does not say why: %s", app.ReviewLabel.Text);
+target = app.reviewTarget();
+assert(~target.writable, "Reviewing was offered for a section with no tracker row");
+assert(contains(target.reason, "no row in the tracker"), ...
+    "The reason does not say why: %s", target.reason);
+
+% Pressing the key anyway writes nothing, and says why on the status bar.
+app.onSetMeasured(true);
+assert(~app.View.Measured(4), "A section with no tracker row was marked");
+assert(contains(app.StatusLabel.Text, "no row in the tracker"), ...
+    "The status bar does not say why nothing was written: %s", app.StatusLabel.Text);
 
 % A mixed selection writes what it can and says what it skipped.
 app.CatalogTable.Selection = [1 4];
 app.onSelectionChanged();
 
-assert(app.MeasuredButton.Enable == "on", ...
-    "A selection with one writable section was refused entirely");
-assert(contains(app.ReviewLabel.Text, "skipped"), ...
-    "The label does not warn that a section will be skipped: %s", app.ReviewLabel.Text);
+target = app.reviewTarget();
+assert(target.writable, "A selection with one writable section was refused entirely");
+assert(contains(target.reason, "skipped"), ...
+    "The reason does not warn that a section will be skipped: %s", target.reason);
 
 app.onSetMeasured(true);
 assert(app.View.Measured(1), "The writable section of a mixed selection was not marked");

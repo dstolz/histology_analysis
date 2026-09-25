@@ -10,8 +10,8 @@ ECM staining across experimental groups. R handles the statistics.
 
 | Component | What it's for | Start here |
 |---|---|---|
-| **Histology Image Browser** | Catalog every section image under a folder. Filter by subject, hemisphere, stain and atlas plate. See each section with its line ROI and intensity profile. Edit ROIs, mark the brain surface, and record review status in the section tracker. | [Histology Browser](Histology-Browser) |
-| **Section tracker** | The browser joins your lab's section tracker (a Google Sheet or a CSV) onto the catalog. It can also write the atlas plate and "Measured" back to the tracker. | [Section Tracker](Section-Tracker) |
+| **Histology Image Browser** | Catalog every section image under a folder. Filter by subject, hemisphere, stain and atlas plate. See each section with its line ROI and intensity profile. Edit ROIs, mark the brain surface, and mark sections measured in the section tracker. | [Histology Browser](Histology-Browser) |
+| **Section tracker** | The browser joins your lab's section tracker (a Google Sheet or a CSV) onto the catalog. It can also write "Measured" back to the tracker. | [Section Tracker](Section-Tracker) |
 | **ECM Analysis app** | Take the exported profiles and align them to the cortical surface. Then smooth, normalize, tile, filter and compare groups interactively, and export figures, data and reproducible code. | [ECM Analysis](ECM-Analysis) |
 | **R statistics** | `ecm_analysis.R` fits mixed-effects models to the exported profiles and writes an HTML report. | [ECM Analysis § Statistics in R](ECM-Analysis#statistics-in-r) |
 | **Image tools** | Standalone utilities: CZI metadata extraction, interactive rotation, overlay and threshold tools, cortex straightening, and a crop labeller. | [Image Processing Tools](Image-Processing-Tools) |
@@ -35,7 +35,6 @@ ECM staining across experimental groups. R handles the statistics.
    - draw, redraw or add line ROIs;
    - check each line;
    - mark the brain surface;
-   - set the atlas plate;
    - tick sections off as measured.
 3. **Export.** Select sections and choose **Dataset > Export Selection to Workspace**. You get
    a table with one row per ROI, and each row carries its profile.

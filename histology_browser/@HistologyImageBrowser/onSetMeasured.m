@@ -1,14 +1,14 @@
 function onSetMeasured(obj, measured)
 %ONSETMEASURED Record whether the selected sections have been measured.
-% Two buttons rather than one checkbox, because the selection is often several
-% sections at once and a checkbox has no honest way to show a mixed one. Each
-% button says what it will do to every section selected, whatever state they
-% are in now.
+% Takes the direction rather than flipping each section, because the selection
+% is often several sections at once and they need not agree. Whatever state
+% they are in now, every section selected ends up in the one asked for; the
+% keyboard toggle in RUNSHORTCUT decides which that is.
 %
 % Parameters
 %   measured: True to mark the sections measured, false to clear the flag.
 %
-% See also HISTOLOGYIMAGEBROWSER/ONSETATLASPLATE, SECTIONTRACKER/ISMEASURED.
+% See also HISTOLOGYIMAGEBROWSER/REVIEWTARGET, SECTIONTRACKER/ISMEASURED.
 
 arguments
     obj (1,1) HistologyImageBrowser
@@ -31,7 +31,5 @@ end
 obj.writeReview(target.uids, ...
     {SectionTracker.MeasuredColumn, SectionTracker.measuredText(measured)}, ...
     description);
-
-obj.updateReviewControls();
 
 end

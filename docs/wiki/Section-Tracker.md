@@ -10,7 +10,7 @@ The browser joins it onto the catalog by file name.
 |---|---|---|---|---|
 | **CSV export** | None | No, it's a snapshot | No | `metadataCSV = "path/to/Trackers - Sections.csv"` |
 | **Published Google Sheet** | One click in Sheets | Yes (Google caches for a few minutes) | No | `publishedUrl = "https://docs.google.com/.../pub?gid=...&single=true&output=csv"` |
-| **Google Sheets API** | Service account key | Yes | **Yes**: atlas plate and Measured | `sheetUrl = "...", sheetCredentials = "key.json"` |
+| **Google Sheets API** | Service account key | Yes | **Yes**: Measured | `sheetUrl = "...", sheetCredentials = "key.json"` |
 
 When several are set, the browser uses the Sheets API first, then the published sheet, then the
 CSV. The others stay configured as fallbacks. The status bar tells you which one a load used.
@@ -68,7 +68,7 @@ An ordinary `/edit` link is refused, and the browser says what to paste instead.
 
 ## Option C: Reading and writing over the Sheets API
 
-Only this route lets the **Review** panel write the atlas plate and the Measured flag back.
+Only this route lets the browser write the Measured flag back.
 
 > **Before starting.** This needs a Google Cloud **service account key**. Creating a Cloud
 > project under a `umd.edu` account is blocked by organization policy. Unless that changes, or
@@ -98,7 +98,7 @@ cells. You can undo it from the sheet's version history.
 |---|---|
 | `Row UID` | A stable ID for each row that survives sorting, filtering and edits. Managed by the browser; don't edit by hand. |
 | `Last Updated` | UTC timestamp of the browser's last write to the row. Managed by the browser. |
-| `Measured` | `yes` or blank. You set it from the Review panel. |
+| `Measured` | `yes` or blank. You set it in the browser with **Ctrl+M**. |
 
 ### How writes stay safe
 
@@ -111,8 +111,8 @@ cells. You can undo it from the sheet's version history.
   - criteria match nothing, or the wrong number of rows;
   - a UID is missing or duplicated;
   - you try to write to `Row UID`, `Last Updated`, or a column that doesn't exist.
-- **Sections the tracker has no row for are skipped.** The Review panel tells you how many before
-  you press the button.
+- **Sections the tracker has no row for are skipped.** The status bar tells you when that
+  leaves nothing to write.
 
 ### From the command line
 

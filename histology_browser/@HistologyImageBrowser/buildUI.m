@@ -29,18 +29,15 @@ obj.ContentGrid.RowHeight = {"1x"};
 obj.ContentGrid.Padding = [0 0 0 0];
 obj.ContentGrid.ColumnSpacing = 8;
 
-obj.BrowseGrid = uigridlayout(obj.ContentGrid, [3 1]);
+obj.BrowseGrid = uigridlayout(obj.ContentGrid, [2 1]);
 obj.BrowseGrid.Layout.Column = 1;
-obj.BrowseGrid.RowHeight = {"fit", "1x", "fit"};
+obj.BrowseGrid.RowHeight = {"fit", "1x"};
 obj.BrowseGrid.ColumnWidth = {"1x"};
 obj.BrowseGrid.Padding = [0 0 0 0];
 obj.BrowseGrid.RowSpacing = 6;
 
 obj.buildFilterPanel(obj.BrowseGrid);
 obj.buildCatalogTable(obj.BrowseGrid);
-
-% Under the table, because it writes to whatever is selected in it.
-obj.buildReviewPanel(obj.BrowseGrid);
 
 % Kept as a property rather than a local, because APPLYCONFIGVISIBILITY collapses
 % its first row to hide the display controls.

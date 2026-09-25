@@ -3,14 +3,14 @@ function refreshReviewColumns(obj)
 % REFRESHCATALOGTABLE rebuilds the whole table and then selects its first row,
 % which is right after a load or a filter change and wrong after a review edit:
 % someone working down a stack of sections would be thrown back to the top by
-% every mark. Only the two columns that can change are rewritten here, and the
+% every mark. Only the column that can change is rewritten here, and the
 % selection is left alone.
 %
-% Which columns those are is read from the arrangement rather than named here,
-% because the Sections table shows a chosen subset of the catalog: a review can
-% be written while Plate or Meas is not on screen, and a heading is also
-% something the column list is free to reword. A column the arrangement does
-% not currently show is simply skipped -- the value behind it is already in
+% Where that column is drawn is read from the arrangement rather than named
+% here, because the Sections table shows a chosen subset of the catalog: a
+% review can be written while Meas is not on screen, and a heading is also
+% something the column list is free to reword. When the arrangement does not
+% currently show it, nothing is rewritten -- the value behind it is already in
 % obj.View, so it is drawn correctly the next time the table is rebuilt.
 %
 % The values are rendered through CATALOGDISPLAYTABLE, so a tick written after
@@ -54,7 +54,7 @@ function [display, replaced] = review_columns(obj, display)
 
 replaced = false;
 
-fields = ["AtlasPlate", "Measured"];
+fields = "Measured";
 present = string(obj.View.Properties.VariableNames);
 headings = string(display.Properties.VariableNames);
 

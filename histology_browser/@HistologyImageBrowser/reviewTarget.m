@@ -1,8 +1,8 @@
 function target = reviewTarget(obj)
-%REVIEWTARGET Work out which tracker rows the review controls would write to.
-% One function answers this for the buttons, their enabled state, and the label
-% that says why they are off, so what the panel promises and what a click does
-% cannot disagree.
+%REVIEWTARGET Work out which tracker rows a review write would reach.
+% One function answers this for the write and for the warning given in its
+% place, so what the status bar says is wrong and what a key press does cannot
+% disagree.
 %
 % Returns
 %   target: Struct with fields
@@ -18,8 +18,8 @@ function target = reviewTarget(obj)
 % cannot be marked however often it is selected, so counting it would leave the
 % keyboard toggle stuck trying to mark it.
 %
-% See also HISTOLOGYIMAGEBROWSER/ONSETATLASPLATE,
-% HISTOLOGYIMAGEBROWSER/ONSETMEASURED.
+% See also HISTOLOGYIMAGEBROWSER/ONSETMEASURED,
+% HISTOLOGYIMAGEBROWSER/WRITEREVIEW.
 
 target = struct( ...
     rows = zeros(0, 1), ...
@@ -95,7 +95,7 @@ end
 
 function reason = describe_unidentified(obj, nSelected)
 %DESCRIBE_UNIDENTIFIED Say why the selection cannot be written to.
-% The two causes look identical from the panel but are fixed differently, so
+% The two causes look identical from the browser but are fixed differently, so
 % the tracker's own state is what decides which is named.
 
 inTracker = false;

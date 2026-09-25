@@ -98,7 +98,7 @@ function values = display_values(rows, field, roiText)
 % And ROI lists the section's ROIs by the names they have been given, when the
 % caller supplied them; the catalog itself only knows their keys.
 %
-% REFRESHREVIEWCOLUMNS rewrites both review columns in place after a write to
+% REFRESHREVIEWCOLUMNS rewrites the review column in place after a write to
 % the tracker, so anything rendered rather than shown raw has to be rendered
 % the same way there or a review edit and a full refresh would disagree.
 

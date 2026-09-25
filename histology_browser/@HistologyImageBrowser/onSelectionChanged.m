@@ -64,10 +64,6 @@ obj.updateRoiEditControls();
 % in. Set before the redraw, so the tiles are drawn once.
 obj.applyStainColormap();
 
-% The review panel reads the selection's plate and measured state, so it is
-% told before the redraw rather than left showing the section just left.
-obj.updateReviewControls();
-
 obj.renderSelection();
 
 % The hint names the section the ROI buttons will act on, and the selection

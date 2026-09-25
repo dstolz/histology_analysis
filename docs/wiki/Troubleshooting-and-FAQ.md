@@ -34,9 +34,9 @@ The tracker's `Image Filename` value must match the image's file name stem, or b
 it. Check for typos, and for sections missing from the tracker. The export's `InTracker` column
 shows which ones matched.
 
-**The Review panel is greyed out.**
+**Ctrl+M doesn't mark anything as measured.**
 Writing back needs the **Sheets API** tracker. The CSV and published-sheet routes are read-only.
-The message under the buttons says which requirement is missing:
+The status bar says which requirement is missing:
 
 - a sheet;
 - a key file;

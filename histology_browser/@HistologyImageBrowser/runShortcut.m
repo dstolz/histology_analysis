@@ -218,11 +218,10 @@ end
 
 function toggle_measured(obj)
 %TOGGLE_MEASURED Flip the measured flag for whatever is selected.
-% The panel offers two explicit buttons, because a selection can be part
-% measured and a single control cannot honestly show that. One key still has to
-% pick a direction, so it clears only when there is nothing left to mark, which
-% is what makes it safe to hold down through a stack of sections: it marks
-% until everything selected is marked, and only then starts undoing.
+% A selection can be part measured, so one key has to pick a direction for all
+% of it. It clears only when there is nothing left to mark, which is what makes
+% it safe to hold down through a stack of sections: it marks until everything
+% selected is marked, and only then starts undoing.
 
 target = obj.reviewTarget();
 

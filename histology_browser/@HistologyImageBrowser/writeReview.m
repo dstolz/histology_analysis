@@ -1,9 +1,8 @@
 function ok = writeReview(obj, uids, updates, description)
 %WRITEREVIEW Send one review edit to the tracker and show the result.
-% Both review actions come through here so they report identically and, more
-% to the point, so they both put the result back into the catalog in memory.
-% Without that the sheet and the table would disagree until the next load, and
-% the table is what someone is reading while they work.
+% The write puts its result back into the catalog in memory as well as into
+% the sheet. Without that the sheet and the table would disagree until the next
+% load, and the table is what someone is reading while they work.
 %
 % Parameters
 %   uids: Tracker identifiers of the rows to write.
@@ -56,12 +55,8 @@ for iPair = 1:2:numel(updates)
     columnName = string(updates{iPair});
     value = string(updates{iPair + 1});
 
-    switch columnName
-        case SectionTracker.MeasuredColumn
-            assign(obj, uids, "Measured", SectionTracker.isMeasured(value));
-
-        case "Atlas Plate #"
-            assign(obj, uids, "AtlasPlate", str2double(value));
+    if columnName == SectionTracker.MeasuredColumn
+        assign(obj, uids, "Measured", SectionTracker.isMeasured(value));
     end
 end
 
