@@ -292,6 +292,7 @@ Several other things stop a write rather than guessing:
 | `read_imagej_roi.m` / `write_imagej_roi.m` | Decode and encode ImageJ's binary `.roi` format. |
 | `detect_brain_surface.m` | Find where a line profile steps out of background into tissue. |
 | `image_background.m` | The slide level of an image, read off its darkest regions, for `detect_brain_surface`. |
+| `batch_detect_brain_surface.m` | Run surface detection over every line ROI under a folder and write the sidecars. |
 | `read_surface_mark.m` / `write_surface_mark.m` / `surface_mark_path.m` | The brain surface sidecar beside a `.roi`. |
 | `measure_line_profile.m` | Measure a banded line profile from an image, matching the Fiji macro. |
 | `crop_roi_image.m` | Crop an image to a line ROI's band and save it as `<name>_roiCropped`, optionally turned so the surface is at the top. |
@@ -513,6 +514,13 @@ This runs on its own **when a line is created** — drawn with **Draw Line**, or
 across the middle of a section that never had one — and on demand from **Detect**. It does
 not run when an edit opens on an ROI that already has a file behind it: a guess made there
 would turn a section nobody has touched into one with unsaved changes.
+
+To detect the surface on every existing ROI at once, `batch_detect_brain_surface(root)`
+measures and detects each one exactly as **Detect** does and writes its sidecar. By
+default it fills in missing marks and replaces earlier automatic ones, but keeps marks
+placed by hand (`Overwrite = "all"` replaces those too, `"none"` only fills gaps);
+`DryRun = true` reports without writing. It prints progress per ROI and returns, and
+writes to a CSV, where each surface sits measured from the line's top point.
 
 ### Correcting it
 
