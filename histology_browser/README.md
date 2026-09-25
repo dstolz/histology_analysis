@@ -294,6 +294,7 @@ Several other things stop a write rather than guessing:
 | `image_background.m` | The slide level of an image, read off its darkest regions, for `detect_brain_surface`. |
 | `read_surface_mark.m` / `write_surface_mark.m` / `surface_mark_path.m` | The brain surface sidecar beside a `.roi`. |
 | `measure_line_profile.m` | Measure a banded line profile from an image, matching the Fiji macro. |
+| `crop_roi_image.m` | Crop an image to a line ROI's band and save it as `<name>_roiCropped`, optionally turned so the surface is at the top. |
 | `write_values_csv.m` | Write a measured profile back out in the macro's `*values.csv` format. |
 | `imagej_pixel_size.m` | Recover spatial calibration from a TIFF's ImageJ header. |
 | `addpath_nogit.m` | Add a folder tree to the MATLAB path, skipping `.git`. |

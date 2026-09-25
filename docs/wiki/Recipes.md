@@ -20,6 +20,7 @@ Step-by-step instructions for common tasks. Each recipe assumes the repository i
 **Getting results out**
 - [Make a figure of several sections](#make-a-figure-of-several-sections)
 - [Get profiles into MATLAB and plot them yourself](#get-profiles-into-matlab-and-plot-them-yourself)
+- [Crop a section to its ROI](#crop-a-section-to-its-roi)
 - [Compare treatment groups in the ECM Browser](#compare-treatment-groups-in-the-ecm-browser)
 - [Save an ECM view so you can rebuild it later](#save-an-ecm-view-so-you-can-rebuild-it-later)
 - [Run the R statistics](#run-the-r-statistics)
@@ -239,6 +240,50 @@ of the line and places it on the profile's own distance axis. That is the same m
 browser uses for **Distance > From brain surface** (`readProfile.m`), so the two agree.
 
 To keep the export for later: `save("histology_profiles.mat", "histology")`.
+
+---
+
+## Crop a section to its ROI
+
+`crop_roi_image` cuts an image down to a line ROI's band (the line and its width) and saves it
+beside the original as `<name>_roiCropped.tif`. Every page is cropped, and the data class and
+calibration are kept.
+
+```matlab
+C = crop_roi_image(projPath, roiPath);                     % bounding box, pixels unchanged
+C = crop_roi_image(projPath, roiPath, rotate = true);      % line runs down the crop, surface on top
+C = crop_roi_image(projPath, roiPath, rotate = true, padding = 50, suffix = "_ACx_roiCropped");
+```
+
+- **Which image to pass.** Pass the image the ROI was drawn on: the projection (`_proj.tif`).
+  ROI coordinates are in that image's pixels.
+- **Without rotation.** The crop is the band's bounding box, and the pixel values are the
+  original ones.
+- **With `rotate = true`.**
+  - The band is resampled so the line runs top to bottom, one row per profile sample. Each row's
+    mean is the measured profile.
+  - Values are interpolated (bilinear by default) and rounded back to the image's class.
+    `interpolation = "nearest"` keeps every value one that was in the image.
+  - The line's start is taken as the surface end, because lines are drawn from outside the
+    tissue. Use `surfaceAt = "end"` for a line drawn the other way.
+  - `C.surfacePoint` gives the surface mark's position in the crop.
+- **Past the image edge.** Padding that runs past the image edge is filled with `fillValue` and
+  counted in `C.nOutside`. It is never extrapolated.
+- **Existing files.** An existing crop is not replaced unless you pass `overwrite = true`.
+
+From a **workspace export**, set **Display** to the projection before exporting, so `ImagePath`
+is the image the ROIs are in. Then run:
+
+```matlab
+T = histology;
+for i = find(T.RoiState ~= "none")'
+    roi = struct("x1", T.RoiX1(i), "y1", T.RoiY1(i), "x2", T.RoiX2(i), "y2", T.RoiY2(i), ...
+        "strokeWidth", T.RoiWidth(i), "surface", T.SurfaceOffset(i));
+    crop_roi_image(T.ImagePath(i), roi, rotate = true, suffix = "_" + T.ROIKey(i) + "_roiCropped");
+end
+```
+
+The ROI key goes into the suffix so that sections with several ROIs get one file per ROI.
 
 ---
 
