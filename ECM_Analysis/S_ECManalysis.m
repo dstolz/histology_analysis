@@ -2,19 +2,18 @@
 
 startup
 
-addpath('C:\src\histology_analysis')
+addpath_nogit('C:\src\histology_analysis')
 addpath_nogit('c:\src\bfmatlab')
-
 
 %%
 HistologyImageBrowser;
 
 
 %% Save exported histology data
-save("histology_ACxProfiles_260901.mat","histology")
+save("histology_ACxProfiles.mat","histology")
 
 %% Reload histology data and combine with ECM Projects csv
-load("histology_ACxProfiles_260901.mat")
+load("histology_ACxProfiles.mat")
 
 
 
@@ -111,6 +110,29 @@ A = ecm_prepare_analysis_data(histology, ...
 
 
 B = launch_ecm_browser(A);
+
+
+%% Compare Treatment to Vehicle by Atlas Plate distance to Cannula site
+% The ECM Browser view of 2026-09-25 15:12, as commands.
+% Everything not named here is what a browser opens on.
+B.setComparison("log2 ratio", "Treatment", ...
+    reference = "Vehicle", within = "Treatment");
+B.GroupDropDown.Value = "SubjectID";
+B.setTiling("CannulaDist");
+B.setFilter("IncludeInAnalysis", "TRUE");
+B.setFilter("Condition", "Trained");
+B.setFilter("AtlasPlate", ["28" "29" "30" "31" "32"]);
+B.DepthMinField.Value = 0;
+B.DepthMaxField.Value = 1600;
+B.refresh();
+
+% And what can then be done with it:
+%   B.popOut()                                                      draws it into a figure of its own
+%   B.savePlot("figure.pdf")                                        PNG, TIFF, JPEG, PDF, EPS, SVG, or .fig
+%   B.saveData("profiles.csv", Layout = "long")                     one row per sample, every field beside it
+%   d = B.viewData()                                                the numbers behind the plot
+%   B.copySummary()                                                 the account of this view a caption needs
+%   B.setGroupStyle("SubjectID", "SUBJ-ID-1174", Color = [0 0 0])   one group in a color of your own
 
 %%
 % The ECM Browser view of 2026-09-07 14:53, as commands.
