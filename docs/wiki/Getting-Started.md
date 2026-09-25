@@ -56,7 +56,7 @@ Things to try:
    color matches its trace on the profile plot.
 3. In *Look Up*, click `WFA-PV` under **Stain**. The table narrows to that stain. Press
    **Ctrl+Shift+R** to clear the filter.
-4. Set **Distance** (bottom row of *Display*) to `Percent of line` and **Normalize** to
+4. Set **Distance** (the *Profiles* row of *Display*) to `Percent of line` and **Normalize** to
    `Min-max (0-1)`. This only rescales the plot; it doesn't change any files.
 5. With a section selected, press **Ctrl+E** to edit its ROI. Drag an end, watch the badge
    change to `UNSAVED EDITS`, then press **Ctrl+Z** to revert.

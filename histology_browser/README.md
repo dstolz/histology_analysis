@@ -545,7 +545,7 @@ detection entirely, and `"ignore"` restores detection for every section. Its `A.
 
 ## Normalizing the profile plot
 
-The bottom row of the Display panel rescales the profile plot without touching the data
+The Profiles row of the Display panel rescales the profile plot without touching the data
 behind it. **Normalize** puts the intensity axis through one of
 
 | Choice | What each sample becomes |

@@ -25,8 +25,8 @@ If more than one tracker source is given, the order of preference is **Sheets AP
 *Schematic generated from `@HistologyImageBrowser/build*.m`; not a screenshot. Tile captions use
 sections from the synthetic test dataset, and the image content and traces are illustrative.*
 
-The left **data column** (1–3) is for finding and reviewing sections. The right side (4–6) is for
-looking at them. You can hide either part: **View > Show/Hide Data Column** (Ctrl+Shift+D),
+The left **data column** (1–2) is for finding sections. The right side (3–5) is for looking at
+them. You can hide either part: **View > Show/Hide Data Column** (Ctrl+Shift+D),
 **Show/Hide Display Row** (Ctrl+Shift+P), or both at once (Ctrl+H).
 
 ### 1 · Look Up: find sections
@@ -63,33 +63,28 @@ Select one row to see it large. Shift- or Ctrl-click to compare several side by 
 - **Select All** (Ctrl+A)
 - **Open Folder** (Ctrl+Shift+F)
 
-### 3 · Review: write to the tracker
+With the [Sheets API tracker](Section-Tracker#option-c-reading-and-writing-over-the-sheets-api),
+**Ctrl+M** marks every selected section `Measured` in the tracker. Once everything selected is
+marked, it clears them instead. Sections the tracker has no row for are skipped, and the status
+bar says so.
 
-Available only with the [Sheets API tracker](Section-Tracker#option-c-reading-and-writing-over-the-sheets-api).
-It acts on **every selected section** at once.
+### 3 · Display: how sections are drawn
 
-- **Atlas plate** + **Set** (or Enter): writes the plate number. If the selected sections
-  disagree, the field shows blank. Clearing the field empties the cell, after a confirmation.
-- **Mark Measured / Clear**: sets or clears the `Measured` flag. **Ctrl+M** toggles: it marks
-  until everything selected is marked, then clears.
-- The line below the buttons summarizes the selection. When the panel is disabled, it says why:
-  no sheet, no key file, no selection, or rows without a `Row UID`.
+The controls are grouped in rows, each named on the left. The groups are the same as in the
+**Display** menu.
 
-### 4 · Display: how sections are drawn
-
-| Row | Controls |
+| Group | Controls |
 |---|---|
-| 1 | **Image**: `Projection`, `Mid plane`, `Composite`, `Raw`. **Channel**. **Colormap**: `gray`, `bone`, `hot`, `parula`, `turbo`, `green`, `magenta`. **Contrast %**: lower and upper percentile, default 0.5 and 99.7. **Max tiles** (12). **Background** of the image panel. |
-| 2 | Overlays: **Line ROI**, **Sampling band**, **Shade ROI by intensity**. **Profiles**: where the profile plot sits (`Below images`, `Above images`, `Left of images`, `Right of images`, `Hidden`, `Profiles only`). **Size %**: the profile plot's share (default 33). **Open in Figure** (Ctrl+O). **Export View** (Ctrl+P). |
-| 3 | **ROI** selector for sections with several ROIs. **Add ROI** (Ctrl+N). **Name ROIs...** |
-| 4 | **Edit ROI** (Ctrl+E), **Width px**, **Draw Line** (Ctrl+D), **Save ROI** (Ctrl+S), **Revert** (Ctrl+Z), **Band grid**. |
-| 5 | **Brain surface** overlay, **Detect** (Ctrl+B), **Mark Surface** (Ctrl+Shift+B), **Clear**. |
-| 6 | **Normalize** and **over** (`Each trace` / `All traces`). **Distance**: `As measured`, `From line start`, `Percent of line`, `From brain surface`. |
+| **Image** | Rendition: `Projection`, `Mid plane`, `Composite`, `Raw`. **Channel**. **Colormap**: `gray`, `bone`, `hot`, `parula`, `turbo`, `green`, `magenta`. **Contrast %**: lower and upper percentile, default 0.5 and 99.7. **Background** of the image panel. **Max tiles** (12). |
+| **Overlays** | **Line ROI** (Ctrl+1), **Sampling band** (Ctrl+2), **Shade ROI by intensity** (Ctrl+3), **Band grid**, **Brain surface** (Ctrl+4). At the right end: **Open in Figure** (Ctrl+O), **Export View** (Ctrl+P), **Open in Fiji** (Ctrl+Shift+O). |
+| **Profiles** | **Position** of the profile plot (`Below images`, `Above images`, `Left of images`, `Right of images`, `Hidden`, `Profiles only`). **Size %**: the plot's share (default 33). **Normalize** and **over** (`Each trace` / `All traces`). **Distance**: `As measured`, `From line start`, `Percent of line`, `From brain surface`. |
+| **ROI** | **ROI** selector for sections with several ROIs. **Add ROI** (Ctrl+N). **Name ROIs...** **Edit ROI** (Ctrl+E), **Width px**, **Draw Line** (Ctrl+D), **Save ROI** (Ctrl+S), **Revert** (Ctrl+Z). The line below lists the section's ROIs and says what the buttons will act on. |
+| **Surface** | **Detect** (Ctrl+B), **Mark Surface** (Ctrl+Shift+B), **Clear**, and where the mark sits. |
 
 Everything in this panel is also in the **Display** menu, so you can hide the panel (Ctrl+Shift+P)
 without losing any control.
 
-### 5 · Images: one tile per selected section
+### 4 · Images: one tile per selected section
 
 Each tile has a **color**. The frame, the ROI line, the label, and that section's trace on the
 profile plot all share it, so you can match a picture to its curve at a glance.
@@ -108,7 +103,7 @@ profile plot all share it, so you can match a picture to its curve at a glance.
 
   The per-tile items act on the tile you clicked.
 
-### 6 · Profiles: intensity along each line
+### 5 · Profiles: intensity along each line
 
 - Distance along the line is on x (µm when the image is calibrated) and intensity is on y.
 - One trace per ROI, colored like its tile.
@@ -139,7 +134,7 @@ stay in the units they were measured in.
 - **From brain surface**: each trace's own surface mark is at 0. Traces without a mark keep
   their line-start axis, and the plot says how many there were.
 
-### 7 · Status bar
+### 6 · Status bar
 
 The latest message, with a glyph for its kind and the time. It names which tracker source a load
 used and reports any guard that stopped an action. For example, an action that needs a selection

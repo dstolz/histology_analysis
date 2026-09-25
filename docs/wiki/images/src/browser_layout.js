@@ -30,7 +30,7 @@ text(22, 28, 'Histology Image Browser  -  D:/GM6001_HISTOLOGY/', { size: 12, bol
 out.push(`<rect x="11" y="36" width="${W - 22}" height="20" fill="#fafafa"/>`);
 ['Dataset', 'Display', 'View', 'Help'].forEach((m, i) => text(22 + i * 62, 50, m, { size: 11 }));
 
-// ---------- Left column: Look Up / Sections / Review ----------
+// ---------- Left column: Look Up / Sections ----------
 const LX = 18, LW = 400;
 panel(LX, 62, LW, 262, 'Look Up');
 text(LX + 10, 94, 'Tracker: published sheet set (gid 1084786865)', { fill: C.accent, size: 10.5 });
@@ -47,12 +47,12 @@ lbl(colX[0], 294, 'No dataset loaded.', { fill: C.muted });
 btn(colX[3], 294, colW[3], 'Reset');
 callout(LX + LW - 6, 66, '1');
 
-panel(LX, 330, LW, 330, 'Sections');
+panel(LX, 330, LW, 400, 'Sections');
 const heads = [['Subject', 56], ['Section', 48], ['Hemi', 36], ['Stain', 56], ['Plate', 36], ['Prof', 32], ['ROI', 60], ['Images', 40], ['Status', 20]];
-let hx = LX + 8; rect(LX + 8, 350, LW - 16, 276, { fill: '#fff' });
+let hx = LX + 8; rect(LX + 8, 350, LW - 16, 344, { fill: '#fff' });
 out.push(`<rect x="${LX + 8.5}" y="350.5" width="${LW - 17}" height="20" fill="#eef0f3"/>`);
 heads.forEach(([h, w]) => { text(hx + 4, 364, h, { size: 10, bold: true }); hx += w * (LW - 16) / 384; });
-for (let r = 0; r < 12; r++) {
+for (let r = 0; r < 15; r++) {
   const y = 376 + r * 20.5;
   if (r === 2 || r === 3) out.push(`<rect x="${LX + 9}" y="${y - 3}" width="${LW - 18}" height="20" fill="#dbeafe"/>`);
   let x = LX + 8;
@@ -60,53 +60,54 @@ for (let r = 0; r < 12; r++) {
 }
 const sb = ['< Prev', 'Next >', 'Select All', 'Open Folder', 'Columns...'];
 const bw = (LW - 16 - 16) / 5;
-sb.forEach((s, i) => btn(LX + 8 + i * (bw + 4), 632, bw, s));
+sb.forEach((s, i) => btn(LX + 8 + i * (bw + 4), 700, bw, s));
 callout(LX + LW - 6, 334, '2');
-
-panel(LX, 666, LW, 84, 'Review');
-lbl(LX + 8, 686, 'Atlas plate'); field(LX + 70, 686, 50, ''); btn(LX + 124, 686, 50, 'Set');
-btn(LX + 180, 686, 130, 'Mark Measured'); btn(LX + 316, 686, 76, 'Clear');
-text(LX + 8, 726, '(summary of the selection, or why the buttons are off)', { size: 10, fill: C.muted, italic: true });
-callout(LX + LW - 6, 670, '3');
 
 // ---------- Right column: Display / Images / Profiles ----------
 const RX = 426, RW = W - 18 - RX;
 panel(RX, 62, RW, 196, 'Display');
+// One group to a row, named in a column of headings; gx is where every row's controls start.
+const gx = RX + 64;
+const heading = (y, s) => lbl(RX + 8, y, s, { bold: true });
 let y = 82;
-// row 1
-lbl(RX + 8, y, 'Image'); dd(RX + 44, y, 84, 'Projection');
-lbl(RX + 136, y, 'Channel'); dd(RX + 182, y, 84, 'Channel 1');
-lbl(RX + 274, y, 'Colormap'); dd(RX + 328, y, 66, 'gray');
-lbl(RX + 402, y, 'Contrast %'); field(RX + 464, y, 40, '0.5', { right: true }); field(RX + 508, y, 40, '99.7', { right: true });
-lbl(RX + 556, y, 'Max tiles'); field(RX + 608, y, 34, '12', { right: true });
-lbl(RX + 650, y, 'Background'); dd(RX + 716, y, RW - 724, 'Light gray');
-// row 2
+// Image
+heading(y, 'Image');
+dd(gx, y, 78, 'Projection');
+lbl(gx + 84, y, 'Channel'); dd(gx + 128, y, 78, 'Ch 1 (WFA)');
+lbl(gx + 212, y, 'Colormap'); dd(gx + 262, y, 58, 'gray');
+lbl(gx + 326, y, 'Contrast %'); field(gx + 382, y, 34, '0.5', { right: true }); field(gx + 420, y, 34, '99.7', { right: true });
+lbl(gx + 462, y, 'Background'); dd(gx + 523, y, 74, 'Light gray');
+lbl(gx + 605, y, 'Max tiles'); field(gx + 651, y, 30, '12', { right: true });
+// Overlays, with the ways out of the window at the right end
 y += 28;
-chk(RX + 8, y, 'Line ROI', true); chk(RX + 92, y, 'Sampling band', true); chk(RX + 204, y, 'Shade ROI by intensity', true);
-lbl(RX + 362, y, 'Profiles'); dd(RX + 408, y, 104, 'Below images');
-lbl(RX + 520, y, 'Size %'); field(RX + 562, y, 34, '33', { right: true });
-btn(RX + RW - 200, y, 94, 'Open in Figure'); btn(RX + RW - 102, y, 94, 'Export View');
-// row 3
+heading(y, 'Overlays');
+chk(gx, y, 'Line ROI', true); chk(gx + 69, y, 'Sampling band', true); chk(gx + 165, y, 'Shade ROI by intensity', true);
+chk(gx + 300, y, 'Band grid', false); chk(gx + 372, y, 'Brain surface', true);
+btn(RX + RW - 242, y, 84, 'Open in Figure'); btn(RX + RW - 154, y, 72, 'Export View'); btn(RX + RW - 78, y, 70, 'Open in Fiji');
+// Profiles
 y += 28;
-lbl(RX + 8, y, 'ROI'); dd(RX + 46, y, 70, 'A');
-btn(RX + 124, y, 90, 'Add ROI'); btn(RX + 220, y, 100, 'Name ROIs...');
-text(RX + 330, y + 14, 'ROI names / list of this section\u2019s ROIs', { size: 10, fill: C.muted, italic: true });
-// row 4
+heading(y, 'Profiles');
+lbl(gx, y, 'Position'); dd(gx + 45, y, 96, 'Below images');
+lbl(gx + 149, y, 'Size %'); field(gx + 187, y, 30, '33', { right: true });
+lbl(gx + 231, y, 'Normalize'); dd(gx + 285, y, 106, 'Raw intensity');
+lbl(gx + 397, y, 'over'); dd(gx + 424, y, 80, 'Each trace');
+lbl(gx + 518, y, 'Distance'); dd(gx + 568, y, 96, 'As measured');
+// ROI
 y += 28;
-rect(RX + 8, y, 90, 20, { fill: C.btn }); text(RX + 53, y + 14, 'Edit ROI', { anchor: 'middle', size: 10.5 });
-lbl(RX + 106, y, 'Width px'); field(RX + 158, y, 56, '994', { right: true });
-btn(RX + 222, y, 90, 'Draw Line'); btn(RX + 318, y, 90, 'Save ROI', { disabled: true }); btn(RX + 414, y, 80, 'Revert', { disabled: true });
-chk(RX + 504, y, 'Band grid', false);
-text(RX + 600, y + 14, 'ROI hint: names the target section', { size: 10, fill: C.muted, italic: true });
-// row 5
+heading(y, 'ROI');
+dd(gx, y, 64, 'A');
+btn(gx + 68, y, 60, 'Add ROI'); btn(gx + 132, y, 80, 'Name ROIs...');
+rect(gx + 224, y, 60, 20, { fill: C.btn }); text(gx + 254, y + 14, 'Edit ROI', { anchor: 'middle', size: 10.5 });
+lbl(gx + 290, y, 'Width px'); field(gx + 339, y, 38, '994', { right: true });
+btn(gx + 381, y, 64, 'Draw Line'); btn(gx + 449, y, 62, 'Save ROI', { disabled: true }); btn(gx + 515, y, 54, 'Revert', { disabled: true });
 y += 28;
-chk(RX + 8, y, 'Brain surface', true); btn(RX + 118, y, 80, 'Detect', { disabled: true }); btn(RX + 204, y, 100, 'Mark Surface', { disabled: true }); btn(RX + 310, y, 70, 'Clear', { disabled: true });
-// row 6
+text(gx, y + 14, 'Which ROIs this section has, and what the ROI buttons will act on', { size: 10, fill: C.muted, italic: true });
+// Surface
 y += 28;
-lbl(RX + 8, y, 'Normalize'); dd(RX + 68, y, 120, 'Raw intensity');
-lbl(RX + 196, y, 'over'); dd(RX + 226, y, 96, 'Each trace');
-lbl(RX + 332, y, 'Distance'); dd(RX + 386, y, 116, 'As measured');
-callout(RX + RW - 6, 66, '4');
+heading(y, 'Surface');
+btn(gx, y, 58, 'Detect', { disabled: true }); btn(gx + 62, y, 80, 'Mark Surface', { disabled: true }); btn(gx + 146, y, 50, 'Clear', { disabled: true });
+text(gx + 206, y + 14, 'Where the brain surface sits on the chosen line', { size: 10, fill: C.muted, italic: true });
+callout(RX + RW - 6, 66, '3');
 
 // Images panel
 const IY = 264, IH = 330;
@@ -136,7 +137,7 @@ tiles.forEach(([t, col, ang], i) => {
   out.push(`<rect x="${x + 3}" y="${yy + 3}" width="${lw}" height="15" fill="${i === 0 ? col : '#171717'}"/>`);
   text(x + 7, yy + 14, label, { size: 9.5, fill: i === 0 ? '#101010' : col, bold: i === 0 });
 });
-callout(RX + RW - 6, IY + 4, '5');
+callout(RX + RW - 6, IY + 4, '4');
 
 // Profiles panel
 const PY = IY + IH + 6, PH = H - 44 - PY + 10 - 32;
@@ -156,7 +157,7 @@ tiles.forEach(([, col], i) => {
 });
 text(ax + aw / 2, ay + ah + 26, 'distance along line (\u00b5m)', { anchor: 'middle', size: 10.5 });
 out.push(`<text transform="translate(${ax - 14},${ay + ah / 2}) rotate(-90)" font-size="10.5" text-anchor="middle" fill="${C.text}">intensity</text>`);
-callout(RX + RW - 6, PY + 4, '6');
+callout(RX + RW - 6, PY + 4, '5');
 
 // status bar
 const SY = H - 64;
@@ -164,7 +165,7 @@ rect(18, SY, W - 36, 20, { fill: '#fff', stroke: C.border, rx: 2 });
 out.push(`<circle cx="30" cy="${SY + 10}" r="4" fill="#16a34a"/>`);
 text(42, SY + 14, 'Idle. Choose Dataset > Root Folder, then Dataset > Load Dataset.', { size: 10.5 });
 text(W - 26, SY + 14, '14:32:07', { size: 10.5, fill: C.muted, anchor: 'end' });
-callout(W - 90, SY + 10, '7');
+callout(W - 90, SY + 10, '6');
 
 text(W / 2, H - 14, 'Schematic drawn from the layout code in @HistologyImageBrowser/build*.m \u2014 not a screenshot. Tile captions use sections from tests/make_test_dataset.m; image content and traces are illustrative.', { anchor: 'middle', size: 10.5, fill: C.muted, italic: true });
 out.push('</svg>');

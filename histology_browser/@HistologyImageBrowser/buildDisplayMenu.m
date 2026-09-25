@@ -36,13 +36,16 @@ number(obj, obj.DisplayMenu, {obj.MaxTilesField}, ...
     "Max Tiles", "%g", Prompts = "Images drawn at once");
 
 % -- Overlays -------------------------------------------------------------
-% All four have keys of their own, so the item runs the shortcut and picks up
-% its status message as well as its toggle.
+% In the order the panel and the tile's right-click menu list them. Four have
+% keys of their own, so the item runs the shortcut and picks up its status
+% message as well as its toggle; the band grid has none, which is what the
+% missing action name says.
 toggle(obj, obj.DisplayMenu, obj.ShowRoiCheck, "Line ROI", "toggleRoiOverlay", ...
     Separator = true);
 toggle(obj, obj.DisplayMenu, obj.ShowBandCheck, "Sampling Band", "toggleBandOverlay");
 toggle(obj, obj.DisplayMenu, obj.ColorByIntensityCheck, "Shade ROI by Intensity", ...
     "toggleIntensityShading");
+toggle(obj, obj.DisplayMenu, obj.ShowBandGridCheck, "Band Grid");
 toggle(obj, obj.DisplayMenu, obj.ShowSurfaceCheck, "Brain Surface Marks", ...
     "toggleSurfaceOverlay");
 
@@ -68,7 +71,7 @@ obj.syncDisplayMenu();
 end
 
 function build_roi_submenu(obj)
-%BUILD_ROI_SUBMENU Mirror the ROI edit row, which the display row also hides.
+%BUILD_ROI_SUBMENU Mirror the ROI and Surface rows, which the display row also hides.
 % Save and Revert apply only part of the time, so their items follow the Enable
 % state of the buttons they mirror rather than offering an action the window
 % says is unavailable.
@@ -88,13 +91,10 @@ action(obj, menu, "Draw Line", "drawRoi");
 action(obj, menu, "Save ROI", "saveRoi", Mirror = obj.SaveRoiButton);
 action(obj, menu, "Revert", "revertRoi", Mirror = obj.RevertRoiButton);
 
-% The grid and the width are both properties of the band rather than actions
-% taken on it, so they sit together below the separator. The grid has no key of
-% its own, which is what the missing action name says.
-toggle(obj, menu, obj.ShowBandGridCheck, "Band Grid", Separator = true);
-
+% A property of the band rather than an action taken on it, so it sits apart
+% below the separator.
 number(obj, menu, {obj.RoiWidthField}, "Band Width", "%g px", ...
-    Prompts = "Band width, in pixels");
+    Separator = true, Prompts = "Band width, in pixels");
 
 % Where on the line the brain starts. Below the band, because a surface is a
 % point on a line that has already been placed, and grouped rather than folded
