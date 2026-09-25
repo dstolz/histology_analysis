@@ -65,6 +65,7 @@ nFailed = nFailed + run_case("profile normalization", @check_profile_normalizati
 nFailed = nFailed + run_case("brain surface detection", @check_surface_detection);
 nFailed = nFailed + run_case("image background level", @check_image_background);
 nFailed = nFailed + run_case("brain surface sidecar", @check_surface_mark_files);
+nFailed = nFailed + run_case("crop to an ROI", @check_roi_crop);
 nFailed = nFailed + run_case("missing metadata labels", @check_missing_metadata);
 nFailed = nFailed + run_case("published sheet URLs", @check_published_url);
 nFailed = nFailed + run_case("published sheet settings", @check_published_settings);
@@ -1355,6 +1356,127 @@ fclose(fid);
 M = read_surface_mark(markPath);
 assert(~M.isValid, "A damaged sidecar was read as a mark");
 assert(M.message ~= "", "A damaged sidecar gave no reason");
+
+end
+
+function check_roi_crop()
+%CHECK_ROI_CROP Cut an image down to a line ROI's band, and turn it upright.
+% Two ramps, one per page, make every pixel say where it came from: page 1
+% holds 10*x and page 2 holds 10*y. So the crop can be checked for which
+% pixels it took, which way it was turned, and that it was not mirrored.
+
+folder = string(tempname);
+mkdir(folder);
+cleanup = onCleanup(@() rmdir(folder, "s")); %#ok<NASGU>
+
+nRows = 120;
+nCols = 200;
+rampX = uint16(repmat(10 * (1:nCols), nRows, 1));
+rampY = uint16(repmat(10 * (1:nRows)', 1, nCols));
+
+pixelSize = 1.6572864;
+description = sprintf("ImageJ=1.54f\nimages=2\nchannels=2\nslices=1\nunit=um\n");
+imagePath = fullfile(folder, "sec_proj.tif");
+
+imwrite(rampX, imagePath, "tif", Description = description, ...
+    Resolution = 1 / pixelSize, Compression = "none");
+imwrite(rampY, imagePath, "tif", WriteMode = "append", Description = description, ...
+    Resolution = 1 / pixelSize, Compression = "none");
+
+roi = struct("x1", 41, "y1", 61, "x2", 141, "y2", 61, "strokeWidth", 11, "surface", 20);
+
+% Unrotated, the crop is the band's bounding box cut straight out: the same
+% pixels, every page, in the same class and calibration.
+C = crop_roi_image(imagePath, roi);
+
+assert(C.outputPath == fullfile(folder, "sec_proj_roiCropped.tif"), ...
+    "The crop was not saved beside the original with the default suffix: %s", C.outputPath);
+assert(numel(imfinfo(C.outputPath)) == 2, "Not every page was cropped");
+
+a = imread(C.outputPath, 1);
+b = imread(C.outputPath, 2);
+
+assert(isa(a, "uint16"), "The crop came back as %s rather than uint16", class(a));
+assert(isequal(a, rampX(56:66, 41:141)) && isequal(b, rampY(56:66, 41:141)), ...
+    "The unrotated crop is not the band's pixels unchanged");
+assert(isequal(C.bounds, [41 56 101 11]), "Bounds came back as %s", mat2str(C.bounds));
+assert(isequal(C.surfacePoint, [21 6]), ...
+    "The surface mark landed at %s in the crop", mat2str(C.surfacePoint));
+
+cal = imagej_pixel_size(C.outputPath);
+assert(cal.isCalibrated && cal.unit == "um" && abs(cal.pixelSize - pixelSize) < 1e-6, ...
+    "The crop lost the original's calibration");
+
+% An existing crop is not replaced unless asked.
+threw = false;
+
+try
+    crop_roi_image(imagePath, roi);
+catch ME
+    threw = ME.identifier == "crop_roi_image:exists";
+end
+
+assert(threw, "An existing crop was overwritten without overwrite = true");
+
+% Rotated, the line runs down the crop from its start: row k is sample k of
+% the profile, so page 1 climbs 10*x down the rows. Across, the band's upper
+% edge (lower y) ends up on the right, which is a quarter turn clockwise and
+% not its mirror image.
+R = crop_roi_image(imagePath, roi, rotate = true, overwrite = true);
+
+a = imread(R.outputPath, 1);
+b = imread(R.outputPath, 2);
+
+assert(isequal(size(a), [101 11]), "The rotated crop is %s", mat2str(size(a)));
+assert(all(a == uint16(10 * (41:141)'), "all"), "Rows do not run along the line from its start");
+assert(all(b(:, 1) == 660) && all(b(:, end) == 560), "The rotated crop is mirrored");
+assert(isequal(R.surfacePoint, [6 21]), ...
+    "The surface mark landed at %s in the rotated crop", mat2str(R.surfacePoint));
+
+P = measure_line_profile(double(rampX), roi);
+assert(max(abs(mean(double(a), 2) - P.intensity)) < 1e-9, ...
+    "The rows of the rotated crop do not average to the measured profile");
+
+% surfaceAt = "end" turns the line around.
+E = crop_roi_image(imagePath, roi, rotate = true, surfaceAt = "end", suffix = "_end");
+a = imread(E.outputPath, 1);
+
+assert(a(1, 1) == 1410 && a(end, 1) == 410, "surfaceAt = ""end"" did not put the line's end on top");
+assert(isequal(E.surfacePoint, [6 81]), ...
+    "The surface mark measured from the end landed at %s", mat2str(E.surfacePoint));
+
+% At an angle the samples are interpolated and rounded back to uint16, so the
+% row means follow the profile to within half a count.
+slanted = struct("x1", 30, "y1", 20, "x2", 150, "y2", 100, "strokeWidth", 7);
+D = crop_roi_image(imagePath, slanted, rotate = true, suffix = "_slanted");
+P = measure_line_profile(double(rampX), slanted);
+
+assert(D.nOutside == 0, "A band inside the image reported samples outside it");
+assert(max(abs(mean(double(imread(D.outputPath, 1)), 2) - P.intensity)) <= 0.5, ...
+    "The rows of a slanted crop do not follow the measured profile");
+
+% Padding past the image edge is filled and counted rather than invented;
+% unrotated, it is clipped to the image instead.
+edge = struct("x1", 3, "y1", 61, "x2", 50, "y2", 61, "strokeWidth", 5);
+O = crop_roi_image(imagePath, edge, rotate = true, padding = 5, suffix = "_padded");
+a = imread(O.outputPath, 1);
+
+assert(isequal(size(a), [58 15]), "The padded crop is %s", mat2str(size(a)));
+assert(O.nOutside == 45 && all(a(1:3, :) == 0, "all"), ...
+    "Samples past the image edge were not filled: %d reported", O.nOutside);
+
+U = crop_roi_image(imagePath, edge, padding = 5, suffix = "_clipped");
+assert(isequal(U.bounds, [1 54 55 15]), "The padded crop was not clipped: %s", mat2str(U.bounds));
+
+% A .roi path reads the same line and the sidecar's surface mark.
+roiPath = fullfile(folder, "sec_proj_roi.roi");
+write_imagej_roi(roiPath, roi);
+write_surface_mark(surface_mark_path(roiPath), roi);
+
+F = crop_roi_image(imagePath, roiPath, suffix = "_file");
+assert(isequal(imread(F.outputPath, 1), imread(C.outputPath, 1)), ...
+    "Cropping from the .roi file cut different pixels");
+assert(isequal(F.surfacePoint, C.surfacePoint), "The sidecar's surface mark was not read");
 
 end
 
