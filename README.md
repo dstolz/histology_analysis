@@ -1,3 +1,5 @@
+# See the [wiki](https://github.com/dstolz/histology_analysis/wiki)
+
 # histology_analysis
 
 MATLAB tools for histology image processing: interactive alignment and thresholding tools,
