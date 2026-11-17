@@ -42,6 +42,7 @@ classdef HistologyImageBrowser < handle
         SheetClearMenu matlab.ui.container.Menu
         LoadMenu matlab.ui.container.Menu
         ExportWorkspaceMenu matlab.ui.container.Menu
+        ExportAllWorkspaceMenu matlab.ui.container.Menu
 
         DisplayMenu matlab.ui.container.Menu
 
@@ -691,7 +692,7 @@ classdef HistologyImageBrowser < handle
 
         onExportView(obj)               % Export the current view to an image file.
 
-        onExportWorkspace(obj, variableName)  % Export the selection to a base workspace table.
+        onExportWorkspace(obj, variableName, scope)  % Export the selection, or every section, to a base workspace table.
 
         onOpenInFigure(obj)             % Redraw the current selection in a normal figure.
 

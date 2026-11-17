@@ -144,6 +144,16 @@ function code = viewCommands(obj, options)
     % is written out only where it has been changed.
     code = [code, obj.layoutCommands(s, v)];
 
+    % The fields a data tip names, where they are not the ones a browser
+    % opens on. None at all is a call of its own rather than an empty list.
+    if ~isequal(s.DataTips, obj.defaultTips())
+        if isempty(s.DataTips)
+            code(end+1) = v + ".setDataTips();";
+        else
+            code(end+1) = v + ".setDataTips(" + obj.textLiteral(s.DataTips) + ");";
+        end
+    end
+
     % A color, line style, or marker picked from a right-click menu is no
     % part of the panel and so no part of a saved configuration, but it is
     % part of the figure, and this is the only way it leaves the browser.

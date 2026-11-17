@@ -204,6 +204,14 @@ classdef ECMBrowser < handle
 % against a field this dataset does not have -- a color-by, tile-by, or
 % filter field from a different one -- is left unset rather than refused.
 %
+% Data tips, on the menu bar, chooses which fields a data tip names beneath
+% its X and Y when a point on the plot is clicked. It opens on the subject
+% where the dataset has one; ticking more fields adds them, and Show none
+% leaves X and Y alone. A curve of one section names that section's value, a
+% group mean the value its sections share, or how many different ones there
+% are. The choice reaches what is already drawn without a redraw, and is kept
+% in a saved configuration and written out by Copy code.
+%
 % A toolbar sits over the plot, holding the things reached for over and over
 % while a figure is being settled on: copy the plot as an image or as vector
 % graphics, save it, copy the numbers under it or the account of the view,
@@ -315,6 +323,12 @@ classdef ECMBrowser < handle
         % nothing -- every value kept, or none thrown out -- is taken off
         % rather than stored, so an empty list means every section is drawn.
         Filters struct = struct("Field", {}, "Values", {}, "Keep", {})
+
+        % Which fields a data tip names beside the X and Y of the point it
+        % marks, in the order they are listed. Opens on the subject where
+        % the dataset has one, and is chosen from the Data tips menu or by
+        % SETDATATIPS.
+        TipFields string = strings(1, 0)
     end
 
     properties (Access = private)
@@ -355,6 +369,10 @@ classdef ECMBrowser < handle
         % is in force can be ticked.
         ResolutionMenu matlab.ui.container.Menu
         BackgroundMenu matlab.ui.container.Menu
+
+        % The menu the data tip fields are picked from, kept so that the
+        % ones in force can be ticked.
+        TipMenu matlab.ui.container.Menu
 
         % ALIGNLABELS calls DRAWNOW in a loop while a refresh is under way,
         % which flushes any control callback queued behind it. Running that
@@ -533,6 +551,17 @@ classdef ECMBrowser < handle
 
         StyleTag = "ECMBrowser:styled"
         MenuTag = "ECMBrowser:stylemenu"
+
+        % Where an artist keeps what its data tip is made of: the value of
+        % every field for the sections it draws, written onto it at draw
+        % time so that a tip keeps naming what it was drawn with after the
+        % browser behind it has been refiltered, and a popped-out figure
+        % can be re-tipped without the panel that made it.
+        TipKey = "ECMBrowserTip"
+
+        % How many different values a tip spells out for an artist that
+        % draws several sections, before it counts them instead.
+        MaxTipValues = 3
         LineStyleNames = ["Solid", "Dashed", "Dotted", "Dash-dot"]
         LineStyleValues = ["-", "--", ":", "-."]
 
@@ -597,6 +626,7 @@ classdef ECMBrowser < handle
             obj.Styles = containers.Map('KeyType', 'char', 'ValueType', 'any');
             obj.Defaults = containers.Map('KeyType', 'char', 'ValueType', 'any');
             obj.indexFields();
+            obj.TipFields = obj.defaultTips();
             obj.buildUI();
             obj.refresh();
 
@@ -622,6 +652,9 @@ classdef ECMBrowser < handle
 
         % Give every combination of FIELDS its own axes.
         setTiling(obj, fields)
+
+        % Name FIELDS in the data tip beside the X and Y of a point.
+        setDataTips(obj, fields)
 
         % Rescale each section, and say where from.
         setNormalization(obj, mode, window, options)
@@ -2521,11 +2554,189 @@ classdef ECMBrowser < handle
             %BUILDMENUS Everything that leaves the browser, sorted by what it
             % makes. The panel beside the plot is for arriving at a figure;
             % these menus are for taking one away, and nothing on them
-            % changes what is drawn.
+            % changes what is drawn. The one exception is Data tips, which
+            % changes what a click on the plot says rather than what is drawn.
 
             obj.buildPlotMenu();
             obj.buildDataMenu();
+            obj.buildDataTipsMenu();
             obj.buildExportOptionsMenu();
+
+        end
+
+        function fields = tipChoices(obj)
+            %TIPCHOICES The fields a data tip can name: every one a section can be split on.
+
+            fields = sort(string(fieldnames(obj.Text)));
+
+        end
+
+        function fields = defaultTips(obj)
+            %DEFAULTTIPS What a data tip names until it is told otherwise: the subject, if there is one.
+
+            fields = "SubjectID";
+            fields = fields(ismember(fields, obj.tipChoices()));
+            fields = reshape(fields, 1, []);
+
+        end
+
+        function label = tipLabel(~, field)
+            %TIPLABEL A field's name as a data tip says it: "SubjectID" as "Subject ID".
+
+            label = regexprep(field, "_+", " ");
+            label = regexprep(label, "([a-z0-9]{2})([A-Z])", "$1 $2");
+            label = strtrim(regexprep(label, "\s+", " "));
+
+        end
+
+        function buildDataTipsMenu(obj)
+            %BUILDDATATIPSMENU Which fields a data tip names beside X and Y.
+
+            m = uimenu(obj.Fig, Text = "Data tips");
+            obj.TipMenu = m;
+
+            fields = obj.tipChoices();
+
+            for k = 1:numel(fields)
+                uimenu(m, Text = obj.tipLabel(fields(k)), UserData = fields(k), ...
+                    MenuSelectedFcn = @(src,~) obj.toggleTip(src.UserData));
+            end
+
+            uimenu(m, Text = "Show none", Separator = "on", ...
+                MenuSelectedFcn = @(~,~) obj.setDataTips());
+            uimenu(m, Text = "Reset to default", ...
+                MenuSelectedFcn = @(~,~) obj.setDataTips(obj.defaultTips()));
+
+            obj.tickDataTips();
+
+        end
+
+        function toggleTip(obj, field)
+            %TOGGLETIP Name FIELD in the data tips if it is not named there, and drop it if it is.
+
+            if ismember(field, obj.TipFields)
+                obj.setDataTips(obj.TipFields(obj.TipFields ~= field));
+            else
+                obj.setDataTips([obj.TipFields, field]);
+            end
+
+        end
+
+        function tickDataTips(obj)
+            %TICKDATATIPS Mark the fields the data tips name now.
+
+            items = obj.TipMenu.Children;
+
+            for k = 1:numel(items)
+                named = isstring(items(k).UserData) && ...
+                    ismember(items(k).UserData, obj.TipFields);
+                items(k).Checked = matlab.lang.OnOffSwitchState(named);
+            end
+
+        end
+
+        function tipSource(obj, h, rows, perPoint)
+            %TIPSOURCE Say which sections an artist draws, and give it its data tip.
+            % ROWS are rows of the roster the draw is made from. PERPOINT
+            % says that the artist has one point for each of them, as the
+            % points of a summary do; otherwise it is a curve over all of
+            % them, and a tip names the value they share. What is written
+            % onto the artist is the text itself rather than the rows, so
+            % that a popped-out figure outlives the view it was drawn from.
+
+            names = string(fieldnames(obj.View.Text));
+            text = struct();
+
+            for iField = 1:numel(names)
+                text.(names(iField)) = obj.View.Text.(names(iField))(rows);
+            end
+
+            source = struct(Text = text, PerPoint = perPoint);
+
+            for k = 1:numel(h)
+                setappdata(h(k), char(obj.TipKey), source);
+                obj.tipArtist(h(k));
+            end
+
+        end
+
+        function tipArtist(obj, h)
+            %TIPARTIST Put the fields now chosen into one artist's data tip.
+            % Beneath the X and Y every tip opens with, in the order the
+            % fields were chosen. A field an artist was drawn without is
+            % left out rather than raising an error over a mismatch.
+
+            if ~isappdata(h, char(obj.TipKey))
+                return
+            end
+
+            source = getappdata(h, char(obj.TipKey));
+            n = numel(h.XData);
+
+            template = h.DataTipTemplate;
+            rows = reshape(template.DataTipRows(1:min(2, numel(template.DataTipRows))), 1, []);
+
+            for field = obj.TipFields
+                if ~isfield(source.Text, field)
+                    continue
+                end
+
+                values = source.Text.(field);
+
+                if source.PerPoint
+                    if numel(values) ~= n
+                        continue
+                    end
+
+                    values = reshape(values, [], 1);
+                else
+                    values = repmat(obj.tipValue(values), n, 1);
+                end
+
+                rows(end+1) = dataTipTextRow(obj.tipLabel(field), values); %#ok<AGROW>
+            end
+
+            template.DataTipRows = rows;
+
+        end
+
+        function text = tipValue(obj, values)
+            %TIPVALUE What one tip row says for an artist that draws several sections.
+            % The value they share, the values themselves where there are
+            % only a few, and how many different ones where there are more.
+
+            seen = unique(values(~ismissing(values)));
+
+            if isempty(seen)
+                text = "n/a";
+            elseif numel(seen) <= obj.MaxTipValues
+                text = strjoin(seen, ", ");
+            else
+                text = sprintf("%d different", numel(seen));
+            end
+
+        end
+
+        function applyDataTips(obj)
+            %APPLYDATATIPS Re-tip every artist on screen, in the browser and in popped-out figures.
+            % Reaching the artists themselves rather than redrawing is what
+            % leaves a zoom alone, as APPLYSTYLES does for a color.
+
+            obj.PopOuts = obj.PopOuts(isvalid(obj.PopOuts));
+
+            figs = obj.PopOuts;
+
+            if ~isempty(obj.Fig) && isvalid(obj.Fig)
+                figs = [obj.Fig, figs];
+            end
+
+            for iFig = 1:numel(figs)
+                artists = findall(figs(iFig), 'Tag', char(obj.StyleTag));
+
+                for k = 1:numel(artists)
+                    obj.tipArtist(artists(k));
+                end
+            end
 
         end
 

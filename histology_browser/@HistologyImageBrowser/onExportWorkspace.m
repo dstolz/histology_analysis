@@ -1,4 +1,4 @@
-function onExportWorkspace(obj, variableName)
+function onExportWorkspace(obj, variableName, scope)
 %ONEXPORTWORKSPACE Copy the selected sections into a table in the base workspace.
 % Finding the sections happens in this window, but the analysis that follows
 % happens at the command line, and the only way across used to be rebuilding
@@ -30,26 +30,47 @@ function onExportWorkspace(obj, variableName)
 % has been dragged but not saved exports as the line the user can see rather
 % than as the one still on disk.
 %
+% The whole catalog can be exported instead of the selection. That is the
+% export for handing the entire dataset to an analysis, and it deliberately
+% ignores the filters and the selection: a search left typed in, or a handful
+% of rows left highlighted, would otherwise silently shrink a table that was
+% meant to be everything. Every section comes out with its profiles, exactly as
+% the selection export builds them.
+%
 % Parameters
 %   variableName: Name to assign in the base workspace. Asked for when it is
 %       omitted. A name passed in is taken as already decided and overwrites
 %       without a prompt, which is what keeps this callable from a script or a
 %       test where a modal dialog would stall.
+%   scope: "selection" for the selected sections (the default), or "all" for
+%       every section in the catalog regardless of filters and selection.
 %
 % See also ONEXPORTVIEW, SELECTEDROWS, ROIFORROW, READPROFILE, IMAGEJ_PIXEL_SIZE.
 
 arguments
     obj
     variableName (1,1) string = ""
+    scope (1,1) string {mustBeMember(scope, ["selection", "all"])} = "selection"
 end
 
-rows = obj.selectedRows();
+everything = scope == "all";
+
+if everything
+    rows = obj.Catalog;
+else
+    rows = obj.selectedRows();
+end
 
 if isempty(rows) || height(rows) == 0
     % The status bar rather than a dialog: the table the selection is missing
     % from is right beside it, and a modal would only stand between the user
     % and the fix.
-    obj.setWarning("Select at least one section to export.");
+    if everything
+        obj.setWarning("No dataset is loaded, so there is nothing to export.");
+    else
+        obj.setWarning("Select at least one section to export.");
+    end
+
     return
 end
 
@@ -58,7 +79,7 @@ end
 asked = variableName == "";
 
 if asked
-    variableName = ask_for_name();
+    variableName = ask_for_name(everything);
 
     if variableName == ""
         obj.setStatus("Export to the workspace was cancelled.");
@@ -79,7 +100,7 @@ if replacing && asked && ~confirm_overwrite(obj, variableName)
     return
 end
 
-obj.setBusy("Building a table of %d selected section(s) ...", height(rows));
+obj.setBusy("Building a table of %d section(s) with their profiles ...", height(rows));
 
 try
     T = build_export_table(obj, rows);
@@ -107,14 +128,22 @@ obj.setSuccess("Exported %d ROI(s) from %d section(s) to ""%s"" in the base work
 
 end
 
-function name = ask_for_name()
+function name = ask_for_name(everything)
 %ASK_FOR_NAME Ask which variable the table should land in.
 % INPUTDLG rather than a hand-built modal, because it is already what
 % PROMPTDISPLAYNUMBER uses for the one other typed value this window asks for.
+% The whole-dataset export proposes a different name, so accepting both
+% defaults in a row does not replace the selection with everything.
 % Returns "" when the prompt was cancelled.
 
+suggestion = {'histology'};
+
+if everything
+    suggestion = {'histologyAll'};
+end
+
 answer = inputdlg("Base workspace variable name:", "Export to Workspace", ...
-    [1 50], {'histology'});
+    [1 50], suggestion);
 
 if isempty(answer)
     name = "";

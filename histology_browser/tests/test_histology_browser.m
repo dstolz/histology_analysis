@@ -2407,6 +2407,35 @@ assert(contains(string(app.StatusLabel.Text), "replacing"), ...
     "The status bar did not report the replacement: %s", app.StatusLabel.Text);
 
 check_export_without_selection(app);
+check_export_all(app);
+
+end
+
+function check_export_all(app)
+%CHECK_EXPORT_ALL The whole-dataset export must ignore filters and selection.
+% A search that matches nothing and a single highlighted row are the two ways a
+% selection export would come out short, so both are set before exporting.
+
+assert(isvalid(app.ExportAllWorkspaceMenu), ...
+    "The Dataset menu offers no export of all data");
+
+varName = "test_histology_export_all";
+dropVariable = onCleanup(@() evalin("base", "clear " + varName));
+
+app.onResetFilters();
+app.CatalogTable.Selection = 1;
+app.onSelectionChanged();
+
+app.onExportWorkspace(varName, "all");
+
+T = evalin("base", varName);
+[expectedStems, expectedKeys] = expected_export_rows(app, app.Catalog);
+
+assert(isequal(string(T.Stem), expectedStems) && isequal(string(T.ROIKey), expectedKeys), ...
+    "Exporting all data did not cover every ROI of the catalog (%d rows, expected %d)", ...
+    height(T), numel(expectedStems));
+assert(ismember("Profile", string(T.Properties.VariableNames)), ...
+    "Exporting all data left the profiles out");
 
 end
 

@@ -111,6 +111,50 @@ A = ecm_prepare_analysis_data(histology, ...
 
 B = launch_ecm_browser(A);
 
+%% All Conditions by Atlas Plate
+% The ECM Browser view of 2026-10-01 11:00, as commands.
+% Everything not named here is what a browser opens on.
+B.ShowDropDown.Value = "group mean";
+B.GroupDropDown.Value = "Treatment";
+B.setTiling("AtlasPlate");
+B.setFilter("AtlasPlate", ["28" "29" "30" "31" "32"]);
+B.setFilter("IncludeInAnalysis", "TRUE");
+B.DepthMinField.Value = 0;
+B.DepthMaxField.Value = 1700;
+B.SpacingDropDown.Value = "none";
+B.TickLabelDropDown.Value = "left and bottom axes";
+B.refresh();
+
+% And what can then be done with it:
+%   B.popOut()                                                   draws it into a figure of its own
+%   B.savePlot("figure.pdf")                                     PNG, TIFF, JPEG, PDF, EPS, SVG, or .fig
+%   B.saveData("profiles.csv", Layout = "long")                  one row per sample, every field beside it
+%   d = B.viewData()                                             the numbers behind the plot
+%   B.copySummary()                                              the account of this view a caption needs
+%   B.setGroupStyle("Treatment", "Control L", Color = [0 0 0])   one group in a color of your own
+
+
+%% Compare Atlas Plate vs Cannula distance
+% The ECM Browser view of 2026-10-01 10:59, as commands.
+% Everything not named here is what a browser opens on.
+B.ShowDropDown.Value = "group mean";
+B.GroupDropDown.Value = "Treatment";
+B.setTiling(["AtlasPlate" "CannulaDist"]);
+B.setFilter("AtlasPlate", ["28" "29" "30" "31" "32"]);
+B.setFilter("IncludeInAnalysis", "TRUE");
+B.DepthMinField.Value = 0;
+B.DepthMaxField.Value = 1700;
+B.SpacingDropDown.Value = "none";
+B.TickLabelDropDown.Value = "left and bottom axes";
+B.refresh();
+
+% And what can then be done with it:
+%   B.popOut()                                                   draws it into a figure of its own
+%   B.savePlot("figure.pdf")                                     PNG, TIFF, JPEG, PDF, EPS, SVG, or .fig
+%   B.saveData("profiles.csv", Layout = "long")                  one row per sample, every field beside it
+%   d = B.viewData()                                             the numbers behind the plot
+%   B.copySummary()                                              the account of this view a caption needs
+%   B.setGroupStyle("Treatment", "Control L", Color = [0 0 0])   one group in a color of your own
 
 %% Compare Treatment to Vehicle by Atlas Plate distance to Cannula site
 % The ECM Browser view of 2026-09-25 15:12, as commands.

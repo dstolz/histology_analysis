@@ -98,6 +98,15 @@ function applySettings(obj, s)
         obj.AxisQuantityCheckBox.Value = s.AxisQuantity;
     end
 
+    % Fields this dataset does not have are dropped, as they are from the
+    % split; a configuration saved before the tips could be chosen says
+    % nothing about them and leaves them as they are.
+    if isfield(s, "DataTips")
+        tips = reshape(string(s.DataTips), 1, []);
+        obj.TipFields = tips(ismember(tips, obj.tipChoices()));
+        obj.tickDataTips();
+    end
+
     % The reference is one value of whichever field is compared, so
     % the field is set first and its values offered before the
     % reference is picked out of them. A field this dataset does not

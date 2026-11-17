@@ -36,6 +36,7 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, series)
                 MarkerFaceAlpha = 0.7, ...
                 HandleVisibility = "off");
             roles(end+1) = "marker";
+            obj.tipSource(h(end), rows, true);
 
         case "metric summary"
             v = section_metrics(x, Y(:, cols), string(obj.MetricDropDown.Value));
@@ -55,6 +56,7 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, series)
                 MarkerFaceAlpha = 0.7, ...
                 HandleVisibility = "off");
             roles(end+1) = "marker";
+            obj.tipSource(h(end), idx(cols), true);
 
             % The sub-group's mean ruled through its points, with whatever
             % the Error band control names drawn up and down from it.
@@ -80,12 +82,13 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, series)
             for iCol = 1:numel(cols)
                 y = Y(:, cols(iCol));
 
-                h(end+1) = line(ax, x, y, ...
+                h(end+1) = plot(ax, x, y, ...
                     Color = sty.Color, ...
                     LineStyle = sty.LineStyle, ...
                     LineWidth = 1, ...
                     HandleVisibility = "off"); %#ok<AGROW>
                 roles(end+1) = "line"; %#ok<AGROW>
+                obj.tipSource(h(end), idx(cols(iCol)), false);
 
                 if marked
                     obj.markCurve(h(end), sty, y);
@@ -95,12 +98,13 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, series)
         case "group mean"
             if obj.SectionsCheckBox.Value
                 for iCol = 1:numel(cols)
-                    h(end+1) = line(ax, x, Y(:, cols(iCol)), ...
+                    h(end+1) = plot(ax, x, Y(:, cols(iCol)), ...
                         Color = [sty.Color 0.25], ...
                         LineStyle = sty.LineStyle, ...
                         LineWidth = 0.5, ...
                         HandleVisibility = "off"); %#ok<AGROW>
                     roles(end+1) = "faint"; %#ok<AGROW>
+                    obj.tipSource(h(end), idx(cols(iCol)), false);
                 end
             end
 
@@ -124,12 +128,13 @@ function h = drawGroup(obj, ax, x, Y, idx, cols, series)
                 roles(end+1) = "band";
             end
 
-            h(end+1) = line(ax, x(n >= 1), m(n >= 1), ...
+            h(end+1) = plot(ax, x(n >= 1), m(n >= 1), ...
                 Color = sty.Color, ...
                 LineStyle = sty.LineStyle, ...
                 LineWidth = 2, ...
                 HandleVisibility = "off");
             roles(end+1) = "line";
+            obj.tipSource(h(end), idx(cols), false);
 
             if marked
                 obj.markCurve(h(end), sty, m(n >= 1));

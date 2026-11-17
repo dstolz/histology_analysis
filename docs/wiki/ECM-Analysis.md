@@ -127,6 +127,11 @@ background.
 
 ### ③ Plot grid
 
+Click a curve or point for a data tip. Beneath the X and Y it names **Subject ID** where the dataset
+has one; the **Data tips** menu ticks which other fields to show (`B.setDataTips(["SubjectID" "AtlasPlate"])`
+from a script). A curve of one section names that section's value; a group mean names the value its
+sections share, or how many different ones there are.
+
 Right-click a curve, point or band to change that group's color, line style or marker. With a
 **Marker by** or **Line style by** field set, the menu also offers each of that field's values, so
 which hemisphere is dashed is still your choice. The legend lists those values in gray under the
