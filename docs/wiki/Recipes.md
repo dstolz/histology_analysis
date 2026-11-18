@@ -211,8 +211,8 @@ the view.
 
 ## Get profiles into MATLAB and plot them yourself
 
-1. Select the sections and choose **Dataset > Export Selection to Workspace...**
-   (Ctrl+Shift+E). Keep the name `histology`.
+1. Select the sections and press **Export Data...** in the Display panel, or choose
+   **Dataset > Export Selection to Workspace...** (Ctrl+Shift+E). Keep the name `histology`.
 2. You now have a table with **one row per ROI**. Each row's `Profile` holds a two-column table
    (`Distance`, `Intensity`), which is empty if the ROI was never measured.
 

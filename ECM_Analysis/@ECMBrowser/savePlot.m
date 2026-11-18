@@ -79,6 +79,7 @@ function file = savePlot(obj, filename)
     end
 
     file = filename;
+    record_export(obj, "histology_analysis/ecm_browser_plot", filename, "figure");
     obj.setStatus("Saved " + filename + note);
 
 end

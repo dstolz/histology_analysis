@@ -70,6 +70,7 @@ classdef HistologyImageBrowser < handle
         ProfileOnlyCheck matlab.ui.control.CheckBox
         SortDropDown matlab.ui.control.DropDown
         ResetFiltersButton matlab.ui.control.Button
+        OpenRootButton matlab.ui.control.Button
 
         CatalogTable matlab.ui.control.Table
         CountLabel matlab.ui.control.Label
@@ -118,6 +119,7 @@ classdef HistologyImageBrowser < handle
         NewFigureButton matlab.ui.control.Button
         FijiButton matlab.ui.control.Button
         ExportButton matlab.ui.control.Button
+        ExportDataButton matlab.ui.control.Button
         OpenFolderButton matlab.ui.control.Button
 
         StatusBar matlab.ui.container.Panel
@@ -620,7 +622,7 @@ classdef HistologyImageBrowser < handle
 
         attachContextMenu(obj, ax, kind)  % Give an axes and its contents a right-click menu.
 
-        renderProfilePlot(obj)          % Draw profiles for the current selection.
+        renderProfilePlot(obj, ax)      % Draw profiles for the current selection.
 
         updateProfileControls(obj)      % Enable the profile options that apply now.
 
@@ -694,7 +696,7 @@ classdef HistologyImageBrowser < handle
 
         onExportWorkspace(obj, variableName, scope)  % Export the selection, or every section, to a base workspace table.
 
-        onOpenInFigure(obj)             % Redraw the current selection in a normal figure.
+        fig = onOpenInFigure(obj)       % Redraw the current view in a normal figure.
 
         onOpenInFiji(obj)               % Open the marked section's image and ROIs in Fiji.
 
@@ -898,6 +900,27 @@ classdef HistologyImageBrowser < handle
             else
                 obj.Fig.Name = "Histology Image Browser  -  " + obj.RootPath;
             end
+
+            obj.refreshOpenRootButton();
+        end
+
+        function refreshOpenRootButton(obj)
+            % Enable Open Root only when there is a root to open, and name it.
+
+            if isempty(obj.OpenRootButton) || ~isvalid(obj.OpenRootButton)
+                return
+            end
+
+            if obj.RootPath == ""
+                obj.OpenRootButton.Enable = "off";
+                obj.OpenRootButton.Tooltip = "Open the dataset's root folder in the " + ...
+                    "file browser. Choose one under Dataset > Root Folder first.";
+                return
+            end
+
+            obj.OpenRootButton.Enable = "on";
+            obj.OpenRootButton.Tooltip = "Open the dataset's root folder in the " + ...
+                "file browser:" + newline + obj.RootPath;
         end
 
         function refreshTrackerLink(obj)
@@ -1544,6 +1567,26 @@ classdef HistologyImageBrowser < handle
             tf = obj.profileLayout() ~= "only";
         end
 
+        function share = profileShare(obj)
+            % Fraction of a split view the profile plot takes, from Size %.
+            % Kept off both edges so neither half of the split collapses.
+            % APPLYVIEWLAYOUT and ONOPENINFIGURE both split by it, so the
+            % figure opens in the proportions the browser shows.
+            share = 1 / 3;
+
+            if isempty(obj.ProfileSizeField) || ~isvalid(obj.ProfileSizeField)
+                return
+            end
+
+            value = obj.ProfileSizeField.Value;
+
+            if ~isnumeric(value) || ~isscalar(value) || ~isfinite(value)
+                return
+            end
+
+            share = min(max(value / 100, 0.05), 0.95);
+        end
+
         function onSurfaceOverlayChanged(obj)
             % Redraw after the brain surface switch, which is the one overlay
             % option drawn in two places.
@@ -2062,13 +2105,29 @@ classdef HistologyImageBrowser < handle
                 return
             end
 
-            if ispc
-                winopen(folder);
-            elseif ismac
-                system("open """ + folder + """ &");
-            else
-                system("xdg-open """ + folder + """ &");
+            HistologyImageBrowser.openInFileBrowser(folder);
+        end
+
+        function onOpenRootFolder(obj)
+            % Reveal the dataset's root folder, the one every section in the
+            % catalog was scanned from. ONOPENFOLDER is the per-section version.
+
+            folder = obj.RootPath;
+
+            if folder == ""
+                obj.setWarning("No root folder is set. Choose one under Dataset > Root Folder.");
+                return
             end
+
+            if ~isfolder(folder)
+                obj.setError("The root folder could not be found: %s", folder);
+                uialert(obj.Fig, "The root folder could not be found:" + newline + folder, ...
+                    "Folder Missing");
+                return
+            end
+
+            HistologyImageBrowser.openInFileBrowser(folder);
+            obj.setStatus("Opened the root folder %s", folder);
         end
 
         function onOpenAtlasExplorer(obj)
@@ -2195,6 +2254,18 @@ classdef HistologyImageBrowser < handle
         bindings = keyBindings()        % Every keyboard shortcut, in one table.
 
         style = roiStateStyle(state, tileColor)  % Aesthetics for one ROI save state.
+
+        function openInFileBrowser(folder)
+            % Show a folder in the platform's file browser. Shared by Open
+            % Folder (one section's folder) and Open Root (the dataset's).
+            if ispc
+                winopen(folder);
+            elseif ismac
+                system("open """ + folder + """ &");
+            else
+                system("xdg-open """ + folder + """ &");
+            end
+        end
 
         function point = surfacePoint(R)
             % Image coordinates of the brain surface mark on a line ROI, or []

@@ -46,9 +46,9 @@ if isempty(ax) || ~isvalid(ax)
 end
 
 % A context menu belongs to one figure and cannot be shared with another, and
-% ONOPENINFIGURE draws these same tiles into a plain figure of its own. Those
-% tiles simply go without: a normal figure already carries the toolbar and menu
-% bar this menu exists to substitute for.
+% ONOPENINFIGURE draws these same tiles and this same profile plot into a plain
+% figure of its own. Those simply go without: a normal figure already carries
+% the toolbar and menu bar this menu exists to substitute for.
 if ~isequal(ancestor(ax, "figure"), obj.Fig)
     return
 end

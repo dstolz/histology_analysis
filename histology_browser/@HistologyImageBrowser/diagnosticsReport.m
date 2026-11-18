@@ -13,16 +13,22 @@ function text = diagnosticsReport(obj)
 % Returns
 %   text: Multi-line string, ready to drop into an issue body.
 %
-% See also ONREPORTISSUE, BUILDHELPMENU.
+% See also ONREPORTISSUE, BUILDHELPMENU, HISTOLOGY_CODE_VERSION.
 
 lines = strings(0, 1);
 
+% Asked afresh rather than taken from the minute-long cache: a report is
+% written once, and the edit that caused the bug may be seconds old. The
+% checkout is histology_analysis as a whole, so only edits to the browser's
+% own folder count; work elsewhere in the repository says nothing about a bug.
+code = histology_code_version(Scope = "browser", Refresh = true);
+
 lines = section(lines, "App", [ ...
-    "commit", git_description(); ...
+    "commit", code.Text; ...
     "source", HistologyImageBrowser.repositoryRoot()]);
 
 lines = section(lines, "MATLAB", [ ...
-    "release", matlab_release(); ...
+    "release", code.MatlabRelease; ...
     "platform", string(computer("arch")); ...
     "image toolbox", toolbox_state()]);
 
@@ -64,70 +70,6 @@ width = max(strlength(names));
 
 for iFact = 1:numel(names)
     lines(end + 1, 1) = "  " + pad(names(iFact), width) + " : " + values(iFact); %#ok<AGROW>
-end
-
-end
-
-function text = git_description()
-%GIT_DESCRIPTION Name the checked out commit, and say when it has been edited.
-% A hash alone would be misleading on a working tree with uncommitted changes,
-% which is exactly the state a bug is most likely to be found in.
-
-root = HistologyImageBrowser.repositoryRoot();
-
-hash = git_output(root, "rev-parse --short HEAD");
-
-if hash == ""
-    text = "unknown (not a git checkout, or git is not installed)";
-    return
-end
-
-text = hash;
-
-branch = git_output(root, "rev-parse --abbrev-ref HEAD");
-
-if branch ~= "" && branch ~= "HEAD"
-    text = text + " on " + branch;
-end
-
-% The checkout is histology_analysis as a whole, so only edits to the browser's
-% own folder count; work elsewhere in the repository says nothing about a bug.
-if git_output(root, "status --porcelain -- .") ~= ""
-    text = text + " (with uncommitted changes)";
-end
-
-end
-
-function out = git_output(root, arguments)
-%GIT_OUTPUT Run one git command in the source tree, or return "" on any failure.
-% Every caller wants a fact for a report rather than an error, so a missing
-% git, a folder outside a repository, and a command that fails are all the
-% same answer here.
-
-out = "";
-
-try
-    [status, raw] = system(sprintf('git -C "%s" %s', root, arguments));
-catch
-    return
-end
-
-if status ~= 0
-    return
-end
-
-out = strtrim(string(raw));
-
-end
-
-function text = matlab_release()
-%MATLAB_RELEASE Name the release, falling back to the version string.
-
-try
-    R = matlabRelease;
-    text = string(R.Release) + " " + string(R.Update);
-catch
-    text = string(version);
 end
 
 end

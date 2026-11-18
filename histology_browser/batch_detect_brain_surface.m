@@ -91,6 +91,23 @@ if nJobs == 0
     return
 end
 
+% The batch's provenance (histdb.Run): the ROI files and images it read, the
+% marks and report it wrote, the settings and the code version, kept beside
+% the report (or in the fallback folder). Keeping it never changes what the
+% batch writes. Sending to the lab database waits until the batch is done.
+quiet = histdb.suspend(); %#ok<NASGU>
+run = histdb.Run("histology_analysis/batch_detect_brain_surface", Parameters = struct( ...
+    "Overwrite", options.Overwrite, "DryRun", options.DryRun, ...
+    "WriteLowConfidence", options.WriteLowConfidence, ...
+    "FilenamePattern", options.FilenamePattern));
+markPaths = strings(nJobs, 1);
+for iJob = 1:nJobs
+    markPaths(iJob) = string(surface_mark_path(jobs(iJob).roiPath));
+end
+if ~options.DryRun
+    run.willWrite(markPaths);
+end
+
 % Every ROI of a section is measured off the same page, so it is read once per
 % section rather than once per ROI.
 cache = struct("imagePath", "", "img", [], "background", NaN, "calibration", []);
@@ -120,7 +137,14 @@ print_summary(T, toc(tStart));
 if options.OutputCsv ~= ""
     writetable(T, options.OutputCsv);
     fprintf("Results written to %s\n", options.OutputCsv);
+    run.output(options.OutputCsv, Kind = "surface_detection_report");
 end
+
+processed = T.Action ~= "skipped" | T.Confidence ~= "none";
+run.input(T.RoiPath(processed), Kind = "roi");
+run.input(T.ImagePath(processed & T.ImagePath ~= ""), Kind = "projection_image", Hash = false);
+run.output(markPaths(T.Action == "written"), Kind = "surface_mark");
+run.finish();
 
 end
 

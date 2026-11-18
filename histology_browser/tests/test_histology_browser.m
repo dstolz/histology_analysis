@@ -1759,6 +1759,7 @@ assert(height(app.View) == height(app.Catalog), "Filters were active on load");
 assert(~isempty(app.Selection), "Nothing was selected after loading");
 
 check_dataset_menu(app, rootPath, metadataCSV);
+check_open_root_button(app, rootPath);
 
 % Filtering to a single subject must narrow the view.
 subject = app.Catalog.SubjectID(find(app.Catalog.SubjectID ~= "", 1));
@@ -1795,6 +1796,7 @@ assert(P.hasData, "No profile data for a section that reports one");
 
 check_unannotated_section_renders(app);
 check_profile_layouts(app);
+check_open_in_figure(app);
 check_profile_normalization_plot(app);
 check_stain_colormap(app);
 check_roi_names(app);
@@ -2151,6 +2153,142 @@ assert(numel(app.ViewGrid.RowHeight) == 2, "Resizing collapsed the split");
 
 end
 
+function check_open_root_button(app, rootPath)
+%CHECK_OPEN_ROOT_BUTTON Open Root is live once a root is set, and names it.
+% It is not pushed: that would open a file browser window on the desktop of
+% whoever runs the suite, and the opening itself is the same call Open Folder
+% has always made.
+
+assert(isvalid(app.OpenRootButton), "The Look Up panel has no Open Root button");
+assert(app.OpenRootButton.Enable == "on", "Open Root is greyed out with a root folder set");
+assert(contains(string(app.OpenRootButton.Tooltip), rootPath), ...
+    "The Open Root tooltip does not name the root: %s", app.OpenRootButton.Tooltip);
+assert(contains(func2str(app.OpenRootButton.ButtonPushedFcn), "onOpenRootFolder"), ...
+    "The Open Root button does not open the root folder: %s", ...
+    func2str(app.OpenRootButton.ButtonPushedFcn));
+
+end
+
+function check_open_in_figure(app)
+%CHECK_OPEN_IN_FIGURE Open in Figure redraws the whole view, profiles included.
+% It once drew the tiles and nothing else, so the profile plot never reached
+% the figure, and under "Profiles only" the figure showed the pictures the
+% layout had hidden instead of the plot it was showing.
+
+app.onResetFilters();
+app.ProfileOnlyCheck.Value = true;
+app.applyFilters();
+
+if height(app.View) == 0
+    return
+end
+
+nWanted = min(2, height(app.View));
+app.MaxTilesField.Value = nWanted;
+app.CatalogTable.Selection = 1:nWanted;
+app.onSelectionChanged();
+
+originalLayout = app.ProfileLayoutDropDown.Value;
+restore = onCleanup(@() set_layout(app, originalLayout)); %#ok<NASGU>
+
+for layout = ["bottom", "top", "left", "right", "hidden", "only"]
+    set_layout(app, layout);
+
+    nTraces = numel(profile_traces(app));
+
+    fig = app.onOpenInFigure();
+    closeFig = onCleanup(@() close_if_open(fig)); %#ok<NASGU>  Replaced, so closed, each pass.
+
+    assert(~isempty(fig) && isvalid(fig), "Open in Figure opened nothing under %s", layout);
+
+    [tiles, plotAxes] = figure_axes(fig);
+
+    if layout == "only"
+        assert(isempty(tiles), "Profiles only opened %d image tile(s)", numel(tiles));
+    else
+        assert(numel(tiles) == nWanted, "%s: expected %d tiles in the figure, found %d", ...
+            layout, nWanted, numel(tiles));
+    end
+
+    if layout == "hidden"
+        assert(isempty(plotAxes), "Hidden profiles still reached the figure");
+        continue
+    end
+
+    assert(isscalar(plotAxes), "%s: expected one profile plot in the figure, found %d", ...
+        layout, numel(plotAxes));
+
+    assert(nTraces > 0, "%s: the browser drew no profile to carry over", layout);
+    assert(numel(findobj(plotAxes, "Type", "line")) == nTraces, ...
+        "%s: the figure's plot has %d trace(s), the browser's %d", layout, ...
+        numel(findobj(plotAxes, "Type", "line")), nTraces);
+
+    % Drawing the figure's copy must leave the browser's own plot alone.
+    assert(numel(profile_traces(app)) == nTraces, ...
+        "%s: opening the figure changed the browser's profile plot", layout);
+
+    if layout ~= "only"
+        check_figure_split(layout, tiles(1), plotAxes);
+    end
+
+    % Exporting from this window is what it is for, and EXPORTGRAPHICS refuses
+    % a figure split into more than one panel.
+    exported = string(tempname) + ".png";
+    removeExport = onCleanup(@() delete_if_present(exported)); %#ok<NASGU>
+    exportgraphics(fig, exported, Resolution = 50);
+    assert(isfile(exported), "%s: exportgraphics wrote nothing from the figure", layout);
+end
+
+end
+
+function [tiles, plotAxes] = figure_axes(fig)
+%FIGURE_AXES Sort the axes of an opened figure into image tiles and the plot.
+% ONOPENINFIGURE tags the plot's axes; every other axes is an image tile.
+
+allAxes = findobj(fig, "Type", "axes");
+isPlot = arrayfun(@(ax) string(ax.Tag) == "profilePlot", allAxes);
+
+tiles = allAxes(~isPlot);
+plotAxes = allAxes(isPlot);
+
+end
+
+function check_figure_split(layout, tile, plotAxes)
+%CHECK_FIGURE_SPLIT The plot sits on the side of the tiles the layout puts it.
+% Read off the tiles of the layout holding both, rather than off positions on
+% screen, which depend on a window size and a renderer.
+
+outer = plotAxes.Parent;
+inner = tile.Parent;
+
+assert(isa(outer, "matlab.graphics.layout.TiledChartLayout") && isequal(inner.Parent, outer), ...
+    "%s: the plot and the tiles do not share one layout", layout);
+
+if ismember(layout, ["left", "right"])
+    assert(outer.GridSize(1) == 1, "%s: the figure is not split side by side", layout);
+else
+    assert(outer.GridSize(2) == 1, "%s: the figure is not split top to bottom", layout);
+end
+
+if ismember(layout, ["top", "left"])
+    placed = plotAxes.Layout.Tile < inner.Layout.Tile;
+else
+    placed = plotAxes.Layout.Tile > inner.Layout.Tile;
+end
+
+assert(placed, "The figure's profile plot is not %s the tiles", layout);
+
+end
+
+function close_if_open(fig)
+%CLOSE_IF_OPEN Close a figure the check opened, unless it is already gone.
+
+if ~isempty(fig) && isvalid(fig)
+    close(fig);
+end
+
+end
+
 function set_layout(app, code)
 %SET_LAYOUT Choose a profile layout the way the dropdown callback would.
 
@@ -2335,6 +2473,20 @@ hint = HistologyImageBrowser.shortcutHint("exportWorkspace");
 assert(hint ~= "", "The workspace export has no keyboard shortcut");
 assert(contains(string(app.ExportWorkspaceMenu.Text), hint), ...
     "The menu item does not name its shortcut: %s", app.ExportWorkspaceMenu.Text);
+
+% The Display panel's Export Data button is the same export as the menu item.
+% It is not pushed here: with no name handed in it asks for one, and that
+% prompt would wait forever in a batch run. What is checked is that it is on
+% the panel and goes where the menu item goes.
+assert(isvalid(app.ExportDataButton) && app.ExportDataButton.Visible == "on", ...
+    "The Display panel has no Export Data button");
+assert(startsWith(string(app.ExportDataButton.Text), "Export Data"), ...
+    "The Export Data button is labelled %s", app.ExportDataButton.Text);
+assert(contains(func2str(app.ExportDataButton.ButtonPushedFcn), "onExportWorkspace()"), ...
+    "The Export Data button does not run the workspace export: %s", ...
+    func2str(app.ExportDataButton.ButtonPushedFcn));
+assert(contains(string(app.ExportDataButton.Tooltip), hint), ...
+    "The Export Data button does not name its shortcut: %s", app.ExportDataButton.Tooltip);
 
 app.onResetFilters();
 

@@ -26,6 +26,10 @@ function outFiles = ecm_export_for_r(matFile, outDir)
 %
 % Returns
 %   outFiles: Struct with fields profiles and sections, the two paths written.
+%
+% The run's provenance (the .mat read, the two CSVs written, the code version)
+% is recorded beside the CSVs (histdb.Run, "histology_analysis/ecm_export_for_r",
+% a .provenance folder); recording never changes the files or stops the export.
 
 arguments
     matFile (1,1) string = "D:/GM6001_HISTOLOGY/ECM Projects - GM6001 - full.mat"
@@ -57,6 +61,10 @@ meta.SurfaceDistance = surface_distances(T);
 profFile = fullfile(outDir, "ECM Projects - GM6001 - profiles.csv");
 sectFile = fullfile(outDir, "ECM Projects - GM6001 - sections.csv");
 
+run = histdb.Run("histology_analysis/ecm_export_for_r");
+run.input(matFile, Kind = "ecm_sections");
+run.willWrite([sectFile; profFile]);
+
 writetable(meta, sectFile);
 
 % Long profiles: repeat each section's metadata across its samples. Sections
@@ -74,6 +82,9 @@ for i = 1:height(T)
 end
 long = vertcat(parts{:});
 writetable(long, profFile);
+
+run.output([profFile; sectFile], Kind = "ecm_r_export");
+run.finish();
 
 fprintf("Wrote %s (%d rows x %d vars)\n", sectFile, height(meta), width(meta));
 fprintf("Wrote %s (%d rows x %d vars)\n", profFile, height(long), width(long));

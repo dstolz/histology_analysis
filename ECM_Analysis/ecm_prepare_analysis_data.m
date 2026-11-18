@@ -87,6 +87,10 @@ function A = ecm_prepare_analysis_data(T, options)
 %       compare equal on their own.
 %   options.errorMetric: sem, std, or ci95.
 %   options.verbose: Print per-section progress.
+%   options.sourceFiles: The files T was loaded from (e.g. the saved sections
+%       .mat). Nothing here reads them; they are kept in A.options so what is
+%       saved from the analysis later (the ECM Browser's plots and data) can
+%       name them in its provenance record.
 %
 % Returns
 %   A: Struct with fields
@@ -134,6 +138,7 @@ arguments
     options.binStep (1,1) double {mustBeNonnegative} = 0
     options.errorMetric (1,1) string {mustBeMember(options.errorMetric,["sem","std","ci95"])} = "sem"
     options.verbose (1,1) logical = true
+    options.sourceFiles (:,1) string = strings(0, 1)
 end
 
 vars = resolve_variables(T, options);

@@ -5,15 +5,15 @@ function applyViewLayout(obj)
 % share of the split dimension the profile plot receives.
 
 layout = obj.profileLayout();
-profileShare = profile_share(obj);
+share = obj.profileShare();
 
 % Grow to the full 2x2 grid before moving anything, so a panel is never
 % assigned to a row or column the grid does not have yet.
 obj.ViewGrid.RowHeight = {"1x", "1x"};
 obj.ViewGrid.ColumnWidth = {"1x", "1x"};
 
-imageWeight = weight(1 - profileShare);
-profileWeight = weight(profileShare);
+imageWeight = weight(1 - share);
+profileWeight = weight(share);
 
 switch layout
     case "top"
@@ -69,25 +69,6 @@ function place(panel, row, column)
 
 panel.Layout.Row = row;
 panel.Layout.Column = column;
-
-end
-
-function share = profile_share(obj)
-%PROFILE_SHARE Fraction of the split dimension given to the profile plot.
-
-share = 1 / 3;
-
-if isempty(obj.ProfileSizeField) || ~isvalid(obj.ProfileSizeField)
-    return
-end
-
-value = obj.ProfileSizeField.Value;
-
-if ~isnumeric(value) || ~isscalar(value) || ~isfinite(value)
-    return
-end
-
-share = min(max(value / 100, 0.05), 0.95);
 
 end
 

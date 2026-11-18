@@ -1,5 +1,7 @@
-function test_section_tracker()
+function varargout = test_section_tracker()
 % test_section_tracker
+%   test_section_tracker()
+%   nFailed = test_section_tracker()
 %
 % Checks for the Google Sheets tracker. Everything here runs against an
 % in-memory sheet rather than the network, so no credentials, no key file, and
@@ -39,6 +41,12 @@ if nFailed == 0
     fprintf("All checks passed.\n");
 else
     fprintf(2, "%d check(s) failed.\n", nFailed);
+end
+
+% Handed back only when asked for, so a run from the command line still
+% prints nothing but the checks.
+if nargout > 0
+    varargout{1} = nFailed;
 end
 
 end

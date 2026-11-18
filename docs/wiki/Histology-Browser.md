@@ -38,6 +38,9 @@ them. You can hide either part: **View > Show/Hide Data Column** (Ctrl+Shift+D),
 - **Only with profiles.** Hides sections that have no `*values.csv` yet.
 - **Sort by.** `Subject, section`, `Atlas plate`, `Stain`, or `Status`.
 - **Reset.** Clears every filter (Ctrl+Shift+R).
+- **Open Root.** Opens the dataset's root folder (the one chosen under **Dataset > Root
+  Folder**) in the file browser. Its tooltip shows the path. **Open Folder** in the Sections
+  panel opens a single section's folder instead.
 - **Tracker link** (above the search box). Appears when a tracker is configured and opens it.
 
 ### 2 · Sections: the catalog
@@ -76,7 +79,7 @@ The controls are grouped in rows, each named on the left. The groups are the sam
 | Group | Controls |
 |---|---|
 | **Image** | Rendition: `Projection`, `Mid plane`, `Composite`, `Raw`. **Channel**. **Colormap**: `gray`, `bone`, `hot`, `parula`, `turbo`, `green`, `magenta`. **Contrast %**: lower and upper percentile, default 0.5 and 99.7. **Background** of the image panel. **Max tiles** (12). |
-| **Overlays** | **Line ROI** (Ctrl+1), **Sampling band** (Ctrl+2), **Shade ROI by intensity** (Ctrl+3), **Band grid**, **Brain surface** (Ctrl+4). At the right end: **Open in Figure** (Ctrl+O), **Export View** (Ctrl+P), **Open in Fiji** (Ctrl+Shift+O). |
+| **Overlays** | **Line ROI** (Ctrl+1), **Sampling band** (Ctrl+2), **Shade ROI by intensity** (Ctrl+3), **Band grid**, **Brain surface** (Ctrl+4). At the right end: **Open in Figure** (Ctrl+O), **Export View** (Ctrl+P), **Export Data...** (Ctrl+Shift+E), **Open in Fiji** (Ctrl+Shift+O). |
 | **Profiles** | **Position** of the profile plot (`Below images`, `Above images`, `Left of images`, `Right of images`, `Hidden`, `Profiles only`). **Size %**: the plot's share (default 33). **Normalize** and **over** (`Each trace` / `All traces`). **Distance**: `As measured`, `From line start`, `Percent of line`, `From brain surface`. |
 | **ROI** | **ROI** selector for sections with several ROIs. **Add ROI** (Ctrl+N). **Name ROIs...** **Edit ROI** (Ctrl+E), **Width px**, **Draw Line** (Ctrl+D), **Save ROI** (Ctrl+S), **Revert** (Ctrl+Z). The line below lists the section's ROIs and says what the buttons will act on. |
 | **Surface** | **Detect** (Ctrl+B), **Mark Surface** (Ctrl+Shift+B), **Clear**, and where the mark sits. |
@@ -192,9 +195,9 @@ labelled `surface`. So a grid of tiles shows which sections you have checked. **
 
 | Action | Result |
 |---|---|
-| **Dataset > Export Selection to Workspace...** (Ctrl+Shift+E) | A table in the base workspace (default name `histology`), with **one row per ROI** of each selected section. |
+| **Dataset > Export Selection to Workspace...** or the **Export Data...** button (Ctrl+Shift+E) | A table in the base workspace (default name `histology`), with **one row per ROI** of each selected section. |
 | **Export View** (Ctrl+P) | The current tiles and plot, saved to an image file. |
-| **Open in Figure** (Ctrl+O) | The current view redrawn in an ordinary MATLAB figure, which you can edit further. |
+| **Open in Figure** (Ctrl+O) | The current view (tiles and profile plot, placed as the **Position** and **Size %** settings place them) redrawn in an ordinary MATLAB figure, which you can edit further. |
 
 The exported table contains:
 

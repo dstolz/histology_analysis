@@ -53,6 +53,7 @@ function file = saveData(obj, filename, options)
     end
 
     file = filename;
+    record_export(obj, "histology_analysis/ecm_browser_data", filename, "derived");
     obj.setStatus(sprintf("Saved %d row(s) to %s", height(T), filename));
 
 end

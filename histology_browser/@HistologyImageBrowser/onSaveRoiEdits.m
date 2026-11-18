@@ -22,6 +22,11 @@ function onSaveRoiEdits(obj)
 % Files that do not exist yet are created without asking. A new line is saved
 % the moment it is placed (see ONTOGGLEEDITROI and ONDRAWROI), so a prompt here
 % would stand between every added ROI and its data.
+%
+% Each save keeps its provenance beside the files (histdb.Run,
+% "histology_analysis/roi_edit", the section folder's .provenance): the image
+% measured, the files written, the SHA-256 of what each overwrote, the line and
+% the code version. Keeping it never changes what is written or stops a save.
 
 row = obj.editedRow();
 
@@ -63,6 +68,15 @@ end
 
 obj.setBusy("Saving ROI %s of %s ...", obj.roiName(key), row.Stem);
 
+surfacePath = string(surface_mark_path(paths.roiPath));
+run = histdb.Run("histology_analysis/roi_edit", ...
+    SubjectId = subject_of(row), ...
+    Parameters = struct("RoiKey", string(key), "Geometry", geometry, ...
+        "PixelSize", field_or(P, "pixelSize", NaN), ...
+        "PixelSizeSource", string(field_or(P, "pixelSizeSource", ""))));
+run.input(obj.measureImagePath(row), Kind = "projection_image", Hash = false);
+run.willWrite([paths.roiPath; paths.valuesPath; surfacePath]);
+
 try
     write_imagej_roi(paths.roiPath, geometry, ...
         template = paths.template, ...
@@ -75,11 +89,18 @@ try
     % behind that says nothing.
     surface = write_surface_mark(surface_mark_path(paths.roiPath), geometry);
 catch ME
+    run.fail(ME);
     obj.setError("Could not save %s: %s", row.Stem, ME.message);
     uialert(obj.Fig, ME.message, "Save Failed");
 
     return
 end
+
+run.output([paths.roiPath; paths.valuesPath], Role = "derived", Kind = "roi_profile");
+if surface.written
+    run.output(surfacePath, Role = "derived", Kind = "surface_mark");
+end
+run.finish();
 
 apply_saved_paths(obj, row, paths);
 update_combined_profile(obj, paths.valuesPath, P);
@@ -150,6 +171,32 @@ paths.valuesPath = entry.valuesPath;
 if paths.valuesPath == ""
     paths.valuesPath = fullfile(folder, base + "_values.csv");
     paths.isNewValues = true;
+end
+
+end
+
+function id = subject_of(row)
+%SUBJECT_OF The section's subject, for its provenance record ("" when unknown).
+
+id = "";
+
+if ismember("SubjectID", string(row.Properties.VariableNames))
+    id = string(row.SubjectID(1));
+
+    if ismissing(id)
+        id = "";
+    end
+end
+
+end
+
+function v = field_or(S, name, fallback)
+%FIELD_OR S.(NAME) when S has it, else FALLBACK.
+
+v = fallback;
+
+if isstruct(S) && isfield(S, name)
+    v = S.(name);
 end
 
 end

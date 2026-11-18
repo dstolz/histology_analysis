@@ -10,89 +10,23 @@ HistologyImageBrowser;
 
 
 %% Save exported histology data
-save("histology_ACxProfiles.mat","histology")
+% (histdb.saveTracked writes the same file as save, and records which values,
+% ROI and surface files the table was read from beside it)
+histdb.saveTracked("histology_ACxProfiles.mat", "histology", histology);
 
 %% Reload histology data and combine with ECM Projects csv
 load("histology_ACxProfiles.mat")
 
-
-
-
 projectFile = "D:/GM6001_HISTOLOGY/ECM Projects - GM6001.csv";
-
-
-P = readtable(projectFile,"TextType","string");
-
-
-
-
-% attach project info (drug/vehicle assigned per hemisphere)
-
-% "Left"/"Right" in the project sheet -> "L"/"R" used in the image filenames
-hemiCode = @(s) regexprep(strtrim(string(s)), "^(L|R).*$", "$1", "ignorecase");
-
-P = P(P.SubjectID ~= "" & ~ismissing(P.SubjectID), :);
-projVars = ["SubjectID", "Condition", "LeftCannulaPlate", "RightCannulaPlate", "Sex", "InfusionQuality", "GM6001Molarity_uM_","IncludeInAnalysis"];
-
-% reshape to one row per (subject, hemisphere) so the drug/vehicle columns
-% land on the hemisphere they were actually infused into
-Pveh = P(:,projVars);
-Pveh.Hemisphere = hemiCode(P.VehicleInfusionHemisphere);
-Pveh.Treatment  = repmat("Vehicle",height(P),1);
-Pveh.Infusion1h = P.VehicleInfusion1H;
-Pveh.Infusion3h = P.VehicleInfusion3H;
-
-Pdrug = P(:,projVars);
-Pdrug.Hemisphere = hemiCode(P.GM6001InfusionHemisphere);
-Pdrug.Treatment  = repmat("GM6001",height(P),1);
-Pdrug.Infusion1h = P.GM6001Infusion1H;
-Pdrug.Infusion3h = P.GM6001Infusion3H;
-
-% controls have no infused hemisphere; keep their subject-level info on both
-isCtl = ~ismember(Pveh.Hemisphere,["L","R"]) & ~ismember(Pdrug.Hemisphere,["L","R"]);
-Pctl = [Pveh(isCtl,:); Pdrug(isCtl,:)];
-Pctl.Hemisphere = [repmat("L",sum(isCtl),1); repmat("R",sum(isCtl),1)];
-Pctl.Treatment  = repmat("None",height(Pctl),1);
-
-Plong = [Pveh; Pdrug; Pctl];
-Plong(~ismember(Plong.Hemisphere,["L","R"]),:) = [];   % drop uninfused/NA rows
-
-histology = outerjoin(histology, Plong, ...
-    Keys = ["SubjectID","Hemisphere"], ...
-    MergeKeys = true, ...
-    Type = "left");
-
-ind = histology.Treatment == "None";
-histology.Treatment(ind) = "Control " + histology.Hemisphere(ind);
-
-% cannula distance
-d = nan(size(histology,1),1);
-ind = histology.Hemisphere == "L";
-d(ind) = histology.AtlasPlate(ind) - histology.LeftCannulaPlate(ind);
-ind = histology.Hemisphere == "R";
-d(ind) = histology.AtlasPlate(ind) - histology.RightCannulaPlate(ind);
-ind = histology.Condition == "Control";
-d(ind) = histology.AtlasPlate(ind) - 30;
-histology.CannulaDist = d;
-
-
-% save
 ffnOut = "D:/GM6001_HISTOLOGY/ECM Projects - GM6001 - full.mat";
-save(ffnOut,"histology")
 
-
-
-
-
+% attach project info (drug/vehicle assigned per hemisphere, cannula
+% distance) and save
+histology = ecm_attach_project_info(histology, projectFile, SaveTo = ffnOut, ...
+    InputFiles = fullfile(pwd, "histology_ACxProfiles.mat"));
 
 % export for R
-
 ecm_export_for_r(ffnOut,"D:/GM6001_HISTOLOGY")
-
-
-
-
-
 
 
 %% prep data for analysis
@@ -106,7 +40,8 @@ A = ecm_prepare_analysis_data(histology, ...
     groupVars = voi, ...
     smoothingMethod = "gaussian", ...
     smoothingWindow = 25, ...
-    normalizeMode = "none");
+    normalizeMode = "none", ...
+    sourceFiles = ffnOut);
 
 
 B = launch_ecm_browser(A);

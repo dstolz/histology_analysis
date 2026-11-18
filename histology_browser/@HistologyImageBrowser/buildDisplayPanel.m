@@ -115,13 +115,17 @@ end
 function build_overlay_row(obj, row)
 %BUILD_OVERLAY_ROW Build the overlay switches, and the ways out of the window.
 % The switches are in the order the tile's right-click menu lists them. The
-% three buttons at the right end take the view somewhere else -- a figure, an
-% image file, Fiji -- and sit here because this is the row with room for them:
-% five checkboxes leave half of it free, and a row of their own would cost the
-% tiles its height.
+% four buttons at the right end take what is on screen somewhere else -- a
+% figure, an image file, a table in the workspace, Fiji -- and sit here because
+% this is the row with room for them: five checkboxes leave half of it free,
+% and a row of their own would cost the tiles its height.
+%
+% The buttons are sized to their labels rather than to fixed widths: with four
+% of them the fixed widths pushed Open in Fiji off the right edge of the window
+% at the size it opens at.
 
-row.ColumnWidth = {"fit", "fit", "fit", "fit", "fit", "1x", 105, 90, 90};
-row.ColumnSpacing = 12;
+row.ColumnWidth = {"fit", "fit", "fit", "fit", "fit", "1x", "fit", "fit", "fit", "fit"};
+row.ColumnSpacing = 10;
 
 obj.ShowRoiCheck = uicheckbox(row, ...
     Text = "Line ROI", ...
@@ -183,12 +187,24 @@ place(obj.ExportButton, 1, 8);
 obj.ExportButton.Tooltip = "Save the current view to an image file." ...
     + obj.shortcutHint("exportView");
 
+% Beside Export View because the two are the same request made of different
+% things: the picture of the selection, or its numbers. It is the Dataset menu's
+% Export Selection to Workspace, so the name prompt, the overwrite check, and
+% the table itself are the ones that item gives.
+obj.ExportDataButton = uibutton(row, "push", ...
+    Text = "Export Data...", ...
+    ButtonPushedFcn = @(~,~) obj.onExportWorkspace());
+place(obj.ExportDataButton, 1, 9);
+obj.ExportDataButton.Tooltip = "Send the selected sections to a table in the MATLAB " + ...
+    "workspace: one row per ROI, with its geometry, tracker fields, and profile." ...
+    + obj.shortcutHint("exportWorkspace");
+
 % It acts on the marked section alone, as Open Folder does, because Fiji opens
 % images one window each and a selection of twelve would be twelve.
 obj.FijiButton = uibutton(row, "push", ...
     Text = "Open in Fiji", ...
     ButtonPushedFcn = @(~,~) obj.onOpenInFiji());
-place(obj.FijiButton, 1, 9);
+place(obj.FijiButton, 1, 10);
 obj.FijiButton.Tooltip = "Open the marked section's image in Fiji, " ...
     + "with its saved line ROIs as an overlay." + obj.shortcutHint("openInFiji");
 

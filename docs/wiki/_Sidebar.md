@@ -13,6 +13,7 @@
 **Analysis**
 - [ECM Analysis](ECM-Analysis)
 - [Image Processing Tools](Image-Processing-Tools)
+- [Lab Database & Provenance](Lab-Database-and-Provenance)
 
 **Help**
 - [Troubleshooting & FAQ](Troubleshooting-and-FAQ)

@@ -1,4 +1,4 @@
-function renderProfilePlot(obj)
+function renderProfilePlot(obj, ax)
 %RENDERPROFILEPLOT Plot the profiles of the selected sections on shared axes.
 % Tile colors are reused so a trace is easy to match to its image. A section
 % carrying several ROIs contributes one trace each, all in the tile's color
@@ -16,9 +16,17 @@ function renderProfilePlot(obj)
 % carry. Under "From brain surface" every rule lands on zero and they draw as
 % one, which is exactly what that alignment is claiming.
 %
-% See also ATTACHCONTEXTMENU, NORMALIZEPROFILES, RENDERSELECTION.
+% Parameters
+%   ax: Axes to draw into. The browser's own profile axes when omitted;
+%       ONOPENINFIGURE passes the axes of the figure it opens, so the plot
+%       there is drawn by this same code rather than copied off the screen.
+%
+% See also ATTACHCONTEXTMENU, NORMALIZEPROFILES, ONOPENINFIGURE, RENDERSELECTION.
 
-ax = obj.ProfileAxes;
+arguments
+    obj
+    ax = obj.ProfileAxes
+end
 
 % Plain cla plus an explicit legend removal, rather than "cla reset", so the
 % grid layout keeps managing the axes position.
@@ -34,7 +42,8 @@ draw_profiles(obj, ax);
 % a helper for exactly that reason: with the four early returns inline, every
 % one of them would have had to remember to hand out the menu, and the path
 % that plots nothing is the one most likely to be forgotten and the one where a
-% right-click is most likely to be a request to change the layout.
+% right-click is most likely to be a request to change the layout. Axes in
+% another figure go without; ATTACHCONTEXTMENU declines them.
 obj.attachContextMenu(ax, "profile");
 
 end
